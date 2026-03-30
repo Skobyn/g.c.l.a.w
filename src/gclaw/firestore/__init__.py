@@ -1,0 +1,1 @@
+"""Firestore data access layer."""
