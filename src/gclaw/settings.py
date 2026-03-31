@@ -57,6 +57,12 @@ class Settings:
             "SESSION_COMPACTION_THRESHOLD", "50"
         ))
     )
+    # Firebase Auth settings
+    firebase_auth_enabled: bool = field(
+        default_factory=lambda: os.environ.get(
+            "FIREBASE_AUTH_ENABLED", "false"
+        ).lower() == "true"
+    )
     # Skills settings
     skills_dir: str = field(
         default_factory=lambda: os.environ.get(
