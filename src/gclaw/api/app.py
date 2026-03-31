@@ -7,15 +7,20 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from gclaw.api.chat import init_chat_router
 from gclaw.api.board_routes import init_board_router
+from gclaw.api.cron_routes import init_cron_router
+from gclaw.api.heartbeat_routes import init_heartbeat_router
 from gclaw.board.service import BoardService
+from gclaw.cron.service import CronService
 from gclaw.dispatch.runner import AgentRunner
 
 
 def create_app(
     board_service: BoardService,
     agent_runner: AgentRunner,
+    cron_service: CronService | None = None,
+    heartbeat_service: object | None = None,
 ) -> FastAPI:
-    app = FastAPI(title="GClaw", version="0.1.0")
+    app = FastAPI(title="GClaw", version="0.2.0")
 
     app.add_middleware(
         CORSMiddleware,
@@ -27,6 +32,12 @@ def create_app(
 
     app.include_router(init_chat_router(agent_runner))
     app.include_router(init_board_router(board_service))
+
+    if cron_service is not None:
+        app.include_router(init_cron_router(cron_service))
+
+    if heartbeat_service is not None:
+        app.include_router(init_heartbeat_router(heartbeat_service))
 
     @app.get("/health")
     def health():
