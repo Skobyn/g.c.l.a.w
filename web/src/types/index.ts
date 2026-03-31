@@ -68,6 +68,22 @@ export interface ChatResponse {
   is_final: boolean;
 }
 
+/** Voice WebSocket message from client to server. */
+export interface VoiceClientMessage {
+  type: "audio" | "end";
+  data?: string; // base64 PCM
+}
+
+/** Voice WebSocket message from server to client. */
+export interface VoiceServerMessage {
+  type: "audio" | "turn_complete" | "error";
+  data?: string; // base64 PCM
+  message?: string;
+}
+
+/** Voice connection state. */
+export type VoiceState = "idle" | "connecting" | "listening" | "processing" | "error";
+
 /** Kanban board column definition. */
 export interface BoardColumn {
   status: TaskStatus;

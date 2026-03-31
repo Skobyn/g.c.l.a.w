@@ -12,6 +12,7 @@ import { useAuth } from "@/contexts/auth-context";
 import { createApiClient } from "@/lib/api-client";
 import { MessageList } from "./message-list";
 import { MessageInput } from "./message-input";
+import { VoiceControls } from "./voice-controls";
 import type { ChatMessage } from "@/types";
 
 /** Generate a simple unique ID for messages. */
@@ -88,7 +89,12 @@ export function ChatView() {
         </div>
       )}
 
-      <MessageInput onSend={handleSend} disabled={isLoading} />
+      <div className="flex items-center gap-2 px-4 pb-2">
+        <VoiceControls />
+        <div className="flex-1">
+          <MessageInput onSend={handleSend} disabled={isLoading} />
+        </div>
+      </div>
     </div>
   );
 }
