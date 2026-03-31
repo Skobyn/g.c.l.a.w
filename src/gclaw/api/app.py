@@ -9,6 +9,7 @@ from gclaw.api.chat import init_chat_router
 from gclaw.api.board_routes import init_board_router
 from gclaw.api.cron_routes import init_cron_router
 from gclaw.api.heartbeat_routes import init_heartbeat_router
+from gclaw.auth.middleware import FirebaseAuthMiddleware
 from gclaw.board.service import BoardService
 from gclaw.cron.service import CronService
 from gclaw.dispatch.runner import AgentRunner
@@ -22,8 +23,9 @@ def create_app(
     session_service: object | None = None,
     memory_service: object | None = None,
     skill_registry: object | None = None,
+    enable_auth: bool = False,
 ) -> FastAPI:
-    app = FastAPI(title="GClaw", version="0.3.0")
+    app = FastAPI(title="GClaw", version="0.4.0")
 
     app.add_middleware(
         CORSMiddleware,
@@ -32,6 +34,9 @@ def create_app(
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    if enable_auth:
+        app.add_middleware(FirebaseAuthMiddleware)
 
     app.include_router(init_chat_router(agent_runner))
     app.include_router(init_board_router(board_service))

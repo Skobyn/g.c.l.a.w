@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 
+from gclaw.auth.dependencies import get_current_user_id
 from gclaw.board.service import BoardService
 
 router = APIRouter(prefix="/board")
@@ -19,7 +20,6 @@ def init_board_router(board_service: BoardService) -> APIRouter:
 
 
 class CreateTaskRequest(BaseModel):
-    user_id: str
     title: str
     assignee: str
     description: str = ""
@@ -27,13 +27,16 @@ class CreateTaskRequest(BaseModel):
 
 
 @router.get("/tasks")
-def list_tasks(user_id: str = Query(...)):
+def list_tasks(user_id: str = Depends(get_current_user_id)):
     tasks = _board_service.get_all_tasks()
     return [t.model_dump(mode="json") for t in tasks]
 
 
 @router.post("/tasks", status_code=201)
-def create_task(req: CreateTaskRequest):
+def create_task(
+    req: CreateTaskRequest,
+    user_id: str = Depends(get_current_user_id),
+):
     task = _board_service.create_task(
         title=req.title,
         assignee=req.assignee,

@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 
+from gclaw.auth.dependencies import get_current_user_id
 from gclaw.dispatch.runner import AgentRunner
 
 router = APIRouter()
@@ -19,7 +20,6 @@ def init_chat_router(runner: AgentRunner) -> APIRouter:
 
 
 class ChatRequest(BaseModel):
-    user_id: str
     session_id: str
     message: str
 
@@ -31,9 +31,13 @@ class ChatResponse(BaseModel):
 
 
 @router.post("/chat", response_model=ChatResponse)
-async def chat(req: ChatRequest) -> ChatResponse:
+async def chat(
+    req: ChatRequest,
+    request: Request,
+    user_id: str = Depends(get_current_user_id),
+) -> ChatResponse:
     response = await _runner.run(
-        user_id=req.user_id,
+        user_id=user_id,
         session_id=req.session_id,
         message=req.message,
     )
