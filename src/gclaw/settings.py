@@ -40,6 +40,36 @@ class Settings:
             "HEARTBEAT_SESSION_ID", "heartbeat"
         )
     )
+    # Memory Bank settings
+    memory_bank_reasoning_engine_id: str = field(
+        default_factory=lambda: os.environ.get(
+            "MEMORY_BANK_REASONING_ENGINE_ID", ""
+        )
+    )
+    memory_enabled: bool = field(
+        default_factory=lambda: os.environ.get(
+            "MEMORY_ENABLED", "false"
+        ).lower() == "true"
+    )
+    # Session settings
+    session_compaction_threshold: int = field(
+        default_factory=lambda: int(os.environ.get(
+            "SESSION_COMPACTION_THRESHOLD", "50"
+        ))
+    )
+    # Skills settings
+    skills_dir: str = field(
+        default_factory=lambda: os.environ.get(
+            "GCLAW_SKILLS_DIR",
+            os.path.join(
+                os.environ.get(
+                    "GCLAW_CONFIG_DIR",
+                    os.path.join(os.path.dirname(__file__), "..", ".."),
+                ),
+                "skills",
+            ),
+        )
+    )
 
 
 def get_settings() -> Settings:

@@ -19,8 +19,11 @@ def create_app(
     agent_runner: AgentRunner,
     cron_service: CronService | None = None,
     heartbeat_service: object | None = None,
+    session_service: object | None = None,
+    memory_service: object | None = None,
+    skill_registry: object | None = None,
 ) -> FastAPI:
-    app = FastAPI(title="GClaw", version="0.2.0")
+    app = FastAPI(title="GClaw", version="0.3.0")
 
     app.add_middleware(
         CORSMiddleware,
@@ -38,6 +41,11 @@ def create_app(
 
     if heartbeat_service is not None:
         app.include_router(init_heartbeat_router(heartbeat_service))
+
+    # Store services on app state for use by future route extensions
+    app.state.session_service = session_service
+    app.state.memory_service = memory_service
+    app.state.skill_registry = skill_registry
 
     @app.get("/health")
     def health():

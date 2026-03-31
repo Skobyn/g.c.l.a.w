@@ -3,6 +3,11 @@
 from __future__ import annotations
 
 import os
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from gclaw.models.skill import Skill
+    from gclaw.skill.loader import SkillLoader
 
 
 class ConfigLoader:
@@ -21,8 +26,13 @@ class ConfigLoader:
                 ...
     """
 
-    def __init__(self, config_dir: str) -> None:
+    def __init__(
+        self,
+        config_dir: str,
+        skill_loader: SkillLoader | None = None,
+    ) -> None:
         self._config_dir = config_dir
+        self._skill_loader = skill_loader
 
     def load_soul(self, base: str, overlay: str | None = None) -> str:
         base_path = os.path.join(self._config_dir, "soul", f"{base}.md")
@@ -56,6 +66,7 @@ class ConfigLoader:
         soul_base: str = "base",
         soul_overlay: str | None = None,
         memories: list[str] | None = None,
+        skills: list[Skill] | None = None,
     ) -> str:
         parts: list[str] = []
 
@@ -73,5 +84,11 @@ class ConfigLoader:
             parts.append(
                 f"# Relevant Memories\n\n{formatted}"
             )
+
+        # Skill instructions
+        if skills and self._skill_loader is not None:
+            skills_prompt = self._skill_loader.build_skills_prompt(skills)
+            if skills_prompt:
+                parts.append(skills_prompt)
 
         return "\n\n---\n\n".join(parts)
