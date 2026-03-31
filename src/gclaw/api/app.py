@@ -9,6 +9,7 @@ from gclaw.api.chat import init_chat_router
 from gclaw.api.board_routes import init_board_router
 from gclaw.api.cron_routes import init_cron_router
 from gclaw.api.heartbeat_routes import init_heartbeat_router
+from gclaw.api.voice_ws import init_voice_router
 from gclaw.auth.middleware import FirebaseAuthMiddleware
 from gclaw.board.service import BoardService
 from gclaw.cron.service import CronService
@@ -24,6 +25,7 @@ def create_app(
     memory_service: object | None = None,
     skill_registry: object | None = None,
     enable_auth: bool = False,
+    gemini_live_model: str = "gemini-2.5-flash-preview-native-audio",
 ) -> FastAPI:
     app = FastAPI(title="GClaw", version="0.4.0")
 
@@ -46,6 +48,8 @@ def create_app(
 
     if heartbeat_service is not None:
         app.include_router(init_heartbeat_router(heartbeat_service))
+
+    app.include_router(init_voice_router(gemini_live_model))
 
     # Store services on app state for use by future route extensions
     app.state.session_service = session_service

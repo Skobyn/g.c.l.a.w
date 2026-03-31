@@ -25,6 +25,11 @@ class Settings:
             "GEMINI_FLASH_MODEL", "gemini-2.5-flash"
         )
     )
+    gemini_live_model: str = field(
+        default_factory=lambda: os.environ.get(
+            "GEMINI_LIVE_MODEL", "gemini-2.5-flash-preview-native-audio"
+        )
+    )
     firestore_database: str = field(
         default_factory=lambda: os.environ.get("FIRESTORE_DATABASE", "(default)")
     )
