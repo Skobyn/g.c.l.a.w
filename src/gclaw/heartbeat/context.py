@@ -1,16 +1,23 @@
 """Context gatherer for the heartbeat consciousness loop.
 
-Scans the board, crons, and system state to build a context snapshot
+Scans the board, crons, memories, and system state to build a context snapshot
 that the orchestrator uses to decide what actions to take.
 """
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 
 from gclaw.board.service import BoardService
 from gclaw.cron.service import CronService
 from gclaw.models.task import TaskStatus
+
+if TYPE_CHECKING:
+    from gclaw.memory.service import MemoryService
+
+logger = logging.getLogger(__name__)
 
 
 class HeartbeatContextGatherer:
@@ -20,12 +27,16 @@ class HeartbeatContextGatherer:
         self,
         board_service: BoardService,
         cron_service: CronService,
+        memory_service: MemoryService | None = None,
+        user_id: str | None = None,
     ) -> None:
         self._board = board_service
         self._crons = cron_service
+        self._memory = memory_service
+        self._user_id = user_id
 
     def gather(self) -> dict:
-        """Gather full context snapshot for heartbeat reasoning.
+        """Gather full context snapshot for heartbeat reasoning (sync, no memories).
 
         Returns a dict with:
         - current_time: ISO timestamp
@@ -34,8 +45,34 @@ class HeartbeatContextGatherer:
         - pending_approvals: tasks needing user approval
         - stale_tasks: tasks stuck in progress (placeholder for time-based check)
         - cron_summary: overview of cron definitions
-        - memories: placeholder for Vertex AI Memory Bank (Plan 3)
+        - memories: empty list (use gather_async for memory-enriched context)
         """
+        return self._gather_board_and_crons([])
+
+    async def gather_async(self) -> dict:
+        """Gather full context snapshot including memories from Memory Bank.
+
+        Returns the same dict as gather() but with memories populated
+        from Vertex AI Memory Bank if the memory service is available.
+        """
+        memories = []
+        if self._memory is not None and self._user_id is not None:
+            try:
+                memories = await self._memory.recall(
+                    user_id=self._user_id,
+                    query="pending tasks, reminders, upcoming events, commitments",
+                )
+            except Exception:
+                logger.warning(
+                    "Memory recall failed during heartbeat gather, "
+                    "proceeding without memories",
+                    exc_info=True,
+                )
+
+        return self._gather_board_and_crons(memories)
+
+    def _gather_board_and_crons(self, memories: list) -> dict:
+        """Internal helper — gather board + cron state with provided memories."""
         now = datetime.now(timezone.utc)
         tasks = self._board.get_all_tasks()
 
@@ -81,17 +118,21 @@ class HeartbeatContextGatherer:
             "cron_summary": {
                 "total_crons": len(crons),
             },
-            # Placeholder for Plan 3
-            "memories": [],
+            "memories": memories,
         }
 
     def gather_as_message(self) -> str:
-        """Gather context and format it as a message for the orchestrator.
-
-        This is what gets sent to the orchestrator agent as a user message
-        during the heartbeat cycle, so it can reason about what to do.
-        """
+        """Gather context and format as a message (sync, no memories)."""
         ctx = self.gather()
+        return self._format_message(ctx)
+
+    async def gather_as_message_async(self) -> str:
+        """Gather context with memories and format as a message."""
+        ctx = await self.gather_async()
+        return self._format_message(ctx)
+
+    def _format_message(self, ctx: dict) -> str:
+        """Format a context dict into a message for the orchestrator."""
         parts = [
             "## Heartbeat Wake Cycle",
             "",
@@ -138,7 +179,8 @@ class HeartbeatContextGatherer:
             parts.append("")
             parts.append("### Relevant Memories")
             for m in ctx["memories"]:
-                parts.append(f"- {m}")
+                fact = m.fact if hasattr(m, "fact") else str(m)
+                parts.append(f"- {fact}")
 
         parts.append("")
         parts.append(
