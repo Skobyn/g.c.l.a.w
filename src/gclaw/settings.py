@@ -34,6 +34,12 @@ class Settings:
             os.path.join(os.path.dirname(__file__), "..", ".."),
         )
     )
+    # Heartbeat settings
+    heartbeat_session_id: str = field(
+        default_factory=lambda: os.environ.get(
+            "HEARTBEAT_SESSION_ID", "heartbeat"
+        )
+    )
 
 
 def get_settings() -> Settings:
