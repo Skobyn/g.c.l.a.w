@@ -11,12 +11,14 @@ from gclaw.api.board_routes import init_board_router
 from gclaw.api.connection_routes import init_connection_router
 from gclaw.api.cron_routes import init_cron_router
 from gclaw.api.heartbeat_routes import init_heartbeat_router
+from gclaw.api.onboarding_routes import init_onboarding_router
 from gclaw.api.voice_ws import init_voice_router
 from gclaw.auth.middleware import FirebaseAuthMiddleware
 from gclaw.board.service import BoardService
 from gclaw.connection.service import ConnectionService
 from gclaw.cron.service import CronService
 from gclaw.dispatch.runner import AgentRunner
+from gclaw.onboarding.service import OnboardingService
 
 
 def create_app(
@@ -30,6 +32,7 @@ def create_app(
     config_loader: object | None = None,
     heartbeat_log_repo_factory: object | None = None,
     connection_service: ConnectionService | None = None,
+    onboarding_service: OnboardingService | None = None,
     enable_auth: bool = False,
     gemini_live_model: str = "gemini-2.5-flash-preview-native-audio",
 ) -> FastAPI:
@@ -73,11 +76,15 @@ def create_app(
     if connection_service is not None:
         app.include_router(init_connection_router(connection_service))
 
+    if onboarding_service is not None:
+        app.include_router(init_onboarding_router(onboarding_service))
+
     # Store services on app state for use by future route extensions
     app.state.session_service = session_service
     app.state.memory_service = memory_service
     app.state.skill_registry = skill_registry
     app.state.connection_service = connection_service
+    app.state.onboarding_service = onboarding_service
 
     @app.get("/health")
     def health():
