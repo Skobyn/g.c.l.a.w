@@ -1,0 +1,17 @@
+{
+    "name": "morning-briefing",
+    "description": "Compile and deliver a personalised morning briefing covering calendar, tasks, and key context",
+    "version": "1.0.0",
+    "trigger": {
+        "mode": "both",
+        "contexts": ["morning briefing", "daily briefing", "start of day", "what's on today"],
+        "command": "/morning-briefing"
+    },
+    "config": {
+        "sections": ["calendar", "tasks", "weather", "news"],
+        "max_items_per_section": 5
+    },
+    "tools_required": ["calendar", "task-board", "memory"],
+    "agents_granted": ["orchestrator", "workspace-mgr"],
+    "source": "builtin"
+}

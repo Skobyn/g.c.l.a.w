@@ -1,0 +1,17 @@
+{
+    "name": "email-drafter",
+    "description": "Draft professional emails matching the user's tone and style",
+    "version": "1.0.0",
+    "trigger": {
+        "mode": "both",
+        "contexts": ["composing email", "replying to thread", "drafting message"],
+        "command": "/draft-email"
+    },
+    "config": {
+        "formality": "professional",
+        "max_length": 500
+    },
+    "tools_required": ["gmail", "contacts"],
+    "agents_granted": ["workspace-mgr", "comms-mgr"],
+    "source": "builtin"
+}

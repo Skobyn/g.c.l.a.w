@@ -1,0 +1,17 @@
+{
+    "name": "heartbeat",
+    "description": "Orchestrator consciousness loop — wakes periodically to scan board state, check for stale/failed tasks, and take proactive action.",
+    "interval_minutes": 15,
+    "context_sources": [
+        "board_scan",
+        "cron_check",
+        "time_check"
+    ],
+    "future_context_sources": [
+        "memory_bank",
+        "calendar",
+        "email",
+        "notifications"
+    ],
+    "notes": "Cloud Scheduler should be configured to hit POST /heartbeat every interval_minutes. Infrastructure setup is manual or via Terraform — not managed by this application."
+}
