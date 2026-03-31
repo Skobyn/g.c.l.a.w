@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { AuthProvider } from "@/contexts/auth-context";
+import { ServiceWorkerRegistrar } from "@/components/service-worker-registrar";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -16,7 +17,10 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className="min-h-screen antialiased">
-        <AuthProvider>{children}</AuthProvider>
+        <AuthProvider>
+          <ServiceWorkerRegistrar />
+          {children}
+        </AuthProvider>
       </body>
     </html>
   );
