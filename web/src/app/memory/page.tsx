@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { AuthGuard } from "@/components/auth-guard";
+import { AppShell } from "@/components/layout/app-shell";
 import { MemorySearch } from "@/components/memory/memory-search";
 import { MemoryList } from "@/components/memory/memory-list";
 
@@ -52,8 +52,8 @@ function MemoryExplorerContent() {
 
 export default function MemoryPage() {
   return (
-    <AuthGuard>
+    <AppShell>
       <MemoryExplorerContent />
-    </AuthGuard>
+    </AppShell>
   );
 }

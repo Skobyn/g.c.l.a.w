@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { AuthGuard } from "@/components/auth-guard";
+import { AppShell } from "@/components/layout/app-shell";
 import { CronTable } from "@/components/crons/cron-table";
 import { CreateCronForm } from "@/components/crons/create-cron-form";
 import { createApiClient } from "@/lib/api-client";
@@ -143,8 +143,8 @@ function CronsContent() {
 
 export default function CronsPage() {
   return (
-    <AuthGuard>
+    <AppShell>
       <CronsContent />
-    </AuthGuard>
+    </AppShell>
   );
 }

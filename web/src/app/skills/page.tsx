@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { AuthGuard } from "@/components/auth-guard";
+import { AppShell } from "@/components/layout/app-shell";
 import { SkillCard } from "@/components/skills/skill-card";
 import { createApiClient } from "@/lib/api-client";
 import { useAuth } from "@/contexts/auth-context";
@@ -112,8 +112,8 @@ function SkillsContent() {
 
 export default function SkillsPage() {
   return (
-    <AuthGuard>
+    <AppShell>
       <SkillsContent />
-    </AuthGuard>
+    </AppShell>
   );
 }

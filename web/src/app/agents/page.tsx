@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { AuthGuard } from "@/components/auth-guard";
+import { AppShell } from "@/components/layout/app-shell";
 import { AgentCard } from "@/components/agents/agent-card";
 import { createApiClient } from "@/lib/api-client";
 import { useAuth } from "@/contexts/auth-context";
@@ -99,8 +99,8 @@ function AgentDashboardContent() {
 
 export default function AgentsPage() {
   return (
-    <AuthGuard>
+    <AppShell>
       <AgentDashboardContent />
-    </AuthGuard>
+    </AppShell>
   );
 }
