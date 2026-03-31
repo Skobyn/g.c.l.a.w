@@ -5,6 +5,8 @@
  * All methods throw on non-OK responses.
  */
 
+import { useMemo } from "react";
+import { useAuth } from "@/contexts/auth-context";
 import type {
   ChatRequest,
   ChatResponse,
@@ -15,6 +17,12 @@ import type {
   SkillInfo,
   MemoryEntry,
   CronInfo,
+  ConnectionInfo,
+  ConnectionRequest,
+  ConnectionPermission,
+  CrossUserTaskRequest,
+  OnboardingStepResponse,
+  OnboardingStatus,
 } from "@/types";
 
 export class ApiClient {
@@ -61,6 +69,19 @@ export class ApiClient {
     }
 
     return response.json() as Promise<T>;
+  }
+
+  /** Convenience GET request. */
+  async get<T>(path: string): Promise<T> {
+    return this.request<T>(path);
+  }
+
+  /** Convenience POST request. */
+  async post<T>(path: string, body?: unknown): Promise<T> {
+    return this.request<T>(path, {
+      method: "POST",
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
   }
 
   /** Send a chat message and get the agent response. */
@@ -175,6 +196,62 @@ export class ApiClient {
       method: "POST",
     });
   }
+
+  // --- Connections ---
+
+  async listConnections(): Promise<ConnectionInfo[]> {
+    return this.get<ConnectionInfo[]>("/connections");
+  }
+
+  async listIncomingRequests(): Promise<ConnectionInfo[]> {
+    return this.get<ConnectionInfo[]>("/connections/incoming");
+  }
+
+  async requestConnection(body: ConnectionRequest): Promise<ConnectionInfo> {
+    return this.post<ConnectionInfo>("/connections/request", body);
+  }
+
+  async acceptConnection(connectionId: string): Promise<ConnectionInfo> {
+    return this.post<ConnectionInfo>(`/connections/${connectionId}/accept`);
+  }
+
+  async rejectConnection(connectionId: string): Promise<ConnectionInfo> {
+    return this.post<ConnectionInfo>(`/connections/${connectionId}/reject`);
+  }
+
+  async revokeConnection(connectionId: string): Promise<ConnectionInfo> {
+    return this.post<ConnectionInfo>(`/connections/${connectionId}/revoke`);
+  }
+
+  async updateConnectionPermission(
+    connectionId: string,
+    permission: ConnectionPermission,
+  ): Promise<ConnectionInfo> {
+    return this.post<ConnectionInfo>(
+      `/connections/${connectionId}/permission`,
+      { permission },
+    );
+  }
+
+  async createCrossUserTask(body: CrossUserTaskRequest): Promise<BoardTask> {
+    return this.post<BoardTask>("/connections/task", body);
+  }
+
+  // --- Onboarding ---
+
+  async startOnboarding(): Promise<OnboardingStepResponse> {
+    return this.post<OnboardingStepResponse>("/onboarding/start");
+  }
+
+  async advanceOnboarding(response: string): Promise<OnboardingStepResponse> {
+    return this.post<OnboardingStepResponse>("/onboarding/advance", {
+      response,
+    });
+  }
+
+  async getOnboardingStatus(): Promise<OnboardingStatus> {
+    return this.get<OnboardingStatus>("/onboarding/status");
+  }
 }
 
 /**
@@ -187,4 +264,13 @@ export function createApiClient(
   const baseUrl =
     process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
   return new ApiClient(baseUrl, getToken);
+}
+
+/**
+ * React hook that returns a stable ApiClient instance for the current user.
+ * Must be used within an AuthProvider.
+ */
+export function useApiClient(): ApiClient {
+  const { getIdToken } = useAuth();
+  return useMemo(() => createApiClient(getIdToken), [getIdToken]);
 }
