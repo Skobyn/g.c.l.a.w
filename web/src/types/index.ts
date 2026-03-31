@@ -68,6 +68,22 @@ export interface ChatResponse {
   is_final: boolean;
 }
 
+/** Voice WebSocket message from client to server. */
+export interface VoiceClientMessage {
+  type: "audio" | "end";
+  data?: string; // base64 PCM
+}
+
+/** Voice WebSocket message from server to client. */
+export interface VoiceServerMessage {
+  type: "audio" | "turn_complete" | "error";
+  data?: string; // base64 PCM
+  message?: string;
+}
+
+/** Voice connection state. */
+export type VoiceState = "idle" | "connecting" | "listening" | "processing" | "error";
+
 /** Kanban board column definition. */
 export interface BoardColumn {
   status: TaskStatus;
@@ -84,3 +100,65 @@ export const BOARD_COLUMNS: BoardColumn[] = [
   { status: "done", label: "Done", color: "border-green-500" },
   { status: "failed", label: "Failed", color: "border-red-500" },
 ];
+
+/** Agent info from the admin API. */
+export interface AgentInfo {
+  name: string;
+  has_soul_overlay: boolean;
+}
+
+/** Soul file content. */
+export interface SoulFile {
+  name: string;
+  content: string;
+}
+
+/** Heartbeat log entry. */
+export interface HeartbeatLogEntry {
+  id: string;
+  context_summary: string;
+  reasoning: string;
+  actions_taken: string[];
+  tasks_created: string[];
+  timestamp: string;
+}
+
+/** Skill definition from the backend. */
+export interface SkillInfo {
+  name: string;
+  description: string;
+  version: string;
+  trigger: {
+    mode: "auto" | "manual" | "both";
+    contexts: string[];
+    command: string | null;
+  };
+  config: Record<string, unknown>;
+  tools_required: string[];
+  agents_granted: string[];
+  source: "builtin" | "imported" | "custom";
+}
+
+/** Memory entry from the backend. */
+export interface MemoryEntry {
+  fact: string;
+  topic: string;
+  update_time: string | null;
+  score: number | null;
+}
+
+/** Cron job definition. */
+export interface CronInfo {
+  id: string;
+  title: string;
+  description: string;
+  schedule: string;
+  mode: "auto" | "todo";
+  status: "active" | "paused";
+  assignee: string;
+  task_priority: string;
+  last_run: string | null;
+  next_run: string | null;
+  created_at: string;
+  updated_at: string;
+}
