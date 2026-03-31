@@ -28,10 +28,12 @@ class MemoryScope(BaseModel):
 
     - user_id only: user-scoped (shared across all agents)
     - user_id + agent: agent-scoped (domain-specific per agent)
+    - shared_channel: cross-user shared scope (consent-based)
     """
 
     user_id: str
     agent: str | None = None
+    shared_channel: str | None = None
 
 
 class Memory(BaseModel):

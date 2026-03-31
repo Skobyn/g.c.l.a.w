@@ -162,3 +162,50 @@ export interface CronInfo {
   created_at: string;
   updated_at: string;
 }
+
+/** Connection permission level. */
+export type ConnectionPermission = "read" | "write" | "task" | "full";
+
+/** Connection status. */
+export type ConnectionStatus = "pending" | "active" | "rejected" | "revoked";
+
+/** Cross-user connection record. */
+export interface ConnectionInfo {
+  id: string;
+  from_user_id: string;
+  to_user_id: string;
+  status: ConnectionStatus;
+  permission: ConnectionPermission;
+  shared_channel: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Request body for creating a connection. */
+export interface ConnectionRequest {
+  to_user_id: string;
+  permission: ConnectionPermission;
+}
+
+/** Request body for creating a cross-user task. */
+export interface CrossUserTaskRequest {
+  connection_id: string;
+  title: string;
+  assignee: string;
+  description?: string;
+}
+
+/** Onboarding step response from the API. */
+export interface OnboardingStepResponse {
+  step: string;
+  message: string;
+  completed: boolean;
+  soul_preview?: string;
+}
+
+/** Onboarding status from the API. */
+export interface OnboardingStatus {
+  completed: boolean;
+  current_step: string | null;
+  progress: number;
+}

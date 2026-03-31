@@ -75,6 +75,30 @@ class MemoryService:
             scope=scope, query=query, top_k=top_k,
         )
 
+    async def recall_shared(
+        self,
+        shared_channel: str,
+        query: str,
+        top_k: int = 10,
+    ) -> list[Memory]:
+        """Retrieve memories from a shared cross-user channel.
+
+        Args:
+            shared_channel: The shared channel identifier (e.g. "userA__userB").
+            query: Natural language query.
+            top_k: Max memories to return.
+
+        Returns:
+            List of relevant Memory objects from the shared scope.
+        """
+        scope = MemoryScope(
+            user_id="",  # Not user-specific
+            shared_channel=shared_channel,
+        )
+        return await self._client.retrieve_memories(
+            scope=scope, query=query, top_k=top_k,
+        )
+
     async def capture(
         self,
         user_id: str,
