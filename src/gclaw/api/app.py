@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from gclaw.api.admin_routes import init_admin_router
 from gclaw.api.chat import init_chat_router
 from gclaw.api.board_routes import init_board_router
 from gclaw.api.cron_routes import init_cron_router
@@ -24,6 +25,8 @@ def create_app(
     session_service: object | None = None,
     memory_service: object | None = None,
     skill_registry: object | None = None,
+    config_loader: object | None = None,
+    heartbeat_log_repo_factory: object | None = None,
     enable_auth: bool = False,
     gemini_live_model: str = "gemini-2.5-flash-preview-native-audio",
 ) -> FastAPI:
@@ -50,6 +53,19 @@ def create_app(
         app.include_router(init_heartbeat_router(heartbeat_service))
 
     app.include_router(init_voice_router(gemini_live_model))
+
+    if (
+        config_loader is not None
+        and skill_registry is not None
+        and memory_service is not None
+    ):
+        app.include_router(init_admin_router(
+            config_loader=config_loader,
+            heartbeat_log_repo_factory=heartbeat_log_repo_factory,
+            skill_registry=skill_registry,
+            memory_service=memory_service,
+            cron_service=cron_service,
+        ))
 
     # Store services on app state for use by future route extensions
     app.state.session_service = session_service
