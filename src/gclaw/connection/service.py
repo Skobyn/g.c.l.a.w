@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Callable
 
 from google.cloud.firestore import Client as FirestoreClient
 
@@ -27,8 +28,13 @@ class ConnectionService:
     in their ``users/{userId}/connections/`` subcollection.
     """
 
-    def __init__(self, db: FirestoreClient) -> None:
+    def __init__(
+        self,
+        db: FirestoreClient,
+        board_repo_factory: Callable | None = None,
+    ) -> None:
         self._db = db
+        self._board_repo_factory = board_repo_factory
 
     def _get_repo(self, user_id: str) -> ConnectionRepo:
         return ConnectionRepo(self._db, user_id)
@@ -223,3 +229,69 @@ class ConnectionService:
         """List pending incoming connection requests."""
         repo = self._get_repo(user_id)
         return repo.list_pending_incoming()
+
+    def create_task_for_peer(
+        self,
+        user_id: str,
+        connection_id: str,
+        title: str,
+        assignee: str,
+        description: str = "",
+    ):
+        """Create a task on a connected peer's board.
+
+        Requires 'task' or 'full' permission on the connection.
+
+        Args:
+            user_id: The requesting user (task creator).
+            connection_id: The connection to the target user.
+            title: Task title.
+            assignee: Agent to assign the task to on the peer's board.
+            description: Task description.
+
+        Returns:
+            The created BoardTask on the peer's board.
+
+        Raises:
+            ValueError: If connection not found or not active.
+            PermissionError: If insufficient permission.
+            RuntimeError: If board_repo_factory not configured.
+        """
+        from gclaw.models.task import (
+            BoardTask,
+            TaskPriority,
+            TaskSource,
+            TaskSourceType,
+            TaskStatus,
+        )
+
+        conn = self.check_permission(
+            user_id=user_id,
+            connection_id=connection_id,
+            required=ConnectionPermission.TASK,
+        )
+
+        if self._board_repo_factory is None:
+            raise RuntimeError("board_repo_factory not configured")
+
+        # Determine the peer user
+        peer_id = (
+            conn.to_user_id
+            if conn.from_user_id == user_id
+            else conn.from_user_id
+        )
+
+        task = BoardTask(
+            title=title,
+            description=description,
+            status=TaskStatus.QUEUED,
+            priority=TaskPriority.MEDIUM,
+            source=TaskSource(
+                type=TaskSourceType.USER,
+                origin=user_id,
+            ),
+            assignee=assignee,
+        )
+
+        peer_repo = self._board_repo_factory(peer_id)
+        return peer_repo.create(task)

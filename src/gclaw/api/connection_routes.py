@@ -19,6 +19,13 @@ class UpdatePermissionRequest(BaseModel):
     permission: str
 
 
+class CrossUserTaskRequest(BaseModel):
+    connection_id: str
+    title: str
+    assignee: str
+    description: str = ""
+
+
 def init_connection_router(
     connection_service: ConnectionService,
 ) -> APIRouter:
@@ -111,6 +118,28 @@ def init_connection_router(
             return updated.model_dump(mode="json")
         except (ValueError, PermissionError) as exc:
             raise HTTPException(status_code=400, detail=str(exc))
+
+    @router.post("/task")
+    def create_cross_user_task(
+        body: CrossUserTaskRequest,
+        user_id: str = Depends(get_current_user_id),
+    ):
+        """Create a task on a connected user's board."""
+        try:
+            task = connection_service.create_task_for_peer(
+                user_id=user_id,
+                connection_id=body.connection_id,
+                title=body.title,
+                assignee=body.assignee,
+                description=body.description,
+            )
+            return task.model_dump(mode="json")
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        except PermissionError as exc:
+            raise HTTPException(status_code=403, detail=str(exc))
+        except RuntimeError as exc:
+            raise HTTPException(status_code=500, detail=str(exc))
 
     @router.get("")
     def list_connections(
