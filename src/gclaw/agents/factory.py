@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from google.adk.agents import LlmAgent
 
 from gclaw.config.loader import ConfigLoader
+
+if TYPE_CHECKING:
+    from gclaw.routing.router import ModelRouter
 
 
 class AgentFactory:
@@ -16,9 +19,11 @@ class AgentFactory:
         self,
         loader: ConfigLoader,
         default_model: str = "gemini-2.5-flash",
+        model_router: ModelRouter | None = None,
     ) -> None:
         self._loader = loader
         self._default_model = default_model
+        self._router = model_router
 
     def build(
         self,
@@ -37,10 +42,17 @@ class AgentFactory:
             memories=memories,
         )
 
+        # Model resolution priority: explicit > router > default
+        resolved_model = model
+        if resolved_model is None and self._router is not None:
+            resolved_model = self._router.resolve_for_agent(agent_name)
+        if resolved_model is None:
+            resolved_model = self._default_model
+
         safe_name = agent_name.replace("-", "_")
         return LlmAgent(
             name=safe_name,
-            model=model or self._default_model,
+            model=resolved_model,
             instruction=instruction,
             description=description or f"GClaw agent: {agent_name}",
             tools=tools or [],
