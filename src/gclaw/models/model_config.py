@@ -23,8 +23,14 @@ class ModelEndpoint(BaseModel):
 
     name: str
     endpoint_id: str
-    provider: str = "vertex"
+    provider: str = "gemini"
+    api_base: str | None = None
+    api_key_env: str | None = None
     max_context_tokens: int = 0
+
+    @property
+    def is_remote(self) -> bool:
+        return self.provider not in ("gemini", "vertex")
 
 
 class RoutingRule(BaseModel):
