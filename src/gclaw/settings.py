@@ -81,6 +81,21 @@ class Settings:
             ),
         )
     )
+    # Model routing settings
+    model_routing_enabled: bool = field(
+        default_factory=lambda: os.environ.get(
+            "MODEL_ROUTING_ENABLED", "false"
+        ).lower() == "true"
+    )
+    gemma_endpoint_id: str = field(
+        default_factory=lambda: os.environ.get("GEMMA_ENDPOINT_ID", "")
+    )
+    nemotron_endpoint_id: str = field(
+        default_factory=lambda: os.environ.get("NEMOTRON_ENDPOINT_ID", "")
+    )
+    nemotron_provider: str = field(
+        default_factory=lambda: os.environ.get("NEMOTRON_PROVIDER", "vertex")
+    )
 
 
 def get_settings() -> Settings:
