@@ -7,13 +7,22 @@ the orchestrator proactive. On each cycle:
 2. Send context to the orchestrator agent as a message
 3. Let the orchestrator reason and take action (create tasks, notify, etc.)
 4. Log the heartbeat result
+5. Run memory consolidation if board is idle
 """
 
 from __future__ import annotations
 
+import logging
+from typing import TYPE_CHECKING
+
 from gclaw.dispatch.runner import AgentRunner
 from gclaw.heartbeat.context import HeartbeatContextGatherer
 from gclaw.heartbeat.log import HeartbeatLog, HeartbeatLogRepo
+
+if TYPE_CHECKING:
+    from gclaw.memory.consolidation import MemoryConsolidator
+
+logger = logging.getLogger(__name__)
 
 
 class HeartbeatService:
@@ -26,12 +35,14 @@ class HeartbeatService:
         log_repo: HeartbeatLogRepo,
         user_id: str,
         session_id: str = "heartbeat",
+        consolidator: MemoryConsolidator | None = None,
     ) -> None:
         self._gatherer = context_gatherer
         self._runner = agent_runner
         self._log_repo = log_repo
         self._user_id = user_id
         self._session_id = session_id
+        self._consolidator = consolidator
 
     async def run(self) -> dict:
         """Execute one heartbeat cycle.
@@ -73,6 +84,19 @@ class HeartbeatService:
             tasks_created=tasks_created,
         )
         self._log_repo.save(log)
+
+        # 6. Run memory consolidation if available and board is idle
+        if self._consolidator is not None and context["board_summary"]["in_progress"] == 0:
+            try:
+                consolidation = await self._consolidator.run(user_id=self._user_id)
+                logger.info(
+                    "Memory consolidation: scanned=%d pruned=%d merged=%d",
+                    consolidation.memories_scanned,
+                    consolidation.memories_pruned,
+                    consolidation.memories_merged,
+                )
+            except Exception:
+                logger.warning("Memory consolidation failed", exc_info=True)
 
         return {
             "orchestrator_response": response.text,
