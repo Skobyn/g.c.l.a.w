@@ -81,6 +81,30 @@ class AgentRunner:
                     exc_info=True,
                 )
 
+        # Ensure session exists (auto-create if not found)
+        try:
+            session = await self._session_service.get_session(
+                app_name=self._app_name,
+                user_id=user_id,
+                session_id=session_id,
+            )
+            if session is None:
+                await self._session_service.create_session(
+                    app_name=self._app_name,
+                    user_id=user_id,
+                    session_id=session_id,
+                )
+        except Exception:
+            # Session might already exist or service doesn't support get
+            try:
+                await self._session_service.create_session(
+                    app_name=self._app_name,
+                    user_id=user_id,
+                    session_id=session_id,
+                )
+            except Exception:
+                pass  # Session already exists
+
         # Build the user message, optionally prepending recalled memories
         if recalled_text:
             full_message = (

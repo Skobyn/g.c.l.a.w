@@ -48,6 +48,17 @@ def create_app(
 
     if enable_auth:
         app.add_middleware(FirebaseAuthMiddleware)
+    else:
+        # Dev mode: set a default user_id so auth dependencies work
+        from starlette.middleware.base import BaseHTTPMiddleware
+
+        class DevUserMiddleware(BaseHTTPMiddleware):
+            async def dispatch(self, request, call_next):
+                import os
+                request.state.user_id = os.environ.get("GCLAW_USER_ID", "default_user")
+                return await call_next(request)
+
+        app.add_middleware(DevUserMiddleware)
 
     app.include_router(init_chat_router(agent_runner))
     app.include_router(init_board_router(board_service))
