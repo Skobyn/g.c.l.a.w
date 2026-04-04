@@ -30,3 +30,19 @@ def test_settings_model_routing_enabled():
         for key in ["MODEL_ROUTING_ENABLED", "GEMMA_ENDPOINT_ID",
                      "NEMOTRON_ENDPOINT_ID", "NEMOTRON_PROVIDER"]:
             os.environ.pop(key, None)
+
+
+def test_settings_openrouter_api_key_default():
+    os.environ["GCP_PROJECT_ID"] = "test-project"
+    s = Settings()
+    assert s.openrouter_api_key == ""
+
+
+def test_settings_openrouter_api_key_set():
+    os.environ["GCP_PROJECT_ID"] = "test-project"
+    os.environ["OPENROUTER_API_KEY"] = "sk-or-test-123"
+    try:
+        s = Settings()
+        assert s.openrouter_api_key == "sk-or-test-123"
+    finally:
+        os.environ.pop("OPENROUTER_API_KEY", None)

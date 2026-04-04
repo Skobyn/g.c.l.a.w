@@ -96,6 +96,9 @@ class Settings:
     nemotron_provider: str = field(
         default_factory=lambda: os.environ.get("NEMOTRON_PROVIDER", "vertex")
     )
+    openrouter_api_key: str = field(
+        default_factory=lambda: os.environ.get("OPENROUTER_API_KEY", "")
+    )
 
 
 def get_settings() -> Settings:
