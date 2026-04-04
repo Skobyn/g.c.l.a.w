@@ -60,3 +60,49 @@ async def test_runner_run_collects_text():
 
     assert response.text == "Hello! How can I help?"
     assert response.is_final is True
+
+
+from gclaw.dispatch.remote_runner import RemoteRunner
+
+
+@pytest.mark.asyncio
+async def test_runner_with_remote_runner():
+    agent = MagicMock()
+    agent.name = "code_specialist"
+    agent.instruction = "You write code."
+    session_service = AsyncMock()
+
+    remote = AsyncMock(spec=RemoteRunner)
+    remote.generate = AsyncMock(return_value="def hello(): pass")
+
+    runner = AgentRunner(
+        agent=agent,
+        app_name="gclaw",
+        session_service=session_service,
+        remote_runner=remote,
+    )
+
+    response = await runner.run(
+        user_id="user_1",
+        session_id="session_123",
+        message="Write a hello function",
+    )
+
+    assert response.text == "def hello(): pass"
+    remote.generate.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_runner_remote_runner_none_uses_adk():
+    agent = MagicMock()
+    agent.name = "orchestrator"
+    session_service = AsyncMock()
+
+    runner = AgentRunner(
+        agent=agent,
+        app_name="gclaw",
+        session_service=session_service,
+        remote_runner=None,
+    )
+
+    assert runner._remote_runner is None

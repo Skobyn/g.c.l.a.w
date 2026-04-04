@@ -1,4 +1,4 @@
-"""Run agent turns via ADK Runner."""
+"""Run agent turns via ADK Runner or RemoteRunner."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from google.adk.sessions import BaseSessionService
 from google.genai import types
 
 if TYPE_CHECKING:
+    from gclaw.dispatch.remote_runner import RemoteRunner
     from gclaw.memory.service import MemoryService
 
 logger = logging.getLogger(__name__)
@@ -29,6 +30,10 @@ class AgentResponse:
 class AgentRunner:
     """Wraps ADK Runner for executing agent turns.
 
+    When a RemoteRunner is provided, uses it instead of ADK Runner.
+    This enables non-Gemini models (Nemotron via OpenRouter, etc.)
+    that can't run through ADK natively.
+
     When a MemoryService is provided:
     - Before each turn: auto-recall relevant memories
     - After each turn: auto-capture facts from the exchange (fire-and-forget)
@@ -40,11 +45,13 @@ class AgentRunner:
         app_name: str,
         session_service: BaseSessionService,
         memory_service: MemoryService | None = None,
+        remote_runner: RemoteRunner | None = None,
     ) -> None:
         self._agent = agent
         self._app_name = app_name
         self._session_service = session_service
         self._memory_service = memory_service
+        self._remote_runner = remote_runner
         self._runner = Runner(
             agent=agent,
             app_name=app_name,
@@ -57,13 +64,6 @@ class AgentRunner:
         session_id: str,
         message: str,
     ) -> AgentResponse:
-        """Run a single turn: send message, collect response.
-
-        Memory hooks:
-        1. Auto-recall: retrieve relevant memories before the turn
-        2. Execute the agent turn
-        3. Auto-capture: extract facts from the exchange (fire-and-forget)
-        """
         # 1. Auto-recall memories
         recalled_text = ""
         if self._memory_service is not None:
@@ -81,7 +81,52 @@ class AgentRunner:
                     exc_info=True,
                 )
 
-        # Ensure session exists (auto-create if not found)
+        if recalled_text:
+            full_message = (
+                f"[Recalled memories]\n{recalled_text}\n\n"
+                f"[User message]\n{message}"
+            )
+        else:
+            full_message = message
+
+        # 2. Execute via remote runner or ADK
+        if self._remote_runner is not None:
+            response = await self._run_remote(full_message)
+        else:
+            response = await self._run_adk(user_id, session_id, full_message)
+
+        # 3. Auto-capture memories (fire-and-forget)
+        if self._memory_service is not None and response.text:
+            try:
+                conversation_text = f"User: {message}\nAgent: {response.text}"
+                await self._memory_service.capture(
+                    user_id=user_id,
+                    conversation_text=conversation_text,
+                )
+            except Exception:
+                logger.warning(
+                    "Memory capture failed for user %s, continuing",
+                    user_id,
+                    exc_info=True,
+                )
+
+        return response
+
+    async def _run_remote(self, message: str) -> AgentResponse:
+        """Execute via RemoteRunner (OpenAI-compatible API)."""
+        text = await self._remote_runner.generate(
+            system_prompt=self._agent.instruction,
+            message=message,
+        )
+        return AgentResponse(text=text, is_final=True)
+
+    async def _run_adk(
+        self,
+        user_id: str,
+        session_id: str,
+        full_message: str,
+    ) -> AgentResponse:
+        """Execute via ADK Runner (Gemini/Gemma models)."""
         try:
             session = await self._session_service.get_session(
                 app_name=self._app_name,
@@ -95,7 +140,6 @@ class AgentRunner:
                     session_id=session_id,
                 )
         except Exception:
-            # Session might already exist or service doesn't support get
             try:
                 await self._session_service.create_session(
                     app_name=self._app_name,
@@ -103,23 +147,13 @@ class AgentRunner:
                     session_id=session_id,
                 )
             except Exception:
-                pass  # Session already exists
-
-        # Build the user message, optionally prepending recalled memories
-        if recalled_text:
-            full_message = (
-                f"[Recalled memories]\n{recalled_text}\n\n"
-                f"[User message]\n{message}"
-            )
-        else:
-            full_message = message
+                pass
 
         content = types.Content(
             role="user",
             parts=[types.Part(text=full_message)],
         )
 
-        # 2. Execute the agent turn
         response = AgentResponse()
 
         async for event in self._runner.run_async(
@@ -139,20 +173,5 @@ class AgentRunner:
 
             if event.is_final_response():
                 response.is_final = True
-
-        # 3. Auto-capture memories (fire-and-forget)
-        if self._memory_service is not None and response.text:
-            try:
-                conversation_text = f"User: {message}\nAgent: {response.text}"
-                await self._memory_service.capture(
-                    user_id=user_id,
-                    conversation_text=conversation_text,
-                )
-            except Exception:
-                logger.warning(
-                    "Memory capture failed for user %s, continuing",
-                    user_id,
-                    exc_info=True,
-                )
 
         return response
