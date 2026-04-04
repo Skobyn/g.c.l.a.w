@@ -28,50 +28,55 @@ def _build_model_router(settings):
     from gclaw.models.model_config import ModelEndpoint, TaskProfile, RoutingRule
     from gclaw.routing.router import ModelRouter
 
-    endpoints: dict[str, ModelEndpoint] = {
-        "gemini-pro": ModelEndpoint(
-            name="gemini-pro",
-            endpoint_id=settings.gemini_pro_model,
-            max_context_tokens=1_000_000,
-        ),
-    }
+    endpoints: dict[str, ModelEndpoint] = {}
+    rules: list[RoutingRule] = []
 
-    rules: list[RoutingRule] = [
-        RoutingRule(task_profile=TaskProfile.ORCHESTRATION, model_name="gemini-pro"),
-        RoutingRule(task_profile=TaskProfile.PERSONALITY, model_name="gemini-pro"),
-    ]
+    # Gemini Flash — free tier default, always available
+    endpoints["gemini-flash"] = ModelEndpoint(
+        name="gemini-flash",
+        endpoint_id=settings.gemini_flash_model,
+        provider="gemini",
+        max_context_tokens=1_000_000,
+    )
 
-    # Register Gemma 4 endpoint if configured
+    # Orchestrator uses Gemini Flash (free) — good enough for routing
+    rules.append(RoutingRule(task_profile=TaskProfile.ORCHESTRATION, model_name="gemini-flash"))
+    rules.append(RoutingRule(task_profile=TaskProfile.PERSONALITY, model_name="gemini-flash"))
+
+    # Gemma 4 via Gemini API — free, same API surface
     if settings.gemma_endpoint_id:
         endpoints["gemma-4"] = ModelEndpoint(
             name="gemma-4",
             endpoint_id=settings.gemma_endpoint_id,
+            provider="gemini",
             max_context_tokens=256_000,
         )
         rules.extend([
             RoutingRule(task_profile=TaskProfile.SUMMARIZATION, model_name="gemma-4"),
             RoutingRule(task_profile=TaskProfile.BACKGROUND, model_name="gemma-4"),
         ])
-        logger.info("Gemma 4 endpoint registered: %s", settings.gemma_endpoint_id)
+        logger.info("Gemma 4 registered (Gemini API): %s", settings.gemma_endpoint_id)
 
-    # Register Nemotron endpoint if configured
-    if settings.nemotron_endpoint_id:
+    # Nemotron via OpenRouter — free tier
+    if settings.nemotron_endpoint_id and settings.openrouter_api_key:
         endpoints["nemotron-3-super"] = ModelEndpoint(
             name="nemotron-3-super",
             endpoint_id=settings.nemotron_endpoint_id,
+            provider="openrouter",
+            api_base="https://openrouter.ai/api/v1",
+            api_key_env="OPENROUTER_API_KEY",
             max_context_tokens=1_000_000,
-            provider=settings.nemotron_provider,
         )
         rules.extend([
             RoutingRule(task_profile=TaskProfile.TOOL_EXECUTION, model_name="nemotron-3-super"),
             RoutingRule(task_profile=TaskProfile.CODE_GENERATION, model_name="nemotron-3-super"),
         ])
-        logger.info("Nemotron 3 Super endpoint registered: %s", settings.nemotron_endpoint_id)
+        logger.info("Nemotron 3 Super registered (OpenRouter): %s", settings.nemotron_endpoint_id)
 
     return ModelRouter(
         endpoints=endpoints,
         rules=rules,
-        default_model=settings.gemini_pro_model,
+        default_model=settings.gemini_flash_model,
     )
 
 
@@ -98,7 +103,7 @@ def build_app():
     loader = ConfigLoader(settings.config_dir)
     factory = AgentFactory(
         loader=loader,
-        default_model=settings.gemini_pro_model,
+        default_model=settings.gemini_flash_model,
         model_router=model_router,
     )
 
