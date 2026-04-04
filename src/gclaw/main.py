@@ -118,7 +118,11 @@ def build_app():
         session_service=session_service,
     )
 
-    return create_app(board_service=board_service, agent_runner=runner)
+    return create_app(
+        board_service=board_service,
+        agent_runner=runner,
+        model_router=model_router,
+    )
 
 
 app = build_app()
