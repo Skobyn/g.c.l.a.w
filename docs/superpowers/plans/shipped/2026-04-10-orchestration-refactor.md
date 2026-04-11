@@ -1,5 +1,7 @@
 # Orchestration Refactor Implementation Plan
 
+> **STATUS: shipped 2026-04-10 → 2026-04-11** — tool stubs (`tools/gws,gh,workspace,dev,comms,research,home`), workflows (`morning_brief`, `commit_message`, `validators`), AgentTool-based orchestrator rewrite, LiteLlm unification, manager agent/soul configs all landed in commits `3d3e989..6be3a2b` via PR #1 `1edcb61`. Archived 2026-04-11.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Refactor GClaw's orchestration layer to use ADK-native multi-agent patterns (AgentTool, ParallelAgent, SequentialAgent, Reviewer/Validate) and unify all model providers under `LiteLlm`, retiring the bespoke `RemoteRunner`.

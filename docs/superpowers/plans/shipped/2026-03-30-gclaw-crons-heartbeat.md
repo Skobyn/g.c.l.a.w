@@ -1,5 +1,7 @@
 # GClaw Cron System & Heartbeat Consciousness Loop (Plan 2 of 4)
 
+> **STATUS: shipped 2026-03-30 → 2026-03-31** — cron model/repo/service, cron routes, heartbeat context gatherer/service/route all landed in commits `d3d439e..6c0886d`. Archived 2026-04-11.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build the cron scheduling system (Firestore-backed cron definitions with auto/todo modes) and the heartbeat consciousness loop (the orchestrator's proactive wake cycle that scans the board, gathers context, reasons about what needs attention, and takes action).

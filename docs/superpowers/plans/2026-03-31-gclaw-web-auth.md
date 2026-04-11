@@ -1,5 +1,9 @@
 # GClaw Web App & Firebase Auth (Plan 4a of 4)
 
+> **STATUS: partial (2026-04-11).**
+> **Done:** Firebase Auth middleware, per-request `user_id` threading through `BoardService`/`BoardRepo`, Next.js web scaffold in `web/`, auth dependencies, board routes with user scoping.
+> **Left:** Chat View and Board View are scaffolded but not polished/production-ready; PWA manifest and install flow untested; the web app hasn't been exercised against a live deployed backend. Treat this plan as "backend auth done, frontend needs a pass."
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build Firebase Authentication middleware for the FastAPI backend, replace hardcoded user_id with auth-derived user_id across all API endpoints, scaffold a Next.js 14+ web app with TypeScript and Tailwind CSS, implement Google Sign-In on the client, create a Chat View and Board View, and set up PWA basics for mobile installability.

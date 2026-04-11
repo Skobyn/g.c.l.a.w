@@ -1,5 +1,9 @@
 # GClaw Vertex AI Memory Bank, Session Management & Skill System (Plan 3 of 4)
 
+> **STATUS: partial (2026-04-11).**
+> **Done:** Memory Bank REST client (`reasoningEngines` surface), MemoryService with recall/capture/generate, consolidation (autoDream) via heartbeat, AgentRunner pre/post-turn hooks (incl. orchestrator-scoped recall and background capture), `POST /chat/end` route, skill model/registry/loader/discovery modules, three skills in `skills/` (gcp-audit, email-drafter, morning-briefing).
+> **Left:** Wire `SkillRegistry`/`SkillDiscovery` into `AgentFactory` and `main.py` — skills exist but are never injected into agent prompts. Wire custom `SessionService` into `main.py` (currently orphaned — app uses ADK `InMemorySessionService`). Per-manager agent-scoped recall via `before_agent_callback`. Auto-end stale sessions from heartbeat.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build the memory layer (Vertex AI Memory Bank REST API client + session management with compaction), the skill system (model, registry, loader, discovery), and integrate both into the existing agent infrastructure (AgentRunner hooks for auto-recall/auto-capture, heartbeat context enrichment with memories).

@@ -1,5 +1,7 @@
 # Multi-Model Routing: Gemma 4 + Nemotron on Vertex AI
 
+> **STATUS: shipped 2026-04-03 → 2026-04-11** — model config, router, settings, admin endpoints, integration tests all landed in commits `9d7e979..6be3a2b` (merged via PR #1 `1edcb61`). LiteLlm replaced the bespoke RemoteRunner path; see sibling plan `2026-04-04-multi-provider-routing.md` for that pivot. Archived 2026-04-11.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add a model routing layer to GClaw that assigns Gemini, Gemma 4, or Nemotron to each agent based on task profile, enabling tiered model selection across the agent hierarchy.

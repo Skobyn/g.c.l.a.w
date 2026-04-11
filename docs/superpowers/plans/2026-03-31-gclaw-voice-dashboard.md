@@ -1,5 +1,9 @@
 # GClaw Voice + Agent Dashboard + Admin Views (Plan 4b of 4)
 
+> **STATUS: partial (2026-04-11).**
+> **Done:** Voice WebSocket route stub (`api/voice_ws.py`), voice session scaffold (`voice/session.py`), admin route skeletons.
+> **Left:** Gemini Live API integration is not hooked end-to-end; Agent Dashboard, Skills/Crons management views, and Memory Explorer are not built; unified sidebar navigation is not implemented. Essentially the plan is scaffolded but no UI surface is production-ready.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add real-time voice conversation via Gemini Live API, build an Agent Dashboard for monitoring and configuring agents, create Skills & Crons management views, build a Memory Explorer, and unify navigation across all views with a sidebar layout.

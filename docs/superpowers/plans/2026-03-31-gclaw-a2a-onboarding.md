@@ -1,5 +1,9 @@
 # GClaw Multi-User A2A + Onboarding (Plan 4c of 4)
 
+> **STATUS: partial (2026-04-11).**
+> **Done:** `models/connection.py`, `connection/` service scaffolding, `api/connection_routes.py`, cross-user task model in `models/cross_user_task.py`, onboarding route skeleton (`api/onboarding_routes.py`).
+> **Left:** Connection permission-scoping + the conversational onboarding flow that generates initial soul profiles; frontend connection management view. A2A cross-user task creation exists in model form but isn't exercised end-to-end.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Implement cross-user A2A connections with permission-based shared scopes, cross-user task creation, a conversational onboarding flow that generates the user's initial soul profile, and frontend views for managing connections and completing onboarding.

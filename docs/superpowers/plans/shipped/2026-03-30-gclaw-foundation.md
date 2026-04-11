@@ -1,5 +1,7 @@
 # GClaw Foundation Implementation Plan (Plan 1 of 4)
 
+> **STATUS: shipped 2026-03-30 → 2026-03-31** — scaffolding, board models/repo/service, agent factory, orchestrator, agent runner, FastAPI app, Cloud Run Dockerfile all landed in commits `0a69789..c49dea8`. Archived 2026-04-11.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build the core backend infrastructure — project scaffolding, Firestore data layer, ADK agent framework with soul/agent.md loading, kanban project board, orchestrator routing, and Cloud Run API.
