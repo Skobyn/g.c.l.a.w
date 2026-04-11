@@ -62,6 +62,11 @@ class Settings:
             "SESSION_COMPACTION_THRESHOLD", "50"
         ))
     )
+    stale_session_threshold_seconds: int = field(
+        default_factory=lambda: int(os.environ.get(
+            "STALE_SESSION_THRESHOLD_SECONDS", "3600"
+        ))
+    )
     # Firebase Auth settings
     firebase_auth_enabled: bool = field(
         default_factory=lambda: os.environ.get(

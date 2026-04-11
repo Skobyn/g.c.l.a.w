@@ -8,11 +8,13 @@ the orchestrator proactive. On each cycle:
 3. Let the orchestrator reason and take action (create tasks, notify, etc.)
 4. Log the heartbeat result
 5. Run memory consolidation if board is idle
+6. Auto-end stale sessions (if a session_store is wired)
 """
 
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 
 from gclaw.dispatch.runner import AgentRunner
@@ -21,6 +23,7 @@ from gclaw.heartbeat.log import HeartbeatLog, HeartbeatLogRepo
 
 if TYPE_CHECKING:
     from gclaw.memory.consolidation import MemoryConsolidator
+    from gclaw.session.service import SessionService
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +38,9 @@ class HeartbeatService:
         log_repo: HeartbeatLogRepo,
         user_id: str,
         session_id: str = "heartbeat",
-        consolidator: MemoryConsolidator | None = None,
+        consolidator: "MemoryConsolidator | None" = None,
+        session_store: "SessionService | None" = None,
+        stale_session_threshold_seconds: int = 3600,
     ) -> None:
         self._gatherer = context_gatherer
         self._runner = agent_runner
@@ -43,6 +48,8 @@ class HeartbeatService:
         self._user_id = user_id
         self._session_id = session_id
         self._consolidator = consolidator
+        self._session_store = session_store
+        self._stale_session_threshold_seconds = stale_session_threshold_seconds
 
     async def run(self) -> dict:
         """Execute one heartbeat cycle.
@@ -98,12 +105,50 @@ class HeartbeatService:
             except Exception:
                 logger.warning("Memory consolidation failed", exc_info=True)
 
+        # 7. Auto-end stale sessions
+        if self._session_store is not None:
+            await self._auto_end_stale_sessions()
+
         return {
             "orchestrator_response": response.text,
             "actions_taken": actions_taken,
             "tasks_created": tasks_created,
             "context": context,
         }
+
+    async def _auto_end_stale_sessions(self) -> None:
+        """Find sessions idle for longer than the threshold and end them.
+
+        A terminated session runs memory_service.generate_memories on the
+        full transcript (via SessionService.end_session), so this is the
+        only place the heavy end-of-session extraction fires for users
+        who never explicitly hit POST /chat/end.
+
+        Never raises — an auto-end failure must not break the heartbeat
+        tick. The heartbeat session itself is excluded from the sweep by
+        its session_id, since it's expected to run forever.
+        """
+        try:
+            cutoff = datetime.now(timezone.utc) - timedelta(
+                seconds=self._stale_session_threshold_seconds
+            )
+            stale = self._session_store.list_active_older_than(cutoff)
+            for sess in stale:
+                if sess.id == self._session_id:
+                    continue
+                try:
+                    await self._session_store.end_session(sess.id)
+                    logger.info(
+                        "auto-ended stale session %s (idle since %s)",
+                        sess.id,
+                        sess.updated_at.isoformat(),
+                    )
+                except Exception:
+                    logger.warning(
+                        "auto-end failed for session %s", sess.id, exc_info=True
+                    )
+        except Exception:
+            logger.warning("auto-end sweep failed", exc_info=True)
 
     def _build_context_summary(self, context: dict) -> str:
         """Build a concise summary string from the context dict."""

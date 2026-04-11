@@ -5,6 +5,8 @@ Collection path: users/{userId}/sessions/{sessionId}
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from google.cloud.firestore import Client as FirestoreClient
 
 from gclaw.models.session import Session, SessionStatus
@@ -52,3 +54,15 @@ class SessionRepo:
         return [
             Session.from_firestore_dict(doc.id, doc.to_dict()) for doc in docs
         ]
+
+    def list_active_older_than(self, cutoff: datetime) -> list[Session]:
+        """Return active sessions whose `updated_at` is <= cutoff.
+
+        Used by the heartbeat auto-end sweep to find idle sessions that
+        should have their memories extracted and be marked ended. The
+        `updated_at` compare is done in Python rather than via a Firestore
+        composite index to avoid requiring an index deployment for what is
+        currently a single-user scan.
+        """
+        active = self.list_active()
+        return [s for s in active if s.updated_at <= cutoff]

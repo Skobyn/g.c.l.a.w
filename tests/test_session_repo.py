@@ -134,3 +134,38 @@ def test_list_active(repo):
     sessions = repo.list_active()
     assert len(sessions) == 1
     assert sessions[0].status == SessionStatus.ACTIVE
+
+
+def test_list_active_older_than_filters_by_updated_at(repo):
+    from datetime import timedelta
+
+    now = datetime.now(timezone.utc)
+    stale_ts = now - timedelta(hours=2)
+    fresh_ts = now - timedelta(minutes=5)
+
+    def _doc(doc_id: str, updated_at):
+        d = MagicMock()
+        d.id = doc_id
+        d.to_dict.return_value = {
+            "user_id": "user_123",
+            "agent_id": None,
+            "status": "active",
+            "messages": [],
+            "metadata": {},
+            "compaction_summary": None,
+            "created_at": updated_at,
+            "updated_at": updated_at,
+        }
+        return d
+
+    query_mock = MagicMock()
+    query_mock.stream.return_value = [
+        _doc("sess_stale", stale_ts),
+        _doc("sess_fresh", fresh_ts),
+    ]
+    repo._db.collection.return_value.document.return_value.collection.return_value.where.return_value = query_mock
+
+    cutoff = now - timedelta(hours=1)
+    result = repo.list_active_older_than(cutoff)
+
+    assert [s.id for s in result] == ["sess_stale"]

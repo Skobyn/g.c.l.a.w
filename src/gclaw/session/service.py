@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 from gclaw.firestore.session_repo import SessionRepo
@@ -65,6 +66,14 @@ class SessionService:
     def get_or_none(self, session_id: str) -> Session | None:
         """Return the session or None — does not raise on missing."""
         return self._repo.get(session_id)
+
+    def list_active_older_than(self, cutoff: datetime) -> list[Session]:
+        """Return active sessions whose updated_at is <= cutoff.
+
+        Thin pass-through to the repo — exposed on the service so callers
+        (e.g. the heartbeat auto-end sweep) don't reach into `self._repo`.
+        """
+        return self._repo.list_active_older_than(cutoff)
 
     def append_message(
         self,
