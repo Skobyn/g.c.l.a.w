@@ -40,6 +40,7 @@ class AgentFactory:
         description: str | None = None,
         output_key: str | None = None,
         skills: "list[Skill] | None" = None,
+        before_agent_callback: Any | None = None,
     ) -> LlmAgent:
         if skills is None and self._skill_registry is not None:
             skills = self._skill_registry.list_for_agent(agent_name)
@@ -62,7 +63,7 @@ class AgentFactory:
             adk_model = self._default_model
 
         safe_name = agent_name.replace("-", "_")
-        return LlmAgent(
+        kwargs: dict[str, Any] = dict(
             name=safe_name,
             model=adk_model,
             instruction=instruction,
@@ -71,3 +72,6 @@ class AgentFactory:
             sub_agents=sub_agents or [],
             output_key=output_key,
         )
+        if before_agent_callback is not None:
+            kwargs["before_agent_callback"] = before_agent_callback
+        return LlmAgent(**kwargs)

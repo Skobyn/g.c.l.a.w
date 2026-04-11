@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable
+import logging
+from typing import Any, Callable, TYPE_CHECKING
 
 from google.adk.agents import LlmAgent
 from google.adk.tools import agent_tool
+from google.genai import types as genai_types
 
 from gclaw.agents.factory import AgentFactory
 from gclaw.agents.workflows.morning_brief import build_morning_brief
@@ -20,6 +22,11 @@ from gclaw.tools import (
     research_tools,
     workspace_tools,
 )
+
+if TYPE_CHECKING:
+    from gclaw.memory.service import MemoryService
+
+logger = logging.getLogger(__name__)
 
 
 # ---------- Board function tools ----------
@@ -137,13 +144,82 @@ def complete_board_task_tool(board_service: BoardService) -> Callable:
 # ---------- Manager builders ----------
 
 
+def _make_memory_recall_callback(
+    memory_service: "MemoryService", agent_id: str
+) -> Callable:
+    """Build a before_agent_callback that recalls agent-scoped memories.
+
+    When the manager is invoked (via AgentTool from the orchestrator),
+    this callback fires before the manager's LLM call. It looks up the
+    user's memories scoped to this specific agent_id and injects them
+    as additional user-role context. The orchestrator-scoped recall at
+    `AgentRunner.run` handles the outer layer; this callback handles
+    the per-manager inner layer so each manager builds up its own
+    memory over time (e.g. comms-mgr remembers communication style
+    separately from dev-mgr's preferred code-review tone).
+
+    Failures are logged and suppressed — agent-scoped recall must never
+    break a manager turn.
+    """
+
+    async def before(ctx: Any) -> Any:
+        user_id = getattr(ctx, "user_id", None)
+        user_content = getattr(ctx, "user_content", None)
+        if not user_id or user_content is None:
+            return None
+
+        query = ""
+        parts = getattr(user_content, "parts", None) or []
+        for part in parts:
+            text = getattr(part, "text", None)
+            if text:
+                query = text
+                break
+        if not query:
+            return None
+
+        try:
+            memories = await memory_service.recall(
+                user_id=user_id,
+                query=query,
+                agent_id=agent_id,
+                merge_user_scope=False,
+            )
+        except Exception:
+            logger.warning(
+                "agent-scoped recall failed for %s", agent_id, exc_info=True
+            )
+            return None
+
+        if not memories:
+            return None
+
+        formatted = memory_service.format_for_prompt(memories)
+        return genai_types.Content(
+            role="user",
+            parts=[
+                genai_types.Part(
+                    text=f"[Agent memories for {agent_id}]\n{formatted}"
+                )
+            ],
+        )
+
+    return before
+
+
 def build_managers(
-    factory: AgentFactory, board_tools: list
+    factory: AgentFactory,
+    board_tools: list,
+    memory_service: "MemoryService | None" = None,
 ) -> dict[str, LlmAgent]:
     """Build the five manager agents as thin routers.
 
     Each manager is bound to its own domain tools plus the shared board tools
     (so it can create follow-up async tasks for work it cannot finish now).
+
+    If `memory_service` is provided, each manager also receives a
+    `before_agent_callback` that auto-recalls agent-scoped memories before
+    the manager's LLM call fires.
     """
     ws_tools = [
         workspace_tools.list_unread_email,
@@ -178,6 +254,11 @@ def build_managers(
         research_tools.fetch_url,
     ] + board_tools
 
+    def _recall_cb(agent_id: str) -> Any:
+        if memory_service is None:
+            return None
+        return _make_memory_recall_callback(memory_service, agent_id)
+
     return {
         "workspace_mgr": factory.build(
             agent_name="workspace-mgr",
@@ -187,6 +268,7 @@ def build_managers(
                 "Routes workspace requests (Gmail, Calendar, Drive, Docs) "
                 "to the single best tool. Router — does not synthesize."
             ),
+            before_agent_callback=_recall_cb("workspace-mgr"),
         ),
         "dev_mgr": factory.build(
             agent_name="dev-mgr",
@@ -196,6 +278,7 @@ def build_managers(
                 "Routes dev requests (GitHub, code, local repo) to the "
                 "single best tool. Router — does not synthesize."
             ),
+            before_agent_callback=_recall_cb("dev-mgr"),
         ),
         "home_mgr": factory.build(
             agent_name="home-mgr",
@@ -205,6 +288,7 @@ def build_managers(
                 "Routes smart home requests to the single best tool. "
                 "Router — does not synthesize."
             ),
+            before_agent_callback=_recall_cb("home-mgr"),
         ),
         "comms_mgr": factory.build(
             agent_name="comms-mgr",
@@ -214,6 +298,7 @@ def build_managers(
                 "Routes inter-platform comms (Google Chat) to the single "
                 "best tool. Router — does not synthesize."
             ),
+            before_agent_callback=_recall_cb("comms-mgr"),
         ),
         "research_mgr": factory.build(
             agent_name="research-mgr",
@@ -223,6 +308,7 @@ def build_managers(
                 "Routes research requests (web search, URL fetch) to the "
                 "single best tool. Router — does not synthesize."
             ),
+            before_agent_callback=_recall_cb("research-mgr"),
         ),
     }
 
@@ -236,6 +322,7 @@ def build_orchestrator(
     router: ModelRouter | None = None,
     default_model: str = "gemini-2.5-flash",
     memories: list[str] | None = None,
+    memory_service: "MemoryService | None" = None,
 ) -> LlmAgent:
     """Build the root orchestrator with AgentTool-wrapped managers and workflows.
 
@@ -245,6 +332,8 @@ def build_orchestrator(
         router: the ModelRouter — needed by workflows that construct raw LlmAgents.
         default_model: fallback model ID used when the router is absent.
         memories: optional memory facts to prepend to the system prompt.
+        memory_service: when provided, each manager gets a
+            `before_agent_callback` that recalls agent-scoped memories.
 
     Returns:
         The root orchestrator LlmAgent, wired with all managers and workflows
@@ -257,7 +346,9 @@ def build_orchestrator(
         complete_board_task_tool(board_service),
     ]
 
-    managers = build_managers(factory, board_tools)
+    managers = build_managers(
+        factory, board_tools, memory_service=memory_service
+    )
 
     morning_brief = build_morning_brief(
         workspace_tools=[

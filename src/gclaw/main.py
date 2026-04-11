@@ -167,6 +167,7 @@ def build_app():
         board_service=board_service,
         router=model_router,
         default_model=settings.gemini_flash_model,
+        memory_service=memory_service,
     )
 
     # ADK session service (in-flight execution state)
