@@ -18,6 +18,8 @@ from google.adk.runners import Runner
 from google.adk.sessions import BaseSessionService
 from google.genai import types
 
+from gclaw.models.memory import DEFAULT_EXTRACTION_TOPICS
+
 if TYPE_CHECKING:
     from gclaw.memory.service import MemoryService
     from gclaw.session.service import SessionService
@@ -50,6 +52,7 @@ class AgentRunner:
         memory_service: "MemoryService | None" = None,
         board_service: object | None = None,
         session_store: "SessionService | None" = None,
+        extraction_topics: list[str] | None = None,
     ) -> None:
         self._agent = agent
         self._app_name = app_name
@@ -57,6 +60,16 @@ class AgentRunner:
         self._memory_service = memory_service
         self._board_service = board_service
         self._session_store = session_store
+        # Default to the full MemoryTopic taxonomy so Memory Bank's
+        # generate call has structured guidance instead of picking a
+        # narrow category on its own. Callers can override with a
+        # custom list (e.g. just `["USER_PREFERENCES"]` for a lean
+        # capture path) or pass [] to opt out entirely.
+        self._extraction_topics: list[str] = (
+            list(extraction_topics)
+            if extraction_topics is not None
+            else list(DEFAULT_EXTRACTION_TOPICS)
+        )
         self._pending_captures: set[asyncio.Task] = set()
         self._runner = Runner(
             agent=agent,
@@ -173,6 +186,7 @@ class AgentRunner:
                 self._memory_service.capture(
                     user_id=user_id,
                     conversation_text=conversation_text,
+                    topics=self._extraction_topics or None,
                 )
             )
             self._pending_captures.add(task)

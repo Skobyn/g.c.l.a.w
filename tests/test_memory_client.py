@@ -66,6 +66,58 @@ async def test_generate_memories(client):
 
 
 @pytest.mark.asyncio
+async def test_generate_memories_passes_topics_in_config(client):
+    """Item 4: when `topics` is provided, they land under
+    `body.config.topics` in the request — matches the shape ADK's
+    VertexAiMemoryBankService uses for the same parameter."""
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {"generatedMemories": []}
+    mock_response.raise_for_status = MagicMock()
+
+    captured_body: dict = {}
+
+    async def _fake_post(url, json):
+        captured_body.update(json)
+        return mock_response
+
+    with patch.object(client, "_post", new=AsyncMock(side_effect=_fake_post)):
+        await client.generate_memories(
+            scope=MemoryScope(user_id="user_123"),
+            conversation_text="User: hi\nAgent: hello",
+            topics=["USER_PREFERENCES", "ROUTINES"],
+        )
+
+    assert "config" in captured_body
+    assert captured_body["config"] == {"topics": ["USER_PREFERENCES", "ROUTINES"]}
+
+
+@pytest.mark.asyncio
+async def test_generate_memories_omits_config_when_no_topics(client):
+    """When `topics` is None, the body must not include a `config`
+    key at all — keeps the request lean and lets Memory Bank use
+    its own defaults."""
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {"generatedMemories": []}
+    mock_response.raise_for_status = MagicMock()
+
+    captured_body: dict = {}
+
+    async def _fake_post(url, json):
+        captured_body.update(json)
+        return mock_response
+
+    with patch.object(client, "_post", new=AsyncMock(side_effect=_fake_post)):
+        await client.generate_memories(
+            scope=MemoryScope(user_id="user_123"),
+            conversation_text="User: hi\nAgent: hello",
+        )
+
+    assert "config" not in captured_body
+
+
+@pytest.mark.asyncio
 async def test_generate_memories_parses_structured_shape(client):
     """New always-on-memory-agent shape: summary / entities / topics / importance."""
     mock_response = MagicMock()

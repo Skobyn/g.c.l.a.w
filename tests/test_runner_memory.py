@@ -147,6 +147,99 @@ async def test_run_without_memory(runner_without_memory):
 
 
 @pytest.mark.asyncio
+async def test_capture_passes_default_extraction_topics(mock_agent, mock_session_service, memory_service):
+    """Item 4: AgentRunner.run background-captures with the full
+    DEFAULT_EXTRACTION_TOPICS list so Memory Bank gets structured
+    category guidance on every turn."""
+    from gclaw.models.memory import DEFAULT_EXTRACTION_TOPICS
+
+    runner = AgentRunner(
+        agent=mock_agent,
+        app_name="gclaw",
+        session_service=mock_session_service,
+        memory_service=memory_service,
+    )
+
+    mock_event = MagicMock()
+    mock_event.content = MagicMock()
+    mock_event.content.parts = [MagicMock(text="hi back", function_call=None)]
+    mock_event.is_final_response.return_value = True
+
+    async def mock_run_async(**kwargs):
+        yield mock_event
+
+    runner._runner = MagicMock()
+    runner._runner.run_async = mock_run_async
+
+    await runner.run(user_id="u1", session_id="s1", message="hi")
+
+    # Flush the background capture task.
+    await asyncio.gather(*runner._pending_captures)
+
+    memory_service.capture.assert_awaited_once()
+    kwargs = memory_service.capture.call_args.kwargs
+    assert kwargs["topics"] == DEFAULT_EXTRACTION_TOPICS
+
+
+@pytest.mark.asyncio
+async def test_capture_accepts_custom_topic_override(mock_agent, mock_session_service, memory_service):
+    """Callers can override DEFAULT_EXTRACTION_TOPICS via the
+    constructor — useful for tests and lean capture paths."""
+    runner = AgentRunner(
+        agent=mock_agent,
+        app_name="gclaw",
+        session_service=mock_session_service,
+        memory_service=memory_service,
+        extraction_topics=["USER_PREFERENCES"],
+    )
+
+    mock_event = MagicMock()
+    mock_event.content = MagicMock()
+    mock_event.content.parts = [MagicMock(text="ok", function_call=None)]
+    mock_event.is_final_response.return_value = True
+
+    async def mock_run_async(**kwargs):
+        yield mock_event
+
+    runner._runner = MagicMock()
+    runner._runner.run_async = mock_run_async
+
+    await runner.run(user_id="u1", session_id="s1", message="hi")
+    await asyncio.gather(*runner._pending_captures)
+
+    assert memory_service.capture.call_args.kwargs["topics"] == ["USER_PREFERENCES"]
+
+
+@pytest.mark.asyncio
+async def test_capture_empty_topics_opts_out(mock_agent, mock_session_service, memory_service):
+    """Passing extraction_topics=[] sends topics=None to capture —
+    lets Memory Bank pick its own defaults rather than steering."""
+    runner = AgentRunner(
+        agent=mock_agent,
+        app_name="gclaw",
+        session_service=mock_session_service,
+        memory_service=memory_service,
+        extraction_topics=[],
+    )
+
+    mock_event = MagicMock()
+    mock_event.content = MagicMock()
+    mock_event.content.parts = [MagicMock(text="ok", function_call=None)]
+    mock_event.is_final_response.return_value = True
+
+    async def mock_run_async(**kwargs):
+        yield mock_event
+
+    runner._runner = MagicMock()
+    runner._runner.run_async = mock_run_async
+
+    await runner.run(user_id="u1", session_id="s1", message="hi")
+    await asyncio.gather(*runner._pending_captures)
+
+    assert memory_service.capture.call_args.kwargs["topics"] is None
+
+
+@pytest.mark.asyncio
 async def test_memory_failure_does_not_break_run(runner_with_memory, memory_service):
     """If memory operations fail, the agent turn still succeeds."""
     memory_service.recall.side_effect = Exception("Memory Bank unavailable")

@@ -24,6 +24,14 @@ class MemoryTopic(str, Enum):
     DOMAIN_KNOWLEDGE = "domain_knowledge"
 
 
+# Default topic list passed into `generate_memories`/`capture` when
+# the caller doesn't override. Steers Memory Bank extraction across
+# every category GClaw cares about instead of letting the service
+# pick a narrow default. Uses the enum values as plain strings
+# because the Memory Bank API is shape-stable on string topic keys.
+DEFAULT_EXTRACTION_TOPICS: list[str] = [topic.value for topic in MemoryTopic]
+
+
 class MemoryScope(BaseModel):
     """Scope for memory operations.
 

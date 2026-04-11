@@ -148,7 +148,11 @@ class MemoryBankClient:
         Args:
             scope: Memory scope (user or user+agent).
             conversation_text: The conversation to extract facts from.
-            topics: Optional list of topics to focus extraction on.
+            topics: Optional list of topics to steer extraction. When
+                provided, Memory Bank focuses on these categories
+                instead of letting the service pick freely. Shape
+                matches the `config.topics` field used by ADK's
+                VertexAiMemoryBankService.
 
         Returns:
             List of extracted Memory objects.
@@ -159,6 +163,8 @@ class MemoryBankClient:
                 "events": self._parse_conversation_to_events(conversation_text),
             },
         }
+        if topics:
+            body["config"] = {"topics": list(topics)}
 
         url = f"{self._base_url}/memories:generate"
         response = await self._post(url, json=body)
