@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 import os
 
+logging.basicConfig(level=logging.INFO)
+
 from google.adk.sessions import InMemorySessionService
 
 from gclaw.settings import get_settings
@@ -80,8 +82,48 @@ def _build_model_router(settings):
     )
 
 
+def _init_firebase():
+    """Initialize Firebase Admin SDK for auth token verification."""
+    import firebase_admin
+    if not firebase_admin._apps:
+        firebase_admin.initialize_app()
+        logger.info("Firebase Admin SDK initialized")
+
+
+def _build_memory_service(settings):
+    """Build MemoryService from settings, or return None if disabled."""
+    if not settings.memory_enabled:
+        return None
+
+    import google.auth
+    from gclaw.memory.client import MemoryBankClient
+    from gclaw.memory.service import MemoryService
+
+    credentials, _ = google.auth.default()
+
+    # The reasoning engine ID can be a full resource path or just the numeric ID.
+    # Extract the numeric ID if a full path is given.
+    engine_id = settings.memory_bank_reasoning_engine_id
+    if "/" in engine_id:
+        # Full path: projects/.../reasoningEngines/123 → extract "123"
+        engine_id = engine_id.rsplit("/", 1)[-1]
+
+    client = MemoryBankClient(
+        project_id=settings.gcp_project_id,
+        location=settings.gcp_location,
+        credentials=credentials,
+        memory_bank_id=engine_id or "default",
+    )
+    logger.info("Memory Bank enabled (engine: %s)", engine_id)
+    return MemoryService(client=client)
+
+
 def build_app():
     settings = get_settings()
+
+    # Firebase Auth
+    if settings.firebase_auth_enabled:
+        _init_firebase()
 
     # Firestore
     db = get_firestore_client(
@@ -89,15 +131,17 @@ def build_app():
         database=settings.firestore_database,
     )
 
-    # For now, use a hardcoded user ID — Plan 4 adds Firebase Auth
-    user_id = os.environ.get("GCLAW_USER_ID", "default_user")
-
-    # Board
-    board_repo = BoardRepo(db=db, user_id=user_id)
-    board_service = BoardService(repo=board_repo)
+    # Board — user_id flows per-request from auth middleware
+    # In dev mode (auth disabled), DevUserMiddleware sets a default user_id
+    dev_user_id = os.environ.get("GCLAW_USER_ID", "default_user") if not settings.firebase_auth_enabled else None
+    board_repo = BoardRepo(db=db, user_id=dev_user_id)
+    board_service = BoardService(repo=board_repo, user_id=dev_user_id)
 
     # Model routing
     model_router = _build_model_router(settings)
+
+    # Memory
+    memory_service = _build_memory_service(settings)
 
     # Config
     loader = ConfigLoader(settings.config_dir)
@@ -111,9 +155,11 @@ def build_app():
     orchestrator = build_orchestrator(
         factory=factory,
         board_service=board_service,
+        router=model_router,
+        default_model=settings.gemini_flash_model,
     )
 
-    # Session service (in-memory for now — Plan 3 adds Firestore sessions)
+    # Session service (in-memory for now)
     session_service = InMemorySessionService()
 
     # Runner
@@ -121,12 +167,16 @@ def build_app():
         agent=orchestrator,
         app_name="gclaw",
         session_service=session_service,
+        memory_service=memory_service,
+        board_service=board_service,
     )
 
     return create_app(
         board_service=board_service,
         agent_runner=runner,
         model_router=model_router,
+        memory_service=memory_service,
+        enable_auth=settings.firebase_auth_enabled,
     )
 
 

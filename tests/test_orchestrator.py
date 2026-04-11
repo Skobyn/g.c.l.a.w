@@ -3,6 +3,8 @@
 import pytest
 from unittest.mock import MagicMock
 
+from google.adk.tools import agent_tool
+
 from gclaw.agents.orchestrator import (
     create_board_task_tool,
     list_board_tasks_tool,
@@ -61,7 +63,16 @@ def test_build_orchestrator(board_service, tmp_path):
     (soul_dir / "base.md").write_text("You are helpful.\n")
     agents_dir = tmp_path / "agents"
     agents_dir.mkdir()
-    (agents_dir / "orchestrator.md").write_text("You are the orchestrator.\n")
+    # Scaffold all agent config files required by the new orchestrator
+    for name in [
+        "orchestrator",
+        "workspace-mgr",
+        "dev-mgr",
+        "home-mgr",
+        "comms-mgr",
+        "research-mgr",
+    ]:
+        (agents_dir / f"{name}.md").write_text(f"You are {name}.\n")
 
     from gclaw.config.loader import ConfigLoader
     from gclaw.agents.factory import AgentFactory
@@ -71,4 +82,11 @@ def test_build_orchestrator(board_service, tmp_path):
 
     agent = build_orchestrator(factory=factory, board_service=board_service)
     assert agent.name == "orchestrator"
-    assert len(agent.tools) == 3
+
+    # New shape: 5 manager AgentTools + 2 workflow AgentTools + 4 board tools = 11
+    assert len(agent.tools) >= 11
+    # Core invariant: orchestrator never uses sub_agents
+    assert not agent.sub_agents
+    # All managers and workflows are wrapped as AgentTools
+    agent_tools = [t for t in agent.tools if isinstance(t, agent_tool.AgentTool)]
+    assert len(agent_tools) == 7  # 5 managers + 2 workflows
