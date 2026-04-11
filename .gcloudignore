@@ -1,0 +1,47 @@
+# Ignore patterns for gcloud source uploads (Cloud Build, App Engine, etc.)
+# Mirrors .gitignore where relevant, plus explicit build-time exclusions.
+
+# Git metadata
+.git/
+.gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+.coverage.*
+
+# Node / frontend — built by Cloud Run, not copied in the image
+node_modules/
+web/
+.next/
+dist/
+build/
+
+# IDE / editor state
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Secrets and local dev
+.env
+*.local
+*.log
+
+# Claude / workflow tooling state (huge, irrelevant to builds)
+.claude/
+.superpowers/
+.swarm/
+
+# Large lockfiles not needed for Python image build
+uv.lock

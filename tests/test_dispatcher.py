@@ -60,3 +60,18 @@ async def test_runner_run_collects_text():
 
     assert response.text == "Hello! How can I help?"
     assert response.is_final is True
+
+
+@pytest.mark.asyncio
+async def test_runner_accepts_manager_as_target_agent():
+    """AgentRunner can wrap either the orchestrator or a plain manager."""
+    manager_agent = MagicMock()
+    manager_agent.name = "workspace_mgr"
+    session_service = AsyncMock()
+
+    runner = AgentRunner(
+        agent=manager_agent,
+        app_name="gclaw",
+        session_service=session_service,
+    )
+    assert runner._agent is manager_agent

@@ -1,4 +1,10 @@
-"""Run agent turns via ADK Runner."""
+"""Run agent turns via ADK Runner.
+
+Memory hooks (auto-recall / auto-capture) wrap the outer-most turn.
+All model execution — Gemini and non-Gemini alike — flows through ADK's
+native Runner; non-Gemini providers are handled by wrapping their models
+with google.adk.models.lite_llm.LiteLlm at agent construction time.
+"""
 
 from __future__ import annotations
 
@@ -39,12 +45,14 @@ class AgentRunner:
         agent: LlmAgent,
         app_name: str,
         session_service: BaseSessionService,
-        memory_service: MemoryService | None = None,
+        memory_service: "MemoryService | None" = None,
+        board_service: object | None = None,
     ) -> None:
         self._agent = agent
         self._app_name = app_name
         self._session_service = session_service
         self._memory_service = memory_service
+        self._board_service = board_service
         self._runner = Runner(
             agent=agent,
             app_name=app_name,
@@ -57,14 +65,10 @@ class AgentRunner:
         session_id: str,
         message: str,
     ) -> AgentResponse:
-        """Run a single turn: send message, collect response.
+        """Execute a single user turn with memory hooks."""
+        if self._board_service is not None:
+            self._board_service.set_active_user(user_id)
 
-        Memory hooks:
-        1. Auto-recall: retrieve relevant memories before the turn
-        2. Execute the agent turn
-        3. Auto-capture: extract facts from the exchange (fire-and-forget)
-        """
-        # 1. Auto-recall memories
         recalled_text = ""
         if self._memory_service is not None:
             try:
@@ -81,23 +85,40 @@ class AgentRunner:
                     exc_info=True,
                 )
 
-        # Build the user message, optionally prepending recalled memories
-        if recalled_text:
-            full_message = (
-                f"[Recalled memories]\n{recalled_text}\n\n"
-                f"[User message]\n{message}"
+        full_message = (
+            f"[Recalled memories]\n{recalled_text}\n\n[User message]\n{message}"
+            if recalled_text
+            else message
+        )
+
+        try:
+            session = await self._session_service.get_session(
+                app_name=self._app_name,
+                user_id=user_id,
+                session_id=session_id,
             )
-        else:
-            full_message = message
+            if session is None:
+                await self._session_service.create_session(
+                    app_name=self._app_name,
+                    user_id=user_id,
+                    session_id=session_id,
+                )
+        except Exception:
+            try:
+                await self._session_service.create_session(
+                    app_name=self._app_name,
+                    user_id=user_id,
+                    session_id=session_id,
+                )
+            except Exception:
+                pass
 
         content = types.Content(
             role="user",
             parts=[types.Part(text=full_message)],
         )
 
-        # 2. Execute the agent turn
         response = AgentResponse()
-
         async for event in self._runner.run_async(
             user_id=user_id,
             session_id=session_id,
@@ -112,11 +133,9 @@ class AgentRunner:
                             "name": part.function_call.name,
                             "args": dict(part.function_call.args or {}),
                         })
-
             if event.is_final_response():
                 response.is_final = True
 
-        # 3. Auto-capture memories (fire-and-forget)
         if self._memory_service is not None and response.text:
             try:
                 conversation_text = f"User: {message}\nAgent: {response.text}"

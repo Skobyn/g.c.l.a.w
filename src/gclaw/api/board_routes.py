@@ -28,7 +28,7 @@ class CreateTaskRequest(BaseModel):
 
 @router.get("/tasks")
 def list_tasks(user_id: str = Depends(get_current_user_id)):
-    tasks = _board_service.get_all_tasks()
+    tasks = _board_service.get_all_tasks(user_id=user_id)
     return [t.model_dump(mode="json") for t in tasks]
 
 
@@ -42,5 +42,6 @@ def create_task(
         assignee=req.assignee,
         description=req.description,
         priority=req.priority,
+        user_id=user_id,
     )
     return task.model_dump(mode="json")

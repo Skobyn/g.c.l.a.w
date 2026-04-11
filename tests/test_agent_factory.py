@@ -77,3 +77,59 @@ def test_build_agent_with_memories(factory):
         memories=["User likes bullet points."],
     )
     assert "bullet points" in agent.instruction
+
+
+from unittest.mock import MagicMock
+from gclaw.models.model_config import ModelEndpoint, TaskProfile, RoutingRule
+from gclaw.routing.router import ModelRouter
+
+
+@pytest.fixture
+def model_router():
+    endpoints = {
+        "gemini-pro": ModelEndpoint(
+            name="gemini-pro",
+            endpoint_id="gemini-2.5-pro",
+            max_context_tokens=1_000_000,
+        ),
+        "nemotron-3-super": ModelEndpoint(
+            name="nemotron-3-super",
+            endpoint_id="projects/apexfoundation/locations/us-central1/endpoints/222",
+            max_context_tokens=1_000_000,
+            provider="nim",
+        ),
+    }
+    rules = [
+        RoutingRule(task_profile=TaskProfile.ORCHESTRATION, model_name="gemini-pro"),
+        RoutingRule(task_profile=TaskProfile.CODE_GENERATION, model_name="nemotron-3-super"),
+    ]
+    return ModelRouter(endpoints=endpoints, rules=rules, default_model="gemini-2.5-flash")
+
+
+def test_build_agent_with_router(config_dir, model_router):
+    loader = ConfigLoader(str(config_dir))
+    factory = AgentFactory(
+        loader=loader,
+        default_model="gemini-2.5-flash",
+        model_router=model_router,
+    )
+    agent = factory.build(agent_name="orchestrator")
+    assert agent.model == "gemini-2.5-pro"
+
+
+def test_build_agent_explicit_model_overrides_router(config_dir, model_router):
+    loader = ConfigLoader(str(config_dir))
+    factory = AgentFactory(
+        loader=loader,
+        default_model="gemini-2.5-flash",
+        model_router=model_router,
+    )
+    agent = factory.build(agent_name="orchestrator", model="custom-model-id")
+    assert agent.model == "custom-model-id"
+
+
+def test_build_agent_without_router_uses_default(config_dir):
+    loader = ConfigLoader(str(config_dir))
+    factory = AgentFactory(loader=loader, default_model="gemini-2.5-flash")
+    agent = factory.build(agent_name="orchestrator")
+    assert agent.model == "gemini-2.5-flash"

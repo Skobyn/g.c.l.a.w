@@ -81,6 +81,29 @@ class Settings:
             ),
         )
     )
+    # Model routing settings
+    model_routing_enabled: bool = field(
+        default_factory=lambda: os.environ.get(
+            "MODEL_ROUTING_ENABLED", "false"
+        ).lower() == "true"
+    )
+    gemma_endpoint_id: str = field(
+        default_factory=lambda: os.environ.get("GEMMA_ENDPOINT_ID", "")
+    )
+    nemotron_endpoint_id: str = field(
+        default_factory=lambda: os.environ.get("NEMOTRON_ENDPOINT_ID", "")
+    )
+    nemotron_provider: str = field(
+        default_factory=lambda: os.environ.get("NEMOTRON_PROVIDER", "vertex")
+    )
+    openrouter_api_key: str = field(
+        default_factory=lambda: os.environ.get("OPENROUTER_API_KEY", "")
+    )
+    google_workspace_credentials_file: str = field(
+        default_factory=lambda: os.environ.get(
+            "GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE", ""
+        )
+    )
 
 
 def get_settings() -> Settings:

@@ -12,6 +12,7 @@ from gclaw.api.connection_routes import init_connection_router
 from gclaw.api.cron_routes import init_cron_router
 from gclaw.api.heartbeat_routes import init_heartbeat_router
 from gclaw.api.onboarding_routes import init_onboarding_router
+from gclaw.api.routing_routes import init_routing_router
 from gclaw.api.voice_ws import init_voice_router
 from gclaw.auth.middleware import FirebaseAuthMiddleware
 from gclaw.board.service import BoardService
@@ -33,6 +34,7 @@ def create_app(
     heartbeat_log_repo_factory: object | None = None,
     connection_service: ConnectionService | None = None,
     onboarding_service: OnboardingService | None = None,
+    model_router: object | None = None,
     enable_auth: bool = False,
     gemini_live_model: str = "gemini-2.5-flash-preview-native-audio",
 ) -> FastAPI:
@@ -48,6 +50,17 @@ def create_app(
 
     if enable_auth:
         app.add_middleware(FirebaseAuthMiddleware)
+    else:
+        # Dev mode: set a default user_id so auth dependencies work
+        from starlette.middleware.base import BaseHTTPMiddleware
+
+        class DevUserMiddleware(BaseHTTPMiddleware):
+            async def dispatch(self, request, call_next):
+                import os
+                request.state.user_id = os.environ.get("GCLAW_USER_ID", "default_user")
+                return await call_next(request)
+
+        app.add_middleware(DevUserMiddleware)
 
     app.include_router(init_chat_router(agent_runner))
     app.include_router(init_board_router(board_service))
@@ -78,6 +91,8 @@ def create_app(
 
     if onboarding_service is not None:
         app.include_router(init_onboarding_router(onboarding_service))
+
+    app.include_router(init_routing_router(model_router))
 
     # Store services on app state for use by future route extensions
     app.state.session_service = session_service

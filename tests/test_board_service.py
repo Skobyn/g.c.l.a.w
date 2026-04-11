@@ -24,7 +24,7 @@ def service(repo):
 
 
 def test_create_task_from_user(service, repo):
-    repo.create.side_effect = lambda t: t
+    repo.create.side_effect = lambda t, user_id=None: t
     task = service.create_task(
         title="Do the thing",
         assignee="workspace-mgr",
@@ -37,7 +37,7 @@ def test_create_task_from_user(service, repo):
 
 
 def test_create_task_from_agent(service, repo):
-    repo.create.side_effect = lambda t: t
+    repo.create.side_effect = lambda t, user_id=None: t
     task = service.create_task(
         title="Subtask",
         assignee="workspace-mgr",
@@ -58,7 +58,7 @@ def test_pick_up_task(service, repo):
         status=TaskStatus.QUEUED,
     )
     repo.get.return_value = task
-    repo.update.side_effect = lambda t: t
+    repo.update.side_effect = lambda t, user_id=None: t
 
     picked = service.pick_up("task_1")
     assert picked.status == TaskStatus.IN_PROGRESS
@@ -79,7 +79,7 @@ def test_complete_task(service, repo):
         status=TaskStatus.IN_PROGRESS,
     )
     repo.get.return_value = task
-    repo.update.side_effect = lambda t: t
+    repo.update.side_effect = lambda t, user_id=None: t
 
     completed = service.complete(
         "task_1", summary="All done", artifacts=["out.txt"]
@@ -96,7 +96,7 @@ def test_fail_task(service, repo):
         status=TaskStatus.IN_PROGRESS,
     )
     repo.get.return_value = task
-    repo.update.side_effect = lambda t: t
+    repo.update.side_effect = lambda t, user_id=None: t
 
     failed = service.fail("task_1", reason="API timeout")
     assert failed.status == TaskStatus.FAILED
@@ -111,4 +111,6 @@ def test_get_pending_tasks_for_agent(service, repo):
 
     result = service.get_pending_tasks("workspace-mgr")
     assert len(result) == 1
-    repo.list_by_assignee.assert_called_with("workspace-mgr", status=TaskStatus.QUEUED)
+    repo.list_by_assignee.assert_called_with(
+        "workspace-mgr", status=TaskStatus.QUEUED, user_id=None
+    )
