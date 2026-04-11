@@ -6,7 +6,7 @@ The Memory Bank API provides three key operations:
 - memories:retrieve — semantic search for relevant memories
 - memories:list — list all memories for a scope
 
-API docs: https://cloud.google.com/vertex-ai/docs/reference/rest/v1beta1/memoryBanks
+API docs: https://docs.cloud.google.com/vertex-ai/generative-ai/docs/reference/rest/v1beta1/projects.locations.reasoningEngines.memories
 """
 
 from __future__ import annotations
@@ -34,10 +34,13 @@ class MemoryBankClient:
         self._location = location
         self._credentials = credentials
         self._memory_bank_id = memory_bank_id
+        self._parent = (
+            f"projects/{project_id}/locations/{location}/"
+            f"reasoningEngines/{memory_bank_id}"
+        )
         self._base_url = (
             f"https://{location}-aiplatform.googleapis.com/v1beta1/"
-            f"projects/{project_id}/locations/{location}/"
-            f"memoryBanks/{memory_bank_id}"
+            f"{self._parent}"
         )
 
     def _get_headers(self) -> dict[str, str]:
@@ -52,17 +55,48 @@ class MemoryBankClient:
     async def _post(self, url: str, json: dict) -> httpx.Response:
         """Make an authenticated POST request."""
         headers = self._get_headers()
-        async with httpx.AsyncClient() as http:
+        async with httpx.AsyncClient(timeout=30.0) as http:
             response = await http.post(url, json=json, headers=headers)
             response.raise_for_status()
             return response
 
     def _build_scope_dict(self, scope: MemoryScope) -> dict[str, str]:
-        """Build the scope dict for the API request."""
+        """Build the scope dict for the API request (flat key-value map)."""
         d: dict[str, str] = {"user_id": scope.user_id}
         if scope.agent is not None:
             d["agent"] = scope.agent
         return d
+
+    def _parse_conversation_to_events(
+        self, conversation_text: str
+    ) -> list[dict[str, Any]]:
+        """Parse conversation text into API event format.
+
+        Input: "User: hello\\nAgent: hi there"
+        Output: [{"content": {"role": "user", "parts": [{"text": "hello"}]}}, ...]
+        """
+        events: list[dict[str, Any]] = []
+        for line in conversation_text.strip().split("\n"):
+            line = line.strip()
+            if not line:
+                continue
+            if line.startswith("User:"):
+                role = "user"
+                text = line[len("User:"):].strip()
+            elif line.startswith("Agent:"):
+                role = "model"
+                text = line[len("Agent:"):].strip()
+            else:
+                # Default to user for unparseable lines
+                role = "user"
+                text = line
+            events.append({
+                "content": {
+                    "role": role,
+                    "parts": [{"text": text}],
+                }
+            })
+        return events
 
     async def generate_memories(
         self,
@@ -82,10 +116,10 @@ class MemoryBankClient:
         """
         body: dict[str, Any] = {
             "scope": self._build_scope_dict(scope),
-            "conversation": {"text": conversation_text},
+            "direct_contents_source": {
+                "events": self._parse_conversation_to_events(conversation_text),
+            },
         }
-        if topics:
-            body["topics"] = topics
 
         url = f"{self._base_url}/memories:generate"
         response = await self._post(url, json=body)
@@ -121,8 +155,10 @@ class MemoryBankClient:
         """
         body: dict[str, Any] = {
             "scope": self._build_scope_dict(scope),
-            "query": query,
-            "topK": top_k,
+            "similarity_search_params": {
+                "search_query": query,
+                "top_k": top_k,
+            },
         }
 
         url = f"{self._base_url}/memories:retrieve"
@@ -157,7 +193,7 @@ class MemoryBankClient:
             "scope": self._build_scope_dict(scope),
         }
 
-        url = f"{self._base_url}/memories:list"
+        url = f"{self._base_url}/memories:retrieve"
         response = await self._post(url, json=body)
         data = response.json()
 

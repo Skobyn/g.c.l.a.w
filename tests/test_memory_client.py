@@ -174,7 +174,7 @@ def test_build_scope_dict_with_agent(client):
 def test_base_url(client):
     expected = (
         "https://us-central1-aiplatform.googleapis.com/v1beta1/"
-        "projects/test-project/locations/us-central1/memoryBanks/default"
+        "projects/test-project/locations/us-central1/reasoningEngines/default"
     )
     assert client._base_url == expected
 
