@@ -67,14 +67,20 @@ def test_workspace_mgr_gets_gemma(config_dir, full_router):
     loader = ConfigLoader(str(config_dir))
     factory = AgentFactory(loader=loader, default_model="gemini-2.5-flash", model_router=full_router)
     agent = factory.build(agent_name="workspace-mgr", soul_overlay="workspace")
+    # workspace-mgr → SUMMARIZATION → gemma-4 (provider="gemini" by default) → bare string
+    assert isinstance(agent.model, str)
     assert "111" in agent.model
 
 
 def test_dev_mgr_gets_nemotron(config_dir, full_router):
+    from google.adk.models.lite_llm import LiteLlm
+
     loader = ConfigLoader(str(config_dir))
     factory = AgentFactory(loader=loader, default_model="gemini-2.5-flash", model_router=full_router)
     agent = factory.build(agent_name="dev-mgr", soul_overlay="dev")
-    assert "222" in agent.model
+    # dev-mgr → CODE_GENERATION → nemotron-3-super (provider="nim") → LiteLlm wrapped
+    assert isinstance(agent.model, LiteLlm)
+    assert "222" in agent.model.model
 
 
 def test_unknown_agent_gets_default(config_dir, full_router):
