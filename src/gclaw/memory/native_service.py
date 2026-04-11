@@ -32,6 +32,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from gclaw.memory.pii import scrub_pii
 from gclaw.models.memory import Memory, MemoryScope
 
 if TYPE_CHECKING:
@@ -162,14 +163,22 @@ class NativeMemoryService:
     ) -> list[Memory]:
         """Auto-capture: fire-and-forget extraction after each turn.
 
-        Translates `conversation_text` into a list of ADK Events and
-        calls `add_events_to_memory`. Errors are logged and suppressed.
-        Returns an empty list — the native API doesn't surface the
-        generated memories synchronously (it's a long-running
-        operation).
+        PII is scrubbed before the text is translated into events and
+        handed to Memory Bank. Translates `conversation_text` into a
+        list of ADK Events and calls `add_events_to_memory`. Errors
+        are logged and suppressed. Returns an empty list — the native
+        API doesn't surface the generated memories synchronously
+        (it's a long-running operation).
         """
         app = self._scope_app_name(agent_id)
-        events = self._parse_conversation_to_events(conversation_text)
+        scrubbed, report = scrub_pii(conversation_text)
+        if report:
+            logger.info(
+                "PII scrubbed before native capture for user %s: %s",
+                user_id,
+                report,
+            )
+        events = self._parse_conversation_to_events(scrubbed)
         if not events:
             return []
 
@@ -200,9 +209,17 @@ class NativeMemoryService:
         agent_id: str | None = None,
     ) -> list[Memory]:
         """End-of-session memory extraction. Raises on error — callers
-        (SessionService.end_session, AgentRunner.end_session) handle it."""
+        (SessionService.end_session, AgentRunner.end_session) handle it.
+        PII is scrubbed before ingestion."""
         app = self._scope_app_name(agent_id)
-        events = self._parse_conversation_to_events(conversation_text)
+        scrubbed, report = scrub_pii(conversation_text)
+        if report:
+            logger.info(
+                "PII scrubbed before native generate_memories for user %s: %s",
+                user_id,
+                report,
+            )
+        events = self._parse_conversation_to_events(scrubbed)
         if not events:
             return []
         await self._native.add_events_to_memory(
@@ -211,6 +228,23 @@ class NativeMemoryService:
             events=events,
         )
         return []
+
+    async def wipe_user_memories(self, user_id: str) -> int:
+        """Governance stub — native backend doesn't expose enumerate+delete.
+
+        ADK's VertexAiMemoryBankService has no list_memories or
+        delete_memory surface, so we can't implement the
+        right-to-delete primitive on this backend yet. Callers
+        should either use the custom backend for governance or
+        file an issue. Returns 0 and logs a warning so the admin
+        route behaves predictably.
+        """
+        logger.warning(
+            "wipe_user_memories is not supported on the native backend "
+            "(no list/delete surface on VertexAiMemoryBankService). "
+            "Switch MEMORY_BACKEND=custom to enable governance wipes."
+        )
+        return 0
 
     def format_for_prompt(self, memories: list[Memory]) -> str:
         """Same signature as MemoryService.format_for_prompt.

@@ -7,6 +7,12 @@ operations used by the AgentRunner and HeartbeatContextGatherer:
 - capture: extract facts from conversation after a turn (fire-and-forget)
 - generate_memories: full extraction at end of session
 - format_for_prompt: format memories for injection into system prompts
+- wipe_user_memories: delete every memory for a user (governance)
+
+All ingestion paths (capture, generate_memories) run conversation
+text through the PII scrubber (gclaw.memory.pii) before handing
+it off to Memory Bank, so secrets, credit cards, and other common
+PII categories never land in long-term storage.
 """
 
 from __future__ import annotations
@@ -14,6 +20,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from gclaw.memory.pii import scrub_pii
 from gclaw.models.memory import Memory, MemoryScope
 
 if TYPE_CHECKING:
@@ -108,6 +115,12 @@ class MemoryService:
     ) -> list[Memory]:
         """Auto-capture: fire-and-forget extraction after each turn.
 
+        The conversation text is run through the PII scrubber before
+        being handed off to Memory Bank — secrets, emails, phone
+        numbers, credit cards, and similar categories never land in
+        long-term storage. Scrub counts are logged at INFO when
+        anything was redacted.
+
         Errors are logged and suppressed — capture should never break
         the main conversation flow.
 
@@ -120,11 +133,16 @@ class MemoryService:
         Returns:
             List of extracted memories (empty on error).
         """
+        scrubbed, report = scrub_pii(conversation_text)
+        if report:
+            logger.info(
+                "PII scrubbed before capture for user %s: %s", user_id, report
+            )
         try:
             scope = MemoryScope(user_id=user_id, agent=agent_id)
             return await self._client.generate_memories(
                 scope=scope,
-                conversation_text=conversation_text,
+                conversation_text=scrubbed,
                 topics=topics,
             )
         except Exception:
@@ -145,6 +163,7 @@ class MemoryService:
         """End-of-session memory extraction.
 
         Unlike capture(), this raises on error — callers should handle it.
+        PII is scrubbed before the text is handed off.
 
         Args:
             user_id: The user to store memories for.
@@ -154,11 +173,66 @@ class MemoryService:
         Returns:
             List of extracted memories.
         """
+        scrubbed, report = scrub_pii(conversation_text)
+        if report:
+            logger.info(
+                "PII scrubbed before generate_memories for user %s: %s",
+                user_id,
+                report,
+            )
         scope = MemoryScope(user_id=user_id, agent=agent_id)
         return await self._client.generate_memories(
             scope=scope,
-            conversation_text=conversation_text,
+            conversation_text=scrubbed,
         )
+
+    async def wipe_user_memories(self, user_id: str) -> int:
+        """Delete every memory for a user — the right-to-delete primitive.
+
+        Lists all memories for the user scope and issues a delete for
+        each. Individual delete failures are logged and counted; the
+        method returns the total number of successful deletions.
+        Callers (typically the admin DELETE /memory endpoint) can
+        surface the count to the user.
+
+        Note: this only wipes user-scope memories. Agent-scoped and
+        shared-channel memories are NOT touched because they use
+        different scopes that aren't enumerable via a single list call.
+        A fuller implementation would iterate known agents and
+        shared channels too — deferred as a follow-up.
+        """
+        scope = MemoryScope(user_id=user_id)
+        try:
+            memories = await self._client.list_memories(scope=scope)
+        except Exception:
+            logger.warning(
+                "wipe_user_memories: list_memories failed for %s",
+                user_id,
+                exc_info=True,
+            )
+            return 0
+
+        deleted = 0
+        for m in memories:
+            if not m.fact:
+                continue
+            try:
+                await self._client.delete_memory(scope=scope, fact=m.fact)
+                deleted += 1
+            except Exception:
+                logger.warning(
+                    "wipe_user_memories: delete failed for user %s fact=%r",
+                    user_id,
+                    m.fact[:60],
+                    exc_info=True,
+                )
+        logger.info(
+            "wipe_user_memories: deleted %d/%d memories for user %s",
+            deleted,
+            len(memories),
+            user_id,
+        )
+        return deleted
 
     def format_for_prompt(self, memories: list[Memory]) -> str:
         """Format memories into text suitable for system prompt injection.

@@ -108,6 +108,21 @@ async def test_list_memories(admin_client):
 
 
 @pytest.mark.asyncio
+async def test_wipe_my_memories_calls_service(admin_client, mock_services):
+    """DELETE /admin/memory wipes every memory for the authenticated user
+    and returns the count."""
+    mock_services["memory_service"].wipe_user_memories = AsyncMock(return_value=7)
+
+    resp = await admin_client.delete("/admin/memory")
+
+    assert resp.status_code == 200
+    assert resp.json() == {"status": "wiped", "deleted": 7}
+    mock_services["memory_service"].wipe_user_memories.assert_awaited_once_with(
+        "test_user"
+    )
+
+
+@pytest.mark.asyncio
 async def test_list_crons(admin_client):
     resp = await admin_client.get("/admin/crons")
     assert resp.status_code == 200

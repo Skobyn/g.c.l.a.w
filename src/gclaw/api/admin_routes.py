@@ -201,6 +201,26 @@ async def delete_memory(
     return {"status": "deleted"}
 
 
+@router.delete("/memory")
+async def wipe_my_memories(
+    user_id: str = Depends(get_current_user_id),
+):
+    """Right-to-delete: wipe every memory for the authenticated user.
+
+    Lists all user-scoped memories and deletes each one. Agent-scoped
+    and shared-channel memories are not touched — see
+    MemoryService.wipe_user_memories for the limitation rationale.
+
+    Returns the number of memories successfully deleted. The count
+    may be lower than the total if some deletes failed (each failure
+    is logged).
+    """
+    if _memory_service is None:
+        raise HTTPException(status_code=503, detail="Memory service not enabled")
+    deleted = await _memory_service.wipe_user_memories(user_id)
+    return {"status": "wiped", "deleted": deleted}
+
+
 # --- Crons ---
 
 

@@ -207,3 +207,98 @@ def test_format_memories_no_topics_goes_to_general_bucket(service):
     formatted = service.format_for_prompt(memories)
     assert "**general:**" in formatted
     assert "orphan fact" in formatted
+
+
+# ---------------------------------------------------------------------------
+# Governance: PII scrubbing + wipe_user_memories (Item 3)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_capture_scrubs_pii_before_generate(service, memory_client):
+    """capture() runs conversation text through scrub_pii — secrets
+    never hit Memory Bank."""
+    await service.capture(
+        user_id="user_123",
+        conversation_text="email me at sam@example.com with key sk-abc12345678901234567890",
+    )
+
+    call_args = memory_client.generate_memories.call_args
+    sent_text = call_args.kwargs["conversation_text"]
+    assert "[REDACTED_EMAIL]" in sent_text
+    assert "[REDACTED_API_KEY]" in sent_text
+    assert "sam@example.com" not in sent_text
+    assert "sk-abc12345" not in sent_text
+
+
+@pytest.mark.asyncio
+async def test_generate_memories_scrubs_pii(service, memory_client):
+    await service.generate_memories(
+        user_id="user_123",
+        conversation_text="call me at 415-555-0123",
+    )
+    sent_text = memory_client.generate_memories.call_args.kwargs["conversation_text"]
+    assert "[REDACTED_PHONE]" in sent_text
+    assert "415-555-0123" not in sent_text
+
+
+@pytest.mark.asyncio
+async def test_wipe_user_memories_lists_then_deletes(service, memory_client):
+    memory_client.list_memories = AsyncMock(return_value=[
+        Memory(fact="fact one"),
+        Memory(fact="fact two"),
+        Memory(fact="fact three"),
+    ])
+    memory_client.delete_memory = AsyncMock(return_value=None)
+
+    deleted = await service.wipe_user_memories(user_id="user_123")
+
+    assert deleted == 3
+    assert memory_client.delete_memory.await_count == 3
+    # List scope was user-only.
+    list_scope = memory_client.list_memories.call_args.kwargs["scope"]
+    assert list_scope.user_id == "user_123"
+    assert list_scope.agent is None
+
+
+@pytest.mark.asyncio
+async def test_wipe_user_memories_skips_empty_facts(service, memory_client):
+    memory_client.list_memories = AsyncMock(return_value=[
+        Memory(fact="real"),
+        Memory(fact=""),  # empty, skip
+    ])
+    memory_client.delete_memory = AsyncMock(return_value=None)
+
+    deleted = await service.wipe_user_memories(user_id="user_123")
+    assert deleted == 1
+
+
+@pytest.mark.asyncio
+async def test_wipe_user_memories_counts_only_successful_deletes(
+    service, memory_client
+):
+    """Individual delete failures are logged and the count reflects
+    successes only — the method doesn't abort on first failure."""
+    memory_client.list_memories = AsyncMock(return_value=[
+        Memory(fact="a"),
+        Memory(fact="b"),
+        Memory(fact="c"),
+    ])
+
+    async def _delete(scope, fact):
+        if fact == "b":
+            raise RuntimeError("transient")
+
+    memory_client.delete_memory = AsyncMock(side_effect=_delete)
+
+    deleted = await service.wipe_user_memories(user_id="user_123")
+    assert deleted == 2  # a + c succeeded, b failed
+
+
+@pytest.mark.asyncio
+async def test_wipe_user_memories_returns_zero_on_list_failure(
+    service, memory_client
+):
+    memory_client.list_memories = AsyncMock(side_effect=RuntimeError("down"))
+    deleted = await service.wipe_user_memories(user_id="user_123")
+    assert deleted == 0
