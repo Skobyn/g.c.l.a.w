@@ -57,6 +57,33 @@ def test_create_session(service, session_repo):
     session_repo.create.assert_called_once()
 
 
+def test_create_with_id_preserves_supplied_id(service, session_repo):
+    session_repo.create.side_effect = lambda s: s
+
+    session = service.create_with_id(
+        session_id="sess_custom_abc",
+        user_id="user_123",
+    )
+
+    assert session.id == "sess_custom_abc"
+    assert session.user_id == "user_123"
+    assert session.status == SessionStatus.ACTIVE
+
+
+def test_get_or_none_returns_session(service, session_repo):
+    fake = Session(id="sess_1", user_id="user_123")
+    session_repo.get.return_value = fake
+
+    result = service.get_or_none("sess_1")
+    assert result is fake
+    session_repo.get.assert_called_once_with("sess_1")
+
+
+def test_get_or_none_returns_none_for_missing(service, session_repo):
+    session_repo.get.return_value = None
+    assert service.get_or_none("nope") is None
+
+
 def test_append_user_message(service, session_repo):
     existing = Session(id="sess_1", user_id="user_123")
     session_repo.get.return_value = existing

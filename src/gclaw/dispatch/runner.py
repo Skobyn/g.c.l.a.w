@@ -20,6 +20,7 @@ from google.genai import types
 
 if TYPE_CHECKING:
     from gclaw.memory.service import MemoryService
+    from gclaw.session.service import SessionService
 
 logger = logging.getLogger(__name__)
 
@@ -48,12 +49,14 @@ class AgentRunner:
         session_service: BaseSessionService,
         memory_service: "MemoryService | None" = None,
         board_service: object | None = None,
+        session_store: "SessionService | None" = None,
     ) -> None:
         self._agent = agent
         self._app_name = app_name
         self._session_service = session_service
         self._memory_service = memory_service
         self._board_service = board_service
+        self._session_store = session_store
         self._pending_captures: set[asyncio.Task] = set()
         self._runner = Runner(
             agent=agent,
@@ -140,6 +143,28 @@ class AgentRunner:
             if event.is_final_response():
                 response.is_final = True
 
+        if self._session_store is not None and response.text:
+            try:
+                if self._session_store.get_or_none(session_id) is None:
+                    self._session_store.create_with_id(
+                        session_id=session_id,
+                        user_id=user_id,
+                    )
+                self._session_store.append_message(
+                    session_id=session_id, role="user", content=message
+                )
+                self._session_store.append_message(
+                    session_id=session_id,
+                    role="agent",
+                    content=response.text,
+                )
+            except Exception:
+                logger.warning(
+                    "session_store mirror failed for %s, continuing",
+                    session_id,
+                    exc_info=True,
+                )
+
         if self._memory_service is not None and response.text:
             conversation_text = f"User: {message}\nAgent: {response.text}"
             task = asyncio.create_task(
@@ -156,10 +181,25 @@ class AgentRunner:
     async def end_session(self, user_id: str, session_id: str) -> None:
         """End-of-session hook: extract memories from the full transcript.
 
-        Reads the ADK session, concatenates user + assistant events into a
-        transcript, and invokes the heavier generate_memories extraction.
+        When a persistent `session_store` is configured, delegate to its
+        `end_session` — it reads from Firestore and already invokes
+        `memory_service.generate_memories` internally. Otherwise fall back
+        to reading the ADK in-memory session and invoking generate_memories
+        directly.
+
         Errors are logged and suppressed; end-of-session should not fail loudly.
         """
+        if self._session_store is not None:
+            try:
+                await self._session_store.end_session(session_id)
+            except Exception:
+                logger.warning(
+                    "end_session: session_store.end_session failed for %s",
+                    session_id,
+                    exc_info=True,
+                )
+            return
+
         if self._memory_service is None:
             return
 

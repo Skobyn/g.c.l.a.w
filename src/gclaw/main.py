@@ -17,6 +17,8 @@ from gclaw.board.service import BoardService
 from gclaw.dispatch.runner import AgentRunner
 from gclaw.firestore.client import get_firestore_client
 from gclaw.firestore.board_repo import BoardRepo
+from gclaw.firestore.session_repo import SessionRepo
+from gclaw.session.service import SessionService
 from gclaw.api.app import create_app
 
 logger = logging.getLogger(__name__)
@@ -167,8 +169,21 @@ def build_app():
         default_model=settings.gemini_flash_model,
     )
 
-    # Session service (in-memory for now)
+    # ADK session service (in-flight execution state)
     session_service = InMemorySessionService()
+
+    # Persistent session store — mirrors turns to Firestore so session
+    # history survives restarts and end-of-session memory extraction has
+    # a durable transcript to work from. Only wired in dev mode (fixed
+    # user_id) for now; multi-tenant auth mode needs per-method user_id
+    # threading through SessionRepo first.
+    session_store: SessionService | None = None
+    if dev_user_id is not None:
+        session_repo = SessionRepo(db=db, user_id=dev_user_id)
+        session_store = SessionService(
+            session_repo=session_repo,
+            memory_service=memory_service,
+        )
 
     # Runner
     runner = AgentRunner(
@@ -177,6 +192,7 @@ def build_app():
         session_service=session_service,
         memory_service=memory_service,
         board_service=board_service,
+        session_store=session_store,
     )
 
     return create_app(

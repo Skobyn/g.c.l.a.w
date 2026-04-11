@@ -42,6 +42,30 @@ class SessionService:
         )
         return self._repo.create(session)
 
+    def create_with_id(
+        self,
+        session_id: str,
+        user_id: str,
+        agent_id: str | None = None,
+        metadata: dict | None = None,
+    ) -> Session:
+        """Create a session with a caller-supplied id.
+
+        Used by AgentRunner to mirror ADK session ids into the persistent
+        store so the two session surfaces stay aligned.
+        """
+        session = Session(
+            id=session_id,
+            user_id=user_id,
+            agent_id=agent_id,
+            metadata=metadata or {},
+        )
+        return self._repo.create(session)
+
+    def get_or_none(self, session_id: str) -> Session | None:
+        """Return the session or None — does not raise on missing."""
+        return self._repo.get(session_id)
+
     def append_message(
         self,
         session_id: str,

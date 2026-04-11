@@ -144,3 +144,48 @@ async def test_end_session_memory_failure_swallowed(
     # Should not raise.
     await runner.end_session(user_id="user_123", session_id="sess_1")
     memory_service.generate_memories.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_end_session_delegates_to_session_store(
+    mock_agent, mock_session_service, memory_service
+):
+    """When a session_store is configured, end_session delegates to it
+    and skips the ADK-transcript fallback path."""
+    session_store = MagicMock()
+    session_store.end_session = AsyncMock(return_value=None)
+
+    runner = AgentRunner(
+        agent=mock_agent,
+        app_name="gclaw",
+        session_service=mock_session_service,
+        memory_service=memory_service,
+        session_store=session_store,
+    )
+
+    await runner.end_session(user_id="user_123", session_id="sess_1")
+
+    session_store.end_session.assert_awaited_once_with("sess_1")
+    # ADK fallback path must NOT run when session_store is set.
+    mock_session_service.get_session.assert_not_called()
+    memory_service.generate_memories.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_end_session_store_failure_swallowed(
+    mock_agent, mock_session_service, memory_service
+):
+    session_store = MagicMock()
+    session_store.end_session = AsyncMock(side_effect=RuntimeError("firestore down"))
+
+    runner = AgentRunner(
+        agent=mock_agent,
+        app_name="gclaw",
+        session_service=mock_session_service,
+        memory_service=memory_service,
+        session_store=session_store,
+    )
+
+    # Should not raise.
+    await runner.end_session(user_id="user_123", session_id="sess_1")
+    session_store.end_session.assert_awaited_once()
