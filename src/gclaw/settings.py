@@ -99,6 +99,11 @@ class Settings:
     openrouter_api_key: str = field(
         default_factory=lambda: os.environ.get("OPENROUTER_API_KEY", "")
     )
+    google_workspace_credentials_file: str = field(
+        default_factory=lambda: os.environ.get(
+            "GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE", ""
+        )
+    )
 
 
 def get_settings() -> Settings:
