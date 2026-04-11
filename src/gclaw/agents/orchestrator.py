@@ -162,9 +162,12 @@ def _make_memory_recall_callback(
     break a manager turn.
     """
 
-    async def before(ctx: Any) -> Any:
-        user_id = getattr(ctx, "user_id", None)
-        user_content = getattr(ctx, "user_content", None)
+    async def before(callback_context: Any) -> Any:
+        # ADK's BaseAgent enforces that the callback parameter is literally
+        # named `callback_context` — it's called as a kwarg, not positional.
+        # See google/adk/agents/base_agent.py:146.
+        user_id = getattr(callback_context, "user_id", None)
+        user_content = getattr(callback_context, "user_content", None)
         if not user_id or user_content is None:
             return None
 

@@ -74,7 +74,7 @@ async def test_callback_recalls_with_correct_agent_id(memory_service):
     cb = _make_memory_recall_callback(memory_service, "comms-mgr")
     ctx = _ctx(user_id="user_1", text="help me reply to this")
 
-    result = await cb(ctx)
+    result = await cb(callback_context=ctx)
 
     memory_service.recall.assert_awaited_once_with(
         user_id="user_1",
@@ -92,7 +92,7 @@ async def test_callback_recalls_with_correct_agent_id(memory_service):
 async def test_callback_returns_none_when_no_query(memory_service):
     cb = _make_memory_recall_callback(memory_service, "dev-mgr")
     ctx = _ctx(user_id="user_1", text=None)
-    result = await cb(ctx)
+    result = await cb(callback_context=ctx)
     assert result is None
     memory_service.recall.assert_not_awaited()
 
@@ -101,7 +101,7 @@ async def test_callback_returns_none_when_no_query(memory_service):
 async def test_callback_returns_none_when_no_user_id(memory_service):
     cb = _make_memory_recall_callback(memory_service, "dev-mgr")
     ctx = _ctx(user_id=None, text="hello")
-    result = await cb(ctx)
+    result = await cb(callback_context=ctx)
     assert result is None
     memory_service.recall.assert_not_awaited()
 
@@ -111,8 +111,20 @@ async def test_callback_returns_none_when_no_memories_found(memory_service):
     memory_service.recall = AsyncMock(return_value=[])
     cb = _make_memory_recall_callback(memory_service, "dev-mgr")
     ctx = _ctx(user_id="user_1", text="hello")
-    result = await cb(ctx)
+    result = await cb(callback_context=ctx)
     assert result is None
+
+
+@pytest.mark.asyncio
+async def test_callback_parameter_is_named_callback_context(memory_service):
+    """Regression: ADK's BaseAgent enforces that the before_agent_callback
+    parameter must be literally named `callback_context`. This test fails
+    if anyone renames the parameter back to `ctx` (as was shipped and
+    broken in commit 9829db1, caught by the live eval run)."""
+    import inspect
+    cb = _make_memory_recall_callback(memory_service, "workspace-mgr")
+    sig = inspect.signature(cb)
+    assert "callback_context" in sig.parameters
 
 
 @pytest.mark.asyncio
@@ -121,7 +133,7 @@ async def test_callback_swallows_recall_exceptions(memory_service):
     cb = _make_memory_recall_callback(memory_service, "dev-mgr")
     ctx = _ctx(user_id="user_1", text="hello")
     # Must not raise.
-    result = await cb(ctx)
+    result = await cb(callback_context=ctx)
     assert result is None
 
 
@@ -171,7 +183,7 @@ async def test_build_managers_dev_mgr_callback_uses_dev_mgr_id(
         cb = cb[0]
 
     ctx = _ctx(user_id="user_1", text="review this diff")
-    await cb(ctx)
+    await cb(callback_context=ctx)
 
     memory_service.recall.assert_awaited_once()
     kwargs = memory_service.recall.call_args.kwargs

@@ -97,14 +97,27 @@ async def run_eval(
 
     result = EvalResult()
 
+    # Eval uses `run_trace` (not `run`) so tool-execution errors don't
+    # throw away the tool_calls we observed upstream — we're scoring
+    # routing decisions, not tool success.
+    has_trace = hasattr(agent_runner, "run_trace")
+
     for i, case in enumerate(cases):
         session_id = f"eval_{i}"
         try:
-            response = await agent_runner.run(
-                user_id=user_id,
-                session_id=session_id,
-                message=case.query,
-            )
+            if has_trace:
+                response, error = await agent_runner.run_trace(
+                    user_id=user_id,
+                    session_id=session_id,
+                    message=case.query,
+                )
+            else:
+                response = await agent_runner.run(
+                    user_id=user_id,
+                    session_id=session_id,
+                    message=case.query,
+                )
+                error = None
         except Exception as e:
             logger.warning("eval case %d raised: %s", i, e)
             result.cases.append(
@@ -126,6 +139,7 @@ async def run_eval(
                 passed=passed,
                 actual_tool_calls=actual_tool_names,
                 response_text=response.text,
+                error=error,
             )
         )
 

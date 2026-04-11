@@ -180,6 +180,73 @@ class AgentRunner:
 
         return response
 
+    async def run_trace(
+        self,
+        user_id: str,
+        session_id: str,
+        message: str,
+    ) -> tuple[AgentResponse, str | None]:
+        """Eval-only variant of `run()` that captures partial responses.
+
+        `run()` re-raises any exception that happens while draining the ADK
+        event stream — which means tool-execution errors (e.g. `ValueError:
+        Task t7 not found`) throw away the tool_calls we already observed
+        upstream in the same turn. For the routing eval we specifically
+        want to know which tool the orchestrator chose, independent of
+        whether the tool actually succeeded.
+
+        Returns `(response, error)`. `error` is None on a clean run or a
+        stringified exception if the event stream aborted. `response`
+        always carries whatever events were drained before the abort.
+
+        Production code should keep calling `run()` — this method exists
+        solely for `gclaw.eval`.
+        """
+        try:
+            session = await self._session_service.get_session(
+                app_name=self._app_name, user_id=user_id, session_id=session_id,
+            )
+            if session is None:
+                await self._session_service.create_session(
+                    app_name=self._app_name, user_id=user_id, session_id=session_id,
+                )
+        except Exception:
+            try:
+                await self._session_service.create_session(
+                    app_name=self._app_name, user_id=user_id, session_id=session_id,
+                )
+            except Exception:
+                pass
+
+        content = types.Content(
+            role="user",
+            parts=[types.Part(text=message)],
+        )
+
+        response = AgentResponse()
+        error: str | None = None
+        try:
+            async for event in self._runner.run_async(
+                user_id=user_id,
+                session_id=session_id,
+                new_message=content,
+            ):
+                if event.content and event.content.parts:
+                    for part in event.content.parts:
+                        if part.text:
+                            response.text += part.text
+                        if part.function_call:
+                            response.tool_calls.append({
+                                "name": part.function_call.name,
+                                "args": dict(part.function_call.args or {}),
+                            })
+                if event.is_final_response():
+                    response.is_final = True
+        except Exception as e:
+            error = f"{type(e).__name__}: {e}"
+
+        return response, error
+
     async def end_session(self, user_id: str, session_id: str) -> None:
         """End-of-session hook: extract memories from the full transcript.
 

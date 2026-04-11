@@ -18,19 +18,25 @@ from gclaw.eval.runner import EvalResult, run_eval
 
 
 def _make_runner_that_returns(tool_calls_per_query: dict[str, list[str]]):
-    """Build a MagicMock AgentRunner whose run() method returns an
-    AgentResponse with tool_calls that depend on the incoming message."""
+    """Build a MagicMock AgentRunner whose run_trace() returns an
+    AgentResponse with tool_calls that depend on the incoming message.
+
+    `run_eval` prefers `run_trace` (returns `(response, error)`) over
+    `run` so it can capture partial tool_calls when a tool raises; the
+    eval scores routing decisions, not tool execution success.
+    """
     runner = MagicMock()
 
-    async def _run(*, user_id, session_id, message):
+    async def _run_trace(*, user_id, session_id, message):
         tool_names = tool_calls_per_query.get(message, [])
-        return AgentResponse(
+        response = AgentResponse(
             text=f"mocked response for: {message}",
             tool_calls=[{"name": n, "args": {}} for n in tool_names],
             is_final=True,
         )
+        return response, None
 
-    runner.run = AsyncMock(side_effect=_run)
+    runner.run_trace = AsyncMock(side_effect=_run_trace)
     return runner
 
 
@@ -173,17 +179,18 @@ async def test_run_eval_catches_exceptions_and_marks_fail():
     runner = MagicMock()
     calls: dict[str, int] = {"n": 0}
 
-    async def _run(*, user_id, session_id, message):
+    async def _run_trace(*, user_id, session_id, message):
         calls["n"] += 1
         if message == "raises":
             raise RuntimeError("boom")
-        return AgentResponse(
+        response = AgentResponse(
             text="ok",
             tool_calls=[{"name": "x", "args": {}}],
             is_final=True,
         )
+        return response, None
 
-    runner.run = AsyncMock(side_effect=_run)
+    runner.run_trace = AsyncMock(side_effect=_run_trace)
 
     result = await run_eval(runner, cases)
 
@@ -198,13 +205,49 @@ async def test_run_eval_catches_exceptions_and_marks_fail():
 async def test_run_eval_defaults_to_golden_cases():
     """When cases is None, GOLDEN_CASES is used."""
     runner = MagicMock()
-    runner.run = AsyncMock(
-        return_value=AgentResponse(text="", tool_calls=[], is_final=True)
+    runner.run_trace = AsyncMock(
+        return_value=(
+            AgentResponse(text="", tool_calls=[], is_final=True),
+            None,
+        )
     )
 
     result = await run_eval(runner)
 
     assert result.total == len(GOLDEN_CASES)
+
+
+@pytest.mark.asyncio
+async def test_run_eval_uses_partial_tool_calls_from_run_trace():
+    """When run_trace returns (response_with_tool_calls, error_string),
+    the case should score based on the captured tool_calls even though
+    an error occurred. This guards the 'tool raised but we still saw
+    the choice' eval path."""
+    runner = MagicMock()
+
+    async def _run_trace(*, user_id, session_id, message):
+        response = AgentResponse(
+            text="",
+            tool_calls=[{"name": "complete_board_task", "args": {"task_id": "t7"}}],
+            is_final=True,
+        )
+        return response, "ValueError: Task t7 not found"
+
+    runner.run_trace = AsyncMock(side_effect=_run_trace)
+
+    cases = [
+        EvalCase(
+            query="mark t7 done",
+            expected_tools=["complete_board_task"],
+            description="tool raised but choice was right",
+            category="board",
+        ),
+    ]
+    result = await run_eval(runner, cases)
+
+    assert result.passed == 1  # choice is what matters
+    assert result.cases[0].error is not None
+    assert "t7" in result.cases[0].error
 
 
 def test_eval_result_summary_formats_pass_rate():
@@ -218,8 +261,11 @@ async def test_run_eval_isolates_sessions_per_case():
     """Each case should run in its own session_id so state can't leak
     between cases."""
     runner = MagicMock()
-    runner.run = AsyncMock(
-        return_value=AgentResponse(text="", tool_calls=[], is_final=True)
+    runner.run_trace = AsyncMock(
+        return_value=(
+            AgentResponse(text="", tool_calls=[], is_final=True),
+            None,
+        )
     )
 
     cases = [
@@ -229,6 +275,6 @@ async def test_run_eval_isolates_sessions_per_case():
     ]
     await run_eval(runner, cases)
 
-    session_ids = [c.kwargs["session_id"] for c in runner.run.call_args_list]
+    session_ids = [c.kwargs["session_id"] for c in runner.run_trace.call_args_list]
     assert session_ids == ["eval_0", "eval_1", "eval_2"]
     assert len(set(session_ids)) == 3
