@@ -73,6 +73,8 @@ class AgentRunner:
         """Execute a single user turn with memory hooks."""
         if self._board_service is not None:
             self._board_service.set_active_user(user_id)
+        if self._session_store is not None:
+            self._session_store.set_active_user(user_id)
 
         recalled_text = ""
         if self._memory_service is not None:

@@ -47,7 +47,7 @@ def service_no_memory(session_repo):
 
 
 def test_create_session(service, session_repo):
-    session_repo.create.side_effect = lambda s: s
+    session_repo.create.side_effect = lambda s, user_id=None: s
 
     session = service.create(user_id="user_123", agent_id="orchestrator")
 
@@ -58,7 +58,7 @@ def test_create_session(service, session_repo):
 
 
 def test_create_with_id_preserves_supplied_id(service, session_repo):
-    session_repo.create.side_effect = lambda s: s
+    session_repo.create.side_effect = lambda s, user_id=None: s
 
     session = service.create_with_id(
         session_id="sess_custom_abc",
@@ -76,7 +76,7 @@ def test_get_or_none_returns_session(service, session_repo):
 
     result = service.get_or_none("sess_1")
     assert result is fake
-    session_repo.get.assert_called_once_with("sess_1")
+    session_repo.get.assert_called_once_with("sess_1", user_id=None)
 
 
 def test_get_or_none_returns_none_for_missing(service, session_repo):
@@ -87,7 +87,7 @@ def test_get_or_none_returns_none_for_missing(service, session_repo):
 def test_append_user_message(service, session_repo):
     existing = Session(id="sess_1", user_id="user_123")
     session_repo.get.return_value = existing
-    session_repo.update.side_effect = lambda s: s
+    session_repo.update.side_effect = lambda s, user_id=None: s
 
     updated = service.append_message(
         session_id="sess_1",
@@ -104,7 +104,7 @@ def test_append_user_message(service, session_repo):
 def test_append_agent_message(service, session_repo):
     existing = Session(id="sess_1", user_id="user_123")
     session_repo.get.return_value = existing
-    session_repo.update.side_effect = lambda s: s
+    session_repo.update.side_effect = lambda s, user_id=None: s
 
     updated = service.append_message(
         session_id="sess_1",
@@ -170,7 +170,7 @@ def test_compact_session(service, session_repo):
         msg = SessionMessage(role=MessageRole.USER, content=f"Message {i}")
         session = session.append_message(msg)
     session_repo.get.return_value = session
-    session_repo.update.side_effect = lambda s: s
+    session_repo.update.side_effect = lambda s, user_id=None: s
 
     compacted = service.compact(
         session_id="sess_1",
@@ -190,7 +190,7 @@ async def test_end_session_with_memory(service, session_repo, memory_service):
     msg = SessionMessage(role=MessageRole.USER, content="Remember I like coffee")
     session = session.append_message(msg)
     session_repo.get.return_value = session
-    session_repo.update.side_effect = lambda s: s
+    session_repo.update.side_effect = lambda s, user_id=None: s
 
     ended = await service.end_session("sess_1")
 
@@ -203,8 +203,88 @@ async def test_end_session_with_memory(service, session_repo, memory_service):
 async def test_end_session_without_memory(service_no_memory, session_repo):
     session = Session(id="sess_1", user_id="user_123")
     session_repo.get.return_value = session
-    session_repo.update.side_effect = lambda s: s
+    session_repo.update.side_effect = lambda s, user_id=None: s
 
     ended = await service_no_memory.end_session("sess_1")
 
     assert ended.status == SessionStatus.ENDED
+
+
+# ---------------------------------------------------------------------------
+# user_id threading (Item A)
+# ---------------------------------------------------------------------------
+
+
+def test_set_active_user_routes_repo_calls(session_repo):
+    """SessionService.set_active_user pre-stages user_id for the next
+    call; methods called without an explicit user_id kwarg forward the
+    active user to the repo."""
+    session_repo.create.side_effect = lambda s, user_id=None: s
+
+    svc = SessionService(session_repo=session_repo, memory_service=None)
+    svc.set_active_user("auth_user_42")
+
+    svc.create(user_id="auth_user_42")
+
+    session_repo.create.assert_called_once()
+    kwargs = session_repo.create.call_args.kwargs
+    assert kwargs["user_id"] == "auth_user_42"
+
+
+def test_explicit_user_id_wins_over_active_user(session_repo):
+    session_repo.get.return_value = None
+
+    svc = SessionService(session_repo=session_repo, memory_service=None)
+    svc.set_active_user("active_user")
+
+    svc.get_or_none("sess_1", user_id="explicit_user")
+
+    kwargs = session_repo.get.call_args.kwargs
+    assert kwargs["user_id"] == "explicit_user"
+
+
+def test_init_default_user_id_fallback(session_repo):
+    """When neither active nor explicit user_id is set, the init default
+    is used — this is the dev-mode path."""
+    session_repo.get.return_value = None
+
+    svc = SessionService(
+        session_repo=session_repo,
+        memory_service=None,
+        user_id="dev_default_user",
+    )
+
+    svc.get_or_none("sess_1")
+
+    kwargs = session_repo.get.call_args.kwargs
+    assert kwargs["user_id"] == "dev_default_user"
+
+
+def test_uid_priority_explicit_then_active_then_default(session_repo):
+    """Verify the full _uid priority chain:
+    explicit > active > default."""
+    session_repo.get.return_value = None
+    svc = SessionService(
+        session_repo=session_repo,
+        memory_service=None,
+        user_id="default_u",
+    )
+    svc.set_active_user("active_u")
+
+    svc.get_or_none("s1")
+    assert session_repo.get.call_args.kwargs["user_id"] == "active_u"
+
+    svc.get_or_none("s2", user_id="explicit_u")
+    assert session_repo.get.call_args.kwargs["user_id"] == "explicit_u"
+
+
+def test_append_message_threads_user_id_to_get_and_update(session_repo):
+    existing = Session(id="sess_1", user_id="auth_user_42")
+    session_repo.get.return_value = existing
+    session_repo.update.side_effect = lambda s, user_id=None: s
+
+    svc = SessionService(session_repo=session_repo, memory_service=None)
+    svc.append_message("sess_1", "user", "hi", user_id="auth_user_42")
+
+    assert session_repo.get.call_args.kwargs["user_id"] == "auth_user_42"
+    assert session_repo.update.call_args.kwargs["user_id"] == "auth_user_42"

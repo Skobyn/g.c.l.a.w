@@ -226,16 +226,15 @@ def build_app():
 
     # Persistent session store — mirrors turns to Firestore so session
     # history survives restarts and end-of-session memory extraction has
-    # a durable transcript to work from. Only wired in dev mode (fixed
-    # user_id) for now; multi-tenant auth mode needs per-method user_id
-    # threading through SessionRepo first.
-    session_store: SessionService | None = None
-    if dev_user_id is not None:
-        session_repo = SessionRepo(db=db, user_id=dev_user_id)
-        session_store = SessionService(
-            session_repo=session_repo,
-            memory_service=memory_service,
-        )
+    # a durable transcript to work from. Constructed unconditionally; in
+    # auth mode the per-request user_id flows in via
+    # AgentRunner.set_active_user(user_id) → SessionService.set_active_user.
+    session_repo = SessionRepo(db=db, user_id=dev_user_id)
+    session_store = SessionService(
+        session_repo=session_repo,
+        memory_service=memory_service,
+        user_id=dev_user_id,
+    )
 
     # Runner
     runner = AgentRunner(

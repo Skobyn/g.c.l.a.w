@@ -136,6 +136,34 @@ def test_list_active(repo):
     assert sessions[0].status == SessionStatus.ACTIVE
 
 
+def test_per_method_user_id_overrides_init_default(mock_db):
+    """When SessionRepo is constructed with a default user_id, a
+    per-method user_id kwarg must take precedence — this is how auth
+    mode flows per-request users through a single long-lived repo."""
+    repo = SessionRepo(db=mock_db, user_id="dev_default")
+    doc_ref = MagicMock()
+    mock_db.collection.return_value.document.return_value.collection.return_value.document.return_value = doc_ref
+
+    session = Session(id="sess_x", user_id="per_method_user")
+    repo.create(session, user_id="per_method_user")
+
+    # The users/{uid}/... path should use per_method_user, not dev_default.
+    mock_db.collection.assert_any_call("users")
+    # Grab the document("<uid>") call; it should be "per_method_user".
+    users_doc_calls = mock_db.collection.return_value.document.call_args_list
+    uid_arg = users_doc_calls[-1].args[0]
+    assert uid_arg == "per_method_user"
+
+
+def test_repo_raises_when_no_user_id(mock_db):
+    """If neither init default nor per-method user_id is set, the repo
+    must refuse to build a collection ref rather than silently writing
+    to an undefined path."""
+    repo = SessionRepo(db=mock_db, user_id=None)
+    with pytest.raises(ValueError, match="user_id required"):
+        repo._collection_ref()
+
+
 def test_list_active_older_than_filters_by_updated_at(repo):
     from datetime import timedelta
 
