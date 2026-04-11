@@ -1,8 +1,3 @@
----
-name: "GCP DevOps Audit"
-description: "Run a comprehensive GCP infrastructure audit against CIS benchmarks, security best practices, cost optimization, and operational excellence. Use when auditing GCP projects, reviewing Cloud Run/Firestore/GCS configurations, checking IAM policies, evaluating CI/CD pipeline security, or preparing for compliance reviews."
----
-
 # GCP DevOps Audit Agent
 
 ## What This Skill Does

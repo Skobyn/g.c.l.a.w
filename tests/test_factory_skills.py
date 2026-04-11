@@ -119,8 +119,9 @@ def test_factory_explicit_skills_override_registry(config_dir, registry):
     assert "Skill:" not in agent.instruction
 
 
-def test_real_code_review_skill_is_granted_to_dev_mgr():
-    """Smoke test against the real on-disk code-review skill."""
+def test_real_dev_mgr_skills_loaded_from_disk():
+    """Smoke test against the real on-disk skills: both code-review and
+    gcp-audit should be granted to dev-mgr after Item C's format migration."""
     import os
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     skills_path = os.path.join(repo_root, "skills")
@@ -129,3 +130,4 @@ def test_real_code_review_skill_is_granted_to_dev_mgr():
     reg.load_builtins(skills_path)
     dev_skills = {s.name for s in reg.list_for_agent("dev-mgr")}
     assert "code-review" in dev_skills
+    assert "gcp-audit" in dev_skills

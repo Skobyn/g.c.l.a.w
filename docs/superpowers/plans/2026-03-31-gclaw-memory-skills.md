@@ -1,8 +1,8 @@
 # GClaw Vertex AI Memory Bank, Session Management & Skill System (Plan 3 of 4)
 
 > **STATUS: partial (2026-04-11).**
-> **Done:** Memory Bank REST client (`reasoningEngines` surface), MemoryService with recall/capture/generate, consolidation (autoDream) via heartbeat, AgentRunner pre/post-turn hooks (incl. orchestrator-scoped recall and background capture), `POST /chat/end` route, skill model/registry/loader/discovery modules, three skills in `skills/` (gcp-audit, email-drafter, morning-briefing).
-> **Left:** Wire `SkillRegistry`/`SkillDiscovery` into `AgentFactory` and `main.py` — skills exist but are never injected into agent prompts. Wire custom `SessionService` into `main.py` (currently orphaned — app uses ADK `InMemorySessionService`). Per-manager agent-scoped recall via `before_agent_callback`. Auto-end stale sessions from heartbeat.
+> **Done:** Memory Bank REST client (`reasoningEngines` surface), MemoryService with recall/capture/generate, consolidation (autoDream) via heartbeat, AgentRunner pre/post-turn hooks (orchestrator-scoped recall + background capture), per-manager agent-scoped recall via `before_agent_callback`, `POST /chat/end` route, heartbeat auto-end sweep, skill model/registry/loader/discovery modules, `SkillRegistry` wired through `AgentFactory` with four built-in skills all on a unified `skill.json` format (`gcp-audit`, `email-drafter`, `morning-briefing`, `code-review`), custom `SessionService` wired into `AgentRunner` with persistent end-of-session extraction.
+> **Left:** `SessionRepo` is still single-tenant at init (per-method `user_id` threading for multi-tenant auth mode is planned next). `HeartbeatService` is not constructed in `main.py` yet — auto-end ships dead until it's wired. Agent-level eval harness not built. Migration from custom `MemoryBankClient` to ADK's native `VertexAiMemoryBankService` is a larger follow-up.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 

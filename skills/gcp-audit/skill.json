@@ -1,0 +1,39 @@
+{
+    "name": "gcp-audit",
+    "description": "Run a comprehensive GCP infrastructure audit against CIS benchmarks, security best practices, cost optimization, and operational excellence. Use when auditing GCP projects, reviewing Cloud Run/Firestore/GCS configurations, checking IAM policies, evaluating CI/CD pipeline security, or preparing for compliance reviews.",
+    "version": "1.0.0",
+    "trigger": {
+        "mode": "both",
+        "contexts": [
+            "audit gcp",
+            "gcp audit",
+            "review infra",
+            "review infrastructure",
+            "security review",
+            "compliance check",
+            "cis benchmark",
+            "cloud run audit"
+        ],
+        "command": "/gcp-audit"
+    },
+    "config": {
+        "phases": [
+            "iam",
+            "secrets",
+            "cloud_run",
+            "cicd",
+            "containers",
+            "firestore",
+            "gcs",
+            "network",
+            "observability",
+            "cost",
+            "dr"
+        ],
+        "severity_levels": ["p0", "p1", "p2", "p3"],
+        "spec_file": "spec.md"
+    },
+    "tools_required": ["gcloud", "bash", "grep", "glob"],
+    "agents_granted": ["dev-mgr"],
+    "source": "builtin"
+}
