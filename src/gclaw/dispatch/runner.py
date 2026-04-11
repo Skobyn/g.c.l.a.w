@@ -202,6 +202,13 @@ class AgentRunner:
         Production code should keep calling `run()` — this method exists
         solely for `gclaw.eval`.
         """
+        # Pre-turn hooks — must match run() so board/session tools
+        # have a user context when they fire.
+        if self._board_service is not None:
+            self._board_service.set_active_user(user_id)
+        if self._session_store is not None:
+            self._session_store.set_active_user(user_id)
+
         try:
             session = await self._session_service.get_session(
                 app_name=self._app_name, user_id=user_id, session_id=session_id,

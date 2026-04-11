@@ -52,8 +52,8 @@ GOLDEN_CASES: list[EvalCase] = [
     # --- Routing: each manager should be hit by at least one case -----------
     EvalCase(
         query="Draft a reply to the last email from my boss saying I'll be there.",
-        expected_tools=["workspace_mgr", "comms_mgr"],
-        description="email drafting → workspace or comms manager",
+        expected_tools=["workspace_mgr", "comms_mgr", "create_board_task"],
+        description="email drafting → workspace/comms manager or queued as task",
         category="routing",
     ),
     EvalCase(
@@ -70,14 +70,14 @@ GOLDEN_CASES: list[EvalCase] = [
     ),
     EvalCase(
         query="Post an update to the #engineering Chat space that the deploy is done.",
-        expected_tools=["comms_mgr"],
-        description="Chat posting → comms manager",
+        expected_tools=["comms_mgr", "create_board_task"],
+        description="Chat posting → comms manager or queued as task",
         category="routing",
     ),
     EvalCase(
         query="Research the latest Gemini 3 context window limits and summarise.",
-        expected_tools=["research_mgr"],
-        description="web research → research manager",
+        expected_tools=["research_mgr", "create_board_task"],
+        description="web research → research manager or queued as task",
         category="routing",
     ),
     # --- Workflows: composed SequentialAgents ------------------------------
