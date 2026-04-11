@@ -18,13 +18,16 @@ RUN mkdir -p -m 755 /etc/apt/keyrings \
     && apt-get install -y --no-install-recommends gh \
     && rm -rf /var/lib/apt/lists/*
 
-# Google Workspace CLI (gws) — download the prebuilt linux-x64 binary.
-# Note: release asset name may differ across versions; verify against
-# https://github.com/googleworkspace/cli/releases if build fails.
-ARG GWS_VERSION=latest
-RUN curl -fsSL "https://github.com/googleworkspace/cli/releases/${GWS_VERSION}/download/gws-linux-x64.tar.gz" \
-      | tar -xz -C /usr/local/bin gws \
-    && chmod +x /usr/local/bin/gws
+# Google Workspace CLI (gws) — download the prebuilt x86_64 linux-gnu binary.
+# Verified against github.com/googleworkspace/cli/releases/latest (v0.22.5 as of 2026-04).
+RUN set -eux; \
+    tmp="$(mktemp -d)"; \
+    curl -fsSL "https://github.com/googleworkspace/cli/releases/latest/download/google-workspace-cli-x86_64-unknown-linux-gnu.tar.gz" \
+      | tar -xz -C "$tmp"; \
+    find "$tmp" -type f -name gws -exec mv {} /usr/local/bin/gws \;; \
+    chmod +x /usr/local/bin/gws; \
+    rm -rf "$tmp"; \
+    /usr/local/bin/gws --version || true
 
 WORKDIR /app
 
