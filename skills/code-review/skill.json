@@ -1,0 +1,25 @@
+{
+    "name": "code-review",
+    "description": "Score a code diff against a severity-weighted checklist — security, tests, correctness, style, and breaking-change risk. Use when reviewing a local diff, a PR, or staged changes.",
+    "version": "1.0.0",
+    "trigger": {
+        "mode": "both",
+        "contexts": [
+            "review code",
+            "review pr",
+            "review diff",
+            "check these changes",
+            "scoring a diff",
+            "validate my changes"
+        ],
+        "command": "/code-review"
+    },
+    "config": {
+        "severity_levels": ["critical", "high", "medium", "low", "nit"],
+        "checklist_dimensions": ["security", "correctness", "tests", "style", "breaking_changes"],
+        "max_findings_per_dimension": 5
+    },
+    "tools_required": ["gh", "dev_tools"],
+    "agents_granted": ["dev-mgr"],
+    "source": "builtin"
+}

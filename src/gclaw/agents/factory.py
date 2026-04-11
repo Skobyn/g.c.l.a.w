@@ -9,7 +9,9 @@ from google.adk.agents import LlmAgent
 from gclaw.config.loader import ConfigLoader
 
 if TYPE_CHECKING:
+    from gclaw.models.skill import Skill
     from gclaw.routing.router import ModelRouter
+    from gclaw.skill.registry import SkillRegistry
 
 
 class AgentFactory:
@@ -20,10 +22,12 @@ class AgentFactory:
         loader: ConfigLoader,
         default_model: str = "gemini-2.5-flash",
         model_router: "ModelRouter | None" = None,
+        skill_registry: "SkillRegistry | None" = None,
     ) -> None:
         self._loader = loader
         self._default_model = default_model
         self._router = model_router
+        self._skill_registry = skill_registry
 
     def build(
         self,
@@ -35,12 +39,17 @@ class AgentFactory:
         model: Any | None = None,
         description: str | None = None,
         output_key: str | None = None,
+        skills: "list[Skill] | None" = None,
     ) -> LlmAgent:
+        if skills is None and self._skill_registry is not None:
+            skills = self._skill_registry.list_for_agent(agent_name)
+
         instruction = self._loader.build_system_prompt(
             agent_name=agent_name,
             soul_base="base",
             soul_overlay=soul_overlay,
             memories=memories,
+            skills=skills,
         )
 
         # Model resolution: explicit > router (as ADK-ready object) > default

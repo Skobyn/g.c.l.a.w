@@ -141,12 +141,22 @@ def build_app():
     # Memory
     memory_service = _build_memory_service(settings)
 
-    # Config
-    loader = ConfigLoader(settings.config_dir)
+    # Config + skills
+    from gclaw.skill.loader import SkillLoader
+    from gclaw.skill.registry import SkillRegistry
+    from gclaw.skill.in_memory_repo import InMemorySkillRepo
+
+    skill_loader = SkillLoader()
+    loader = ConfigLoader(settings.config_dir, skill_loader=skill_loader)
+    skill_registry = SkillRegistry(skill_repo=InMemorySkillRepo())
+    loaded_skills = skill_registry.load_builtins(settings.skills_dir)
+    logger.info("Loaded %d built-in skills", len(loaded_skills))
+
     factory = AgentFactory(
         loader=loader,
         default_model=settings.gemini_flash_model,
         model_router=model_router,
+        skill_registry=skill_registry,
     )
 
     # Orchestrator
