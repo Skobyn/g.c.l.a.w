@@ -6,6 +6,7 @@ auto-capture after a turn when a MemoryService is provided.
 
 from __future__ import annotations
 
+import asyncio
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -15,7 +16,9 @@ from gclaw.dispatch.runner import AgentRunner, AgentResponse
 
 @pytest.fixture
 def mock_agent():
-    return MagicMock()
+    agent = MagicMock()
+    agent.name = "orchestrator"
+    return agent
 
 
 @pytest.fixture
@@ -79,12 +82,14 @@ async def test_run_with_memory_recall(runner_with_memory, memory_service):
     memory_service.recall.assert_awaited_once_with(
         user_id="user_123",
         query="What are my preferences?",
+        agent_id="orchestrator",
+        merge_user_scope=True,
     )
 
 
 @pytest.mark.asyncio
 async def test_run_with_memory_capture(runner_with_memory, memory_service):
-    """Memory capture is called after the agent turn."""
+    """Memory capture is scheduled as a background task after the agent turn."""
     mock_event = MagicMock()
     mock_event.content = MagicMock()
     mock_event.content.parts = [MagicMock(text="Your preference is dark mode.", function_call=None)]
@@ -101,6 +106,15 @@ async def test_run_with_memory_capture(runner_with_memory, memory_service):
         session_id="sess_1",
         message="I prefer dark mode",
     )
+
+    # run() returned; capture was scheduled as a background task and is
+    # tracked in _pending_captures to avoid GC.
+    assert response.text == "Your preference is dark mode."
+    assert len(runner_with_memory._pending_captures) == 1
+
+    # Let the background task run to completion, then verify capture was invoked.
+    pending = list(runner_with_memory._pending_captures)
+    await asyncio.gather(*pending)
 
     memory_service.capture.assert_awaited_once()
     call_kwargs = memory_service.capture.call_args.kwargs

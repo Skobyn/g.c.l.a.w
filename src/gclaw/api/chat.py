@@ -30,6 +30,10 @@ class ChatResponse(BaseModel):
     is_final: bool = False
 
 
+class EndSessionRequest(BaseModel):
+    session_id: str
+
+
 @router.post("/chat", response_model=ChatResponse)
 async def chat(
     req: ChatRequest,
@@ -46,3 +50,11 @@ async def chat(
         tool_calls=response.tool_calls,
         is_final=response.is_final,
     )
+
+
+@router.post("/chat/end", status_code=204)
+async def end_session(
+    req: EndSessionRequest,
+    user_id: str = Depends(get_current_user_id),
+) -> None:
+    await _runner.end_session(user_id=user_id, session_id=req.session_id)

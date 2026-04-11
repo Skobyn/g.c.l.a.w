@@ -8,6 +8,7 @@ with google.adk.models.lite_llm.LiteLlm at agent construction time.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
@@ -53,6 +54,7 @@ class AgentRunner:
         self._session_service = session_service
         self._memory_service = memory_service
         self._board_service = board_service
+        self._pending_captures: set[asyncio.Task] = set()
         self._runner = Runner(
             agent=agent,
             app_name=app_name,
@@ -75,6 +77,8 @@ class AgentRunner:
                 memories = await self._memory_service.recall(
                     user_id=user_id,
                     query=message,
+                    agent_id=self._agent.name,
+                    merge_user_scope=True,
                 )
                 if memories:
                     recalled_text = self._memory_service.format_for_prompt(memories)
@@ -137,17 +141,66 @@ class AgentRunner:
                 response.is_final = True
 
         if self._memory_service is not None and response.text:
-            try:
-                conversation_text = f"User: {message}\nAgent: {response.text}"
-                await self._memory_service.capture(
+            conversation_text = f"User: {message}\nAgent: {response.text}"
+            task = asyncio.create_task(
+                self._memory_service.capture(
                     user_id=user_id,
                     conversation_text=conversation_text,
                 )
-            except Exception:
-                logger.warning(
-                    "Memory capture failed for user %s, continuing",
-                    user_id,
-                    exc_info=True,
-                )
+            )
+            self._pending_captures.add(task)
+            task.add_done_callback(self._pending_captures.discard)
 
         return response
+
+    async def end_session(self, user_id: str, session_id: str) -> None:
+        """End-of-session hook: extract memories from the full transcript.
+
+        Reads the ADK session, concatenates user + assistant events into a
+        transcript, and invokes the heavier generate_memories extraction.
+        Errors are logged and suppressed; end-of-session should not fail loudly.
+        """
+        if self._memory_service is None:
+            return
+
+        try:
+            session = await self._session_service.get_session(
+                app_name=self._app_name,
+                user_id=user_id,
+                session_id=session_id,
+            )
+        except Exception:
+            logger.warning(
+                "end_session: could not load ADK session %s",
+                session_id,
+                exc_info=True,
+            )
+            return
+        if session is None:
+            return
+
+        transcript_lines: list[str] = []
+        for event in getattr(session, "events", []) or []:
+            content = getattr(event, "content", None)
+            if content is None or not getattr(content, "parts", None):
+                continue
+            role = getattr(content, "role", "user") or "user"
+            label = "User" if role == "user" else "Agent"
+            for part in content.parts:
+                text = getattr(part, "text", None)
+                if text:
+                    transcript_lines.append(f"{label}: {text}")
+        if not transcript_lines:
+            return
+
+        try:
+            await self._memory_service.generate_memories(
+                user_id=user_id,
+                conversation_text="\n".join(transcript_lines),
+            )
+        except Exception:
+            logger.warning(
+                "end_session: generate_memories failed for %s",
+                user_id,
+                exc_info=True,
+            )

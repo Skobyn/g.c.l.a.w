@@ -76,6 +76,18 @@ async def test_chat(client, agent_runner):
 
 
 @pytest.mark.asyncio
+async def test_chat_end(client, agent_runner):
+    agent_runner.end_session = AsyncMock(return_value=None)
+
+    resp = await client.post("/chat/end", json={"session_id": "sess_1"})
+
+    assert resp.status_code == 204
+    agent_runner.end_session.assert_awaited_once_with(
+        user_id="test_user_1", session_id="sess_1"
+    )
+
+
+@pytest.mark.asyncio
 async def test_list_board_tasks_empty(client):
     resp = await client.get("/board/tasks")
     assert resp.status_code == 200
