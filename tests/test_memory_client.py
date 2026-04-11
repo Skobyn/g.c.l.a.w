@@ -66,6 +66,73 @@ async def test_generate_memories(client):
 
 
 @pytest.mark.asyncio
+async def test_generate_memories_parses_structured_shape(client):
+    """New always-on-memory-agent shape: summary / entities / topics / importance."""
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "generatedMemories": [
+            {
+                "memory": {
+                    "fact": "User is planning a trip to Tokyo next month.",
+                    "summary": "Tokyo trip next month",
+                    "entities": ["Tokyo", "user"],
+                    "topics": ["travel", "plans"],
+                    "importance": 0.85,
+                    "updateTime": "2026-04-11T12:00:00Z",
+                }
+            }
+        ]
+    }
+    mock_response.raise_for_status = MagicMock()
+
+    with patch.object(client, "_post", new_callable=AsyncMock, return_value=mock_response):
+        memories = await client.generate_memories(
+            scope=MemoryScope(user_id="user_123"),
+            conversation_text="User: I'm going to Tokyo next month",
+        )
+
+    assert len(memories) == 1
+    m = memories[0]
+    assert m.fact == "User is planning a trip to Tokyo next month."
+    assert m.summary == "Tokyo trip next month"
+    assert m.entities == ["Tokyo", "user"]
+    assert m.topics == ["travel", "plans"]
+    assert m.importance == 0.85
+    # Back-compat property returns the first topic.
+    assert m.topic == "travel"
+
+
+@pytest.mark.asyncio
+async def test_generate_memories_defaults_missing_structured_fields(client):
+    """A response missing summary/entities/topics/importance should still parse
+    — the structured shape is optional and we degrade gracefully."""
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "generatedMemories": [
+            {"memory": {"fact": "Only a fact, nothing else."}}
+        ]
+    }
+    mock_response.raise_for_status = MagicMock()
+
+    with patch.object(client, "_post", new_callable=AsyncMock, return_value=mock_response):
+        memories = await client.generate_memories(
+            scope=MemoryScope(user_id="user_123"),
+            conversation_text="hi",
+        )
+
+    assert len(memories) == 1
+    m = memories[0]
+    assert m.fact == "Only a fact, nothing else."
+    assert m.summary == ""
+    assert m.entities == []
+    assert m.topics == []
+    assert m.importance == 0.5  # default
+    assert m.topic == ""
+
+
+@pytest.mark.asyncio
 async def test_retrieve_memories(client):
     """Test memories:retrieve endpoint — semantic search for relevant memories."""
     mock_response = MagicMock()

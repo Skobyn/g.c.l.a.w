@@ -61,17 +61,30 @@ class MemoryConsolidator:
         memories: list[Memory],
         similarity_threshold: float = 0.7,
     ) -> list[list[Memory]]:
+        """Group memories by their primary topic.
+
+        Uses the `topics[0]` primary topic (via the Memory.topic
+        back-compat property) so memories with no topic land in the
+        "general" bucket. Returns only groups with 2+ members — those
+        are the candidates for merge consolidation.
+        """
         by_topic: dict[str, list[Memory]] = {}
         for m in memories:
             topic = m.topic or "general"
-            if topic not in by_topic:
-                by_topic[topic] = []
-            by_topic[topic].append(m)
+            by_topic.setdefault(topic, []).append(m)
 
         return [group for group in by_topic.values() if len(group) >= 2]
 
     def prune(self, memories: list[Memory]) -> list[Memory]:
-        sorted_memories = sorted(memories, key=lambda m: m.score, reverse=True)
+        """Keep the top `_max` memories, preferring high importance.
+
+        Sort key: importance descending, score descending as a tie-break.
+        Memories with no score sort to the bottom of their importance bin.
+        """
+        def _key(m: Memory) -> tuple[float, float]:
+            return (m.importance, m.score if m.score is not None else -1.0)
+
+        sorted_memories = sorted(memories, key=_key, reverse=True)
         return sorted_memories[: self._max]
 
     async def run(self, user_id: str) -> ConsolidationResult:

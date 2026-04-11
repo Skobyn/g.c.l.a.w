@@ -163,24 +163,27 @@ class MemoryService:
     def format_for_prompt(self, memories: list[Memory]) -> str:
         """Format memories into text suitable for system prompt injection.
 
-        Groups memories by topic for readability.
+        Groups memories by their primary topic (topics[0]) for
+        readability and orders each group by importance descending —
+        so the model sees the most salient memories first within each
+        group. A memory with no topics lands in the "general" bucket.
         """
         if not memories:
             return ""
 
-        # Group by topic
-        by_topic: dict[str, list[str]] = {}
+        def _primary_topic(m: Memory) -> str:
+            return m.topics[0] if m.topics else "general"
+
+        by_topic: dict[str, list[Memory]] = {}
         for m in memories:
-            topic = m.topic or "general"
-            if topic not in by_topic:
-                by_topic[topic] = []
-            by_topic[topic].append(m.fact)
+            by_topic.setdefault(_primary_topic(m), []).append(m)
 
         lines: list[str] = []
-        for topic, facts in by_topic.items():
+        for topic, group in by_topic.items():
+            group.sort(key=lambda mem: mem.importance, reverse=True)
             lines.append(f"**{topic}:**")
-            for fact in facts:
-                lines.append(f"- {fact}")
+            for m in group:
+                lines.append(f"- {m.fact}")
             lines.append("")
 
         return "\n".join(lines).strip()

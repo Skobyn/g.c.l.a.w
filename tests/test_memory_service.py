@@ -181,3 +181,29 @@ async def test_format_memories_for_prompt(service):
 def test_format_memories_empty(service):
     """format_for_prompt returns empty string for no memories."""
     assert service.format_for_prompt([]) == ""
+
+
+def test_format_memories_sorts_each_group_by_importance(service):
+    """Within a topic group, higher-importance memories render first."""
+    memories = [
+        Memory(fact="low-signal fact", topics=["USER_PREFERENCES"], importance=0.2),
+        Memory(fact="high-signal fact", topics=["USER_PREFERENCES"], importance=0.9),
+        Memory(fact="medium-signal fact", topics=["USER_PREFERENCES"], importance=0.5),
+    ]
+
+    formatted = service.format_for_prompt(memories)
+
+    # All three render, and the high-importance one appears before the low-importance one.
+    high_pos = formatted.index("high-signal fact")
+    medium_pos = formatted.index("medium-signal fact")
+    low_pos = formatted.index("low-signal fact")
+    assert high_pos < medium_pos < low_pos
+
+
+def test_format_memories_no_topics_goes_to_general_bucket(service):
+    memories = [
+        Memory(fact="orphan fact", topics=[], importance=0.6),
+    ]
+    formatted = service.format_for_prompt(memories)
+    assert "**general:**" in formatted
+    assert "orphan fact" in formatted

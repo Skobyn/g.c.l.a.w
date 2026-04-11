@@ -67,6 +67,45 @@ class MemoryBankClient:
             d["agent"] = scope.agent
         return d
 
+    def _parse_memory_item(self, mem_data: dict[str, Any]) -> Memory:
+        """Parse one memory dict from the Memory Bank API into a Memory.
+
+        Handles the singular -> list migration for topic gracefully:
+        if the API returns `topic` (singular), promote it to `topics`.
+        Returns safe defaults for any missing structured fields so
+        historical records without the richer shape still parse.
+        """
+        # topics: accept `topics` list if present, otherwise fall back
+        # to singular `topic` and wrap it, otherwise empty list.
+        raw_topics = mem_data.get("topics")
+        if raw_topics is None:
+            singular = mem_data.get("topic")
+            topics = [singular] if singular else []
+        elif isinstance(raw_topics, list):
+            topics = [t for t in raw_topics if t]
+        else:
+            topics = [raw_topics] if raw_topics else []
+
+        entities = mem_data.get("entities") or []
+        if not isinstance(entities, list):
+            entities = []
+
+        importance_raw = mem_data.get("importance")
+        try:
+            importance = float(importance_raw) if importance_raw is not None else 0.5
+        except (TypeError, ValueError):
+            importance = 0.5
+
+        return Memory(
+            fact=mem_data.get("fact", ""),
+            summary=mem_data.get("summary", ""),
+            entities=[str(e) for e in entities],
+            topics=topics,
+            importance=importance,
+            update_time=mem_data.get("updateTime"),
+            score=mem_data.get("score"),
+        )
+
     def _parse_conversation_to_events(
         self, conversation_text: str
     ) -> list[dict[str, Any]]:
@@ -128,13 +167,7 @@ class MemoryBankClient:
         memories = []
         for item in data.get("generatedMemories", []):
             mem_data = item.get("memory", {})
-            memories.append(
-                Memory(
-                    fact=mem_data.get("fact", ""),
-                    topic=mem_data.get("topic", ""),
-                    update_time=mem_data.get("updateTime"),
-                )
-            )
+            memories.append(self._parse_memory_item(mem_data))
         return memories
 
     async def retrieve_memories(
@@ -167,14 +200,7 @@ class MemoryBankClient:
 
         memories = []
         for item in data.get("memories", []):
-            memories.append(
-                Memory(
-                    fact=item.get("fact", ""),
-                    topic=item.get("topic", ""),
-                    update_time=item.get("updateTime"),
-                    score=item.get("score"),
-                )
-            )
+            memories.append(self._parse_memory_item(item))
         return memories
 
     async def list_memories(
@@ -199,13 +225,7 @@ class MemoryBankClient:
 
         memories = []
         for item in data.get("memories", []):
-            memories.append(
-                Memory(
-                    fact=item.get("fact", ""),
-                    topic=item.get("topic", ""),
-                    update_time=item.get("updateTime"),
-                )
-            )
+            memories.append(self._parse_memory_item(item))
         return memories
 
     async def delete_memory(
