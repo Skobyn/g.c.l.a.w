@@ -19,18 +19,12 @@ class TaskProfile(str, Enum):
 
 
 class ModelEndpoint(BaseModel):
-    """A model endpoint deployed on Vertex AI or accessible via NIM."""
+    """A model endpoint — Gemini API, Vertex, or OpenAI-compatible via LiteLlm."""
 
     name: str
     endpoint_id: str
     provider: str = "gemini"
-    api_base: str | None = None
-    api_key_env: str | None = None
     max_context_tokens: int = 0
-
-    @property
-    def is_remote(self) -> bool:
-        return self.provider not in ("gemini", "vertex")
 
 
 class RoutingRule(BaseModel):

@@ -59,21 +59,19 @@ def _build_model_router(settings):
         ])
         logger.info("Gemma 4 registered (Gemini API): %s", settings.gemma_endpoint_id)
 
-    # Nemotron via OpenRouter — free tier
+    # Nemotron via OpenRouter — free tier (wrapped with LiteLlm by the router)
     if settings.nemotron_endpoint_id and settings.openrouter_api_key:
         endpoints["nemotron-3-super"] = ModelEndpoint(
             name="nemotron-3-super",
             endpoint_id=settings.nemotron_endpoint_id,
             provider="openrouter",
-            api_base="https://openrouter.ai/api/v1",
-            api_key_env="OPENROUTER_API_KEY",
             max_context_tokens=1_000_000,
         )
         rules.extend([
             RoutingRule(task_profile=TaskProfile.TOOL_EXECUTION, model_name="nemotron-3-super"),
             RoutingRule(task_profile=TaskProfile.CODE_GENERATION, model_name="nemotron-3-super"),
         ])
-        logger.info("Nemotron 3 Super registered (OpenRouter): %s", settings.nemotron_endpoint_id)
+        logger.info("Nemotron 3 Super registered (OpenRouter via LiteLlm): %s", settings.nemotron_endpoint_id)
 
     return ModelRouter(
         endpoints=endpoints,
