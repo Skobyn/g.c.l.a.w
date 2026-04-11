@@ -24,6 +24,33 @@ from gclaw.api.app import create_app
 logger = logging.getLogger(__name__)
 
 
+# Known-good Gemma model name patterns served by the Gemini API.
+# Drifts as Google releases new models — if your target isn't here,
+# add it or extend _looks_like_gemini_api_gemma.
+_GEMINI_API_GEMMA_PATTERNS = (
+    "gemma-3-",  # gemma-3-27b-it, gemma-3-12b-it, gemma-3-4b-it, gemma-3-1b-it
+    "gemma-2-",  # gemma-2-27b-it, gemma-2-9b-it, gemma-2-2b-it (if still served)
+)
+
+
+def _looks_like_gemini_api_gemma(endpoint_id: str) -> bool:
+    """True when `endpoint_id` matches a known Gemini-API Gemma pattern.
+
+    Rejects Vertex AI Model Garden identifiers like "gemma-4-26b-it"
+    or fully-qualified "publishers/google/models/..." paths that the
+    Gemini API can't resolve directly.
+    """
+    if not endpoint_id:
+        return False
+    # Strip the "models/" prefix if present — Gemini API accepts either form.
+    normalized = endpoint_id.removeprefix("models/")
+    if "/" in normalized:
+        # Anything with a slash (e.g. publishers/.../models/...) is a
+        # Model Garden path and won't resolve on the Gemini API.
+        return False
+    return any(normalized.startswith(prefix) for prefix in _GEMINI_API_GEMMA_PATTERNS)
+
+
 def _build_model_router(settings):
     """Build a ModelRouter from settings, or return None if disabled."""
     if not settings.model_routing_enabled:
@@ -47,19 +74,35 @@ def _build_model_router(settings):
     rules.append(RoutingRule(task_profile=TaskProfile.ORCHESTRATION, model_name="gemini-flash"))
     rules.append(RoutingRule(task_profile=TaskProfile.PERSONALITY, model_name="gemini-flash"))
 
-    # Gemma 4 via Gemini API — free, same API surface
+    # Gemma via Gemini API — free, same API surface.
+    # The endpoint_id must be a Gemini-API-served model name (e.g.
+    # "gemma-3-27b-it"), not a Vertex AI Model Garden identifier.
+    # When misconfigured, managers using SUMMARIZATION/BACKGROUND
+    # profiles fail downstream with "Model <id> not found" on every
+    # LLM call. This check catches the common misconfigurations at
+    # startup and *skips* registration rather than silently wiring
+    # a broken endpoint.
     if settings.gemma_endpoint_id:
-        endpoints["gemma-4"] = ModelEndpoint(
-            name="gemma-4",
-            endpoint_id=settings.gemma_endpoint_id,
-            provider="gemini",
-            max_context_tokens=256_000,
-        )
-        rules.extend([
-            RoutingRule(task_profile=TaskProfile.SUMMARIZATION, model_name="gemma-4"),
-            RoutingRule(task_profile=TaskProfile.BACKGROUND, model_name="gemma-4"),
-        ])
-        logger.info("Gemma 4 registered (Gemini API): %s", settings.gemma_endpoint_id)
+        if _looks_like_gemini_api_gemma(settings.gemma_endpoint_id):
+            endpoints["gemma-4"] = ModelEndpoint(
+                name="gemma-4",
+                endpoint_id=settings.gemma_endpoint_id,
+                provider="gemini",
+                max_context_tokens=256_000,
+            )
+            rules.extend([
+                RoutingRule(task_profile=TaskProfile.SUMMARIZATION, model_name="gemma-4"),
+                RoutingRule(task_profile=TaskProfile.BACKGROUND, model_name="gemma-4"),
+            ])
+            logger.info("Gemma registered (Gemini API): %s", settings.gemma_endpoint_id)
+        else:
+            logger.warning(
+                "GEMMA_ENDPOINT_ID=%r does not look like a Gemini API model name "
+                "(expected e.g. 'gemma-3-27b-it'). Skipping Gemma registration — "
+                "SUMMARIZATION and BACKGROUND profiles will fall back to the "
+                "default Gemini Flash model. See .env.example for valid formats.",
+                settings.gemma_endpoint_id,
+            )
 
     # Nemotron via OpenRouter — free tier (wrapped with LiteLlm by the router)
     if settings.nemotron_endpoint_id and settings.openrouter_api_key:
