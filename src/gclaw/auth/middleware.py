@@ -18,6 +18,9 @@ logger = logging.getLogger(__name__)
 # Paths that do not require authentication
 _PUBLIC_PATHS = frozenset({"/health", "/docs", "/openapi.json", "/redoc"})
 
+# Prefixes that skip auth (admin/debug endpoints)
+_PUBLIC_PREFIXES = ("/routing/",)
+
 
 class FirebaseAuthMiddleware(BaseHTTPMiddleware):
     """Verify Firebase ID token on every request (except public paths).
@@ -27,8 +30,14 @@ class FirebaseAuthMiddleware(BaseHTTPMiddleware):
     """
 
     async def dispatch(self, request: Request, call_next):
+        # Skip CORS preflight requests (browser sends OPTIONS with no auth)
+        if request.method == "OPTIONS":
+            return await call_next(request)
+
         # Skip auth for public endpoints
-        if request.url.path in _PUBLIC_PATHS:
+        if request.url.path in _PUBLIC_PATHS or any(
+            request.url.path.startswith(p) for p in _PUBLIC_PREFIXES
+        ):
             return await call_next(request)
 
         # Extract Authorization header
