@@ -134,9 +134,47 @@ def _init_firebase():
 
 
 def _build_memory_service(settings):
-    """Build MemoryService from settings, or return None if disabled."""
+    """Build a memory service from settings, or None if disabled.
+
+    Backend selection:
+      - `MEMORY_BACKEND=custom` (default) — hand-rolled MemoryBankClient
+        + MemoryService. Preserves structured memory shape and the full
+        feature set (shared channels, agent-scoped recall with merge).
+      - `MEMORY_BACKEND=native` — ADK's VertexAiMemoryBankService wrapped
+        by NativeMemoryService. Lean delegation to the blessed ADK path.
+        Same public interface; loses some structured fields.
+    """
     if not settings.memory_enabled:
         return None
+
+    # The reasoning engine ID can be a full resource path or just the
+    # numeric ID. Extract the numeric ID if a full path is given.
+    engine_id = settings.memory_bank_reasoning_engine_id
+    if "/" in engine_id:
+        engine_id = engine_id.rsplit("/", 1)[-1]
+    engine_id = engine_id or "default"
+
+    backend = settings.memory_backend.strip().lower()
+    if backend == "native":
+        from google.adk.memory.vertex_ai_memory_bank_service import (
+            VertexAiMemoryBankService,
+        )
+        from gclaw.memory.native_service import NativeMemoryService
+
+        native = VertexAiMemoryBankService(
+            project=settings.gcp_project_id,
+            location=settings.gcp_location,
+            agent_engine_id=engine_id,
+        )
+        logger.info(
+            "Memory Bank enabled (backend=native, engine=%s)", engine_id
+        )
+        return NativeMemoryService(native=native, app_name="gclaw")
+
+    if backend != "custom":
+        logger.warning(
+            "Unknown MEMORY_BACKEND=%r, falling back to 'custom'", backend
+        )
 
     import google.auth
     from gclaw.memory.client import MemoryBankClient
@@ -144,20 +182,13 @@ def _build_memory_service(settings):
 
     credentials, _ = google.auth.default()
 
-    # The reasoning engine ID can be a full resource path or just the numeric ID.
-    # Extract the numeric ID if a full path is given.
-    engine_id = settings.memory_bank_reasoning_engine_id
-    if "/" in engine_id:
-        # Full path: projects/.../reasoningEngines/123 → extract "123"
-        engine_id = engine_id.rsplit("/", 1)[-1]
-
     client = MemoryBankClient(
         project_id=settings.gcp_project_id,
         location=settings.gcp_location,
         credentials=credentials,
-        memory_bank_id=engine_id or "default",
+        memory_bank_id=engine_id,
     )
-    logger.info("Memory Bank enabled (engine: %s)", engine_id)
+    logger.info("Memory Bank enabled (backend=custom, engine=%s)", engine_id)
     return MemoryService(client=client)
 
 

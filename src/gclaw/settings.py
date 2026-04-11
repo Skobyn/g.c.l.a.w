@@ -56,6 +56,18 @@ class Settings:
             "MEMORY_ENABLED", "false"
         ).lower() == "true"
     )
+    # Which MemoryService backend to use:
+    #   "custom" — hand-rolled MemoryBankClient (default, preserves
+    #              structured memory shape and full feature set).
+    #   "native" — ADK's VertexAiMemoryBankService via NativeMemoryService
+    #              (lean, delegates to blessed ADK wrapper; loses the
+    #              summary/entities/importance structured shape because
+    #              ADK's MemoryEntry doesn't expose those fields).
+    memory_backend: str = field(
+        default_factory=lambda: os.environ.get(
+            "MEMORY_BACKEND", "custom"
+        ).lower()
+    )
     # Session settings
     session_compaction_threshold: int = field(
         default_factory=lambda: int(os.environ.get(
