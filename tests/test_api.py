@@ -88,6 +88,52 @@ async def test_chat_end(client, agent_runner):
 
 
 @pytest.mark.asyncio
+async def test_heartbeat_route_wired(board_service, agent_runner):
+    """When a HeartbeatService is passed to create_app, POST /heartbeat
+    should invoke its run() method and return 200."""
+    heartbeat_service = AsyncMock()
+    heartbeat_service.run.return_value = {
+        "orchestrator_response": "All quiet.",
+        "actions_taken": [],
+        "tasks_created": [],
+        "context": {"board_summary": {"in_progress": 0}},
+    }
+
+    application = create_app(
+        board_service=board_service,
+        agent_runner=agent_runner,
+        heartbeat_service=heartbeat_service,
+    )
+    application.dependency_overrides[get_current_user_id] = _override_user_id
+
+    transport = ASGITransport(app=application)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        resp = await c.post("/heartbeat")
+
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "completed"
+    heartbeat_service.run.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_route_absent_when_service_none(board_service, agent_runner):
+    """When no HeartbeatService is passed, POST /heartbeat returns 404
+    (route is not mounted)."""
+    application = create_app(
+        board_service=board_service,
+        agent_runner=agent_runner,
+        heartbeat_service=None,
+    )
+    application.dependency_overrides[get_current_user_id] = _override_user_id
+
+    transport = ASGITransport(app=application)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        resp = await c.post("/heartbeat")
+
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
 async def test_list_board_tasks_empty(client):
     resp = await client.get("/board/tasks")
     assert resp.status_code == 200

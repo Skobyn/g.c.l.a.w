@@ -118,6 +118,57 @@ def _build_memory_service(settings):
     return MemoryService(client=client)
 
 
+def _build_heartbeat_service(
+    *,
+    db,
+    settings,
+    dev_user_id,
+    board_service,
+    memory_service,
+    session_store,
+    runner,
+):
+    """Construct the HeartbeatService stack in dev mode.
+
+    Returns None when dev_user_id is absent (multi-tenant auth mode —
+    per-user heartbeat scheduling is a follow-up).
+    """
+    if dev_user_id is None:
+        return None
+
+    from gclaw.cron.service import CronService
+    from gclaw.firestore.cron_repo import CronRepo
+    from gclaw.heartbeat.context import HeartbeatContextGatherer
+    from gclaw.heartbeat.log import HeartbeatLogRepo
+    from gclaw.heartbeat.service import HeartbeatService
+    from gclaw.memory.consolidation import MemoryConsolidator
+
+    cron_repo = CronRepo(db=db, user_id=dev_user_id)
+    cron_service = CronService(cron_repo=cron_repo, board_service=board_service)
+    context_gatherer = HeartbeatContextGatherer(
+        board_service=board_service,
+        cron_service=cron_service,
+        memory_service=memory_service,
+        user_id=dev_user_id,
+    )
+    log_repo = HeartbeatLogRepo(db=db, user_id=dev_user_id)
+    consolidator = (
+        MemoryConsolidator(memory_service=memory_service)
+        if memory_service is not None
+        else None
+    )
+    return HeartbeatService(
+        context_gatherer=context_gatherer,
+        agent_runner=runner,
+        log_repo=log_repo,
+        user_id=dev_user_id,
+        session_id=settings.heartbeat_session_id,
+        consolidator=consolidator,
+        session_store=session_store,
+        stale_session_threshold_seconds=settings.stale_session_threshold_seconds,
+    )
+
+
 def build_app():
     settings = get_settings()
 
@@ -196,11 +247,24 @@ def build_app():
         session_store=session_store,
     )
 
+    # Heartbeat — consciousness loop triggered by Cloud Scheduler POST /heartbeat.
+    # Dev mode only for now; multi-tenant heartbeat scheduling is a follow-up.
+    heartbeat_service = _build_heartbeat_service(
+        db=db,
+        settings=settings,
+        dev_user_id=dev_user_id,
+        board_service=board_service,
+        memory_service=memory_service,
+        session_store=session_store,
+        runner=runner,
+    )
+
     return create_app(
         board_service=board_service,
         agent_runner=runner,
         model_router=model_router,
         memory_service=memory_service,
+        heartbeat_service=heartbeat_service,
         enable_auth=settings.firebase_auth_enabled,
     )
 
