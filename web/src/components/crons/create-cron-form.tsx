@@ -58,7 +58,7 @@ export function CreateCronForm({ onCreated, onCancel }: CreateCronFormProps) {
       // ApiClient doesn't expose createCron yet — call raw via fetch fallback.
       // We reach into the api object to reuse its request helper via a cast.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const created = await (api as any).request<CronInfo>("/admin/crons", {
+      const created: CronInfo = await (api as any).request("/admin/crons", {
         method: "POST",
         body: JSON.stringify(form),
       });

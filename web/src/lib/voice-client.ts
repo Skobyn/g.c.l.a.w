@@ -79,7 +79,7 @@ export class VoiceClient {
         if (this.state !== "listening" || !this.ws) return;
         const float32 = event.inputBuffer.getChannelData(0);
         const int16 = this.float32ToInt16(float32);
-        const base64 = this.arrayBufferToBase64(int16.buffer);
+        const base64 = this.arrayBufferToBase64(int16.buffer as ArrayBuffer);
         const msg: VoiceClientMessage = { type: "audio", data: base64 };
         this.ws.send(JSON.stringify(msg));
       };
