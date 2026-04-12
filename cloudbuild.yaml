@@ -52,7 +52,18 @@ steps:
       - --region=${_REGION}
       - --platform=managed
       - --allow-unauthenticated
-      - --set-env-vars=GCP_PROJECT_ID=apex-internal-apps,GCP_LOCATION=us-central1,FIRESTORE_DATABASE=(default),MODEL_ROUTING_ENABLED=false,MEMORY_ENABLED=false,FIREBASE_AUTH_ENABLED=false
+      # Dedicated runtime service account with least-privilege roles:
+      # aiplatform.user (Gemini via Vertex AI + Memory Bank), datastore.user
+      # (Firestore), logging.logWriter, monitoring.metricWriter. Replaces
+      # the default compute SA so other Cloud Run services in this project
+      # aren't broadened when we grant GClaw new permissions.
+      - --service-account=gclaw-run-sa@apex-internal-apps.iam.gserviceaccount.com
+      # GOOGLE_GENAI_USE_VERTEXAI + GOOGLE_CLOUD_PROJECT + GOOGLE_CLOUD_LOCATION
+      # route ADK's google.genai client through Vertex AI (auth via ADC from
+      # the Cloud Run service account) rather than the public Gemini API path
+      # (which requires GOOGLE_API_KEY). Without these, every /chat request
+      # fails at the first LLM call with "No API key was provided".
+      - --set-env-vars=GCP_PROJECT_ID=apex-internal-apps,GCP_LOCATION=us-central1,FIRESTORE_DATABASE=(default),GOOGLE_GENAI_USE_VERTEXAI=TRUE,GOOGLE_CLOUD_PROJECT=apex-internal-apps,GOOGLE_CLOUD_LOCATION=us-central1,MODEL_ROUTING_ENABLED=false,MEMORY_ENABLED=false,FIREBASE_AUTH_ENABLED=false
       - --quiet
     waitFor: [push-sha]
 
