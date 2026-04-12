@@ -105,4 +105,23 @@ def create_app(
     def health():
         return {"status": "ok"}
 
+    @app.get("/")
+    def root():
+        """Minimal landing JSON — hitting the bare URL in a browser
+        used to return FastAPI's default 404. This handler gives
+        visitors a pointer to the API explorer and the main endpoints.
+        """
+        return {
+            "service": "GClaw",
+            "version": app.version,
+            "docs": "/docs",
+            "health": "/health",
+            "chat": {
+                "send": "POST /chat",
+                "end": "POST /chat/end",
+            },
+            "board": "GET /board/tasks",
+            "heartbeat": "POST /heartbeat",
+        }
+
     return app

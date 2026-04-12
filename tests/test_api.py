@@ -60,6 +60,19 @@ async def test_health(client):
 
 
 @pytest.mark.asyncio
+async def test_root_landing(client):
+    """GET / returns a small JSON pointing visitors at the API
+    explorer instead of FastAPI's default 404."""
+    resp = await client.get("/")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["service"] == "GClaw"
+    assert data["docs"] == "/docs"
+    assert data["health"] == "/health"
+    assert "chat" in data
+
+
+@pytest.mark.asyncio
 async def test_chat(client, agent_runner):
     agent_runner.run.return_value = AgentResponse(
         text="Hello! I'm GClaw.", is_final=True
