@@ -73,11 +73,7 @@ def create_app(
 
     app.include_router(init_voice_router(gemini_live_model))
 
-    if (
-        config_loader is not None
-        and skill_registry is not None
-        and memory_service is not None
-    ):
+    if config_loader is not None and skill_registry is not None:
         app.include_router(init_admin_router(
             config_loader=config_loader,
             heartbeat_log_repo_factory=heartbeat_log_repo_factory,

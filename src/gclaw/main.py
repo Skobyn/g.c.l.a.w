@@ -192,6 +192,12 @@ def _build_memory_service(settings):
     return MemoryService(client=client)
 
 
+def _make_heartbeat_log_factory(db):
+    """Return a callable uid → HeartbeatLogRepo for the admin dashboard."""
+    from gclaw.heartbeat.log import HeartbeatLogRepo
+    return lambda uid: HeartbeatLogRepo(db=db, user_id=uid)
+
+
 def _build_heartbeat_service(
     *,
     db,
@@ -268,6 +274,12 @@ def build_app():
     # Memory
     memory_service = _build_memory_service(settings)
 
+    # Cron service — used by admin routes + heartbeat
+    from gclaw.cron.service import CronService
+    from gclaw.firestore.cron_repo import CronRepo
+    cron_repo = CronRepo(db=db, user_id=dev_user_id or "default_user")
+    cron_service = CronService(cron_repo=cron_repo, board_service=board_service)
+
     # Config + skills
     from gclaw.skill.loader import SkillLoader
     from gclaw.skill.registry import SkillRegistry
@@ -337,7 +349,13 @@ def build_app():
         agent_runner=runner,
         model_router=model_router,
         memory_service=memory_service,
+        config_loader=loader,
+        skill_registry=skill_registry,
+        cron_service=cron_service,
         heartbeat_service=heartbeat_service,
+        heartbeat_log_repo_factory=(
+            _make_heartbeat_log_factory(db)
+        ) if dev_user_id is not None else None,
         enable_auth=settings.firebase_auth_enabled,
     )
 

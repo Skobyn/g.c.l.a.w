@@ -39,10 +39,10 @@ _cron_service: CronService | None = None
 
 def init_admin_router(
     config_loader: ConfigLoader,
-    heartbeat_log_repo_factory: Callable[[str], HeartbeatLogRepo],
-    skill_registry: SkillRegistry,
-    memory_service: MemoryService,
-    cron_service: CronService,
+    heartbeat_log_repo_factory: Callable[[str], HeartbeatLogRepo] | None = None,
+    skill_registry: SkillRegistry | None = None,
+    memory_service: MemoryService | None = None,
+    cron_service: CronService | None = None,
 ) -> APIRouter:
     global _config_loader, _hb_repo_factory, _skill_registry
     global _memory_service, _cron_service
@@ -165,6 +165,8 @@ async def search_memories(
     user_id: str = Depends(get_current_user_id),
 ):
     """Search memories via semantic search."""
+    if _memory_service is None:
+        raise HTTPException(status_code=503, detail="Memory service not enabled")
     memories = await _memory_service.recall(
         user_id=user_id,
         query=q,
@@ -180,6 +182,8 @@ async def list_memories(
     user_id: str = Depends(get_current_user_id),
 ):
     """List all memories for the authenticated user."""
+    if _memory_service is None:
+        raise HTTPException(status_code=503, detail="Memory service not enabled")
     scope = MemoryScope(user_id=user_id, agent=agent_id)
     memories = await _memory_service._client.list_memories(scope=scope)
     return [m.model_dump(mode="json") for m in memories]
@@ -196,6 +200,8 @@ async def delete_memory(
     user_id: str = Depends(get_current_user_id),
 ):
     """Delete a specific memory by its fact text."""
+    if _memory_service is None:
+        raise HTTPException(status_code=503, detail="Memory service not enabled")
     scope = MemoryScope(user_id=user_id, agent=req.agent_id)
     await _memory_service._client.delete_memory(scope=scope, fact=req.fact)
     return {"status": "deleted"}
