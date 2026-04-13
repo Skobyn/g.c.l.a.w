@@ -35,6 +35,7 @@ COPY pyproject.toml .
 COPY src/ src/
 COPY soul/ soul/
 COPY agents/ agents/
+COPY skills/ skills/
 
 RUN pip install --no-cache-dir .
 

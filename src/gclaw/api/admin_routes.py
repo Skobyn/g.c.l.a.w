@@ -105,11 +105,23 @@ def get_soul_file(
     name: str,
     user_id: str = Depends(get_current_user_id),
 ):
-    """Read a soul file by name (e.g., 'base', 'workspace')."""
+    """Read a soul file by name (e.g., 'base', 'workspace').
+
+    Also accepts agent names like 'dev-mgr' — maps to the soul
+    overlay by taking the first segment before the hyphen ('dev').
+    """
     try:
         content = _config_loader.load_soul(name)
         return {"name": name, "content": content}
     except FileNotFoundError:
+        # Try mapping agent name → soul overlay (e.g. dev-mgr → dev)
+        if "-" in name:
+            overlay = name.split("-")[0]
+            try:
+                content = _config_loader.load_soul(overlay)
+                return {"name": overlay, "content": content}
+            except FileNotFoundError:
+                pass
         raise HTTPException(status_code=404, detail=f"Soul file '{name}' not found")
 
 
@@ -123,8 +135,15 @@ def update_soul_file(
     req: SoulUpdateRequest,
     user_id: str = Depends(get_current_user_id),
 ):
-    """Update a soul file's content."""
+    """Update a soul file's content.
+
+    Accepts agent names (dev-mgr → dev) like the GET endpoint.
+    """
+    resolved = name
     soul_path = os.path.join(_config_loader._config_dir, "soul", f"{name}.md")
+    if not os.path.isfile(soul_path) and "-" in name:
+        resolved = name.split("-")[0]
+        soul_path = os.path.join(_config_loader._config_dir, "soul", f"{resolved}.md")
     if not os.path.isfile(soul_path):
         raise HTTPException(status_code=404, detail=f"Soul file '{name}' not found")
     with open(soul_path, "w") as f:
