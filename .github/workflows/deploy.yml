@@ -42,6 +42,8 @@ jobs:
         run: uv sync --extra dev
 
       - name: Run tests
+        env:
+          GCP_PROJECT_ID: test-project
         run: uv run pytest tests/ -q --ignore=tests/test_integration_litellm_providers.py
 
   # ── Deploy backend (FastAPI → Cloud Run: gclaw) ────────────────────

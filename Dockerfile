@@ -42,4 +42,4 @@ ENV GCLAW_CONFIG_DIR=/app
 
 EXPOSE 8080
 
-CMD ["python", "-m", "gclaw.main"]
+CMD ["python", "-m", "uvicorn", "gclaw.main:app", "--factory", "--host", "0.0.0.0", "--port", "8080"]

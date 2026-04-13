@@ -360,10 +360,17 @@ def build_app():
     )
 
 
-app = build_app()
+# Lazy factory so importing this module for tests (e.g. importing
+# _looks_like_gemini_api_gemma) doesn't trigger build_app() which
+# requires GCP_PROJECT_ID and other env vars not present in CI.
+# uvicorn calls the factory via --factory flag; the Dockerfile's
+# CMD already uses `python -m gclaw.main` which hits __main__.
+def app():
+    return build_app()
+
 
 if __name__ == "__main__":
     import uvicorn
 
     port = int(os.environ.get("PORT", 8080))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    uvicorn.run("gclaw.main:app", factory=True, host="0.0.0.0", port=port)
