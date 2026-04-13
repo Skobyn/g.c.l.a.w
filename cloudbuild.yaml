@@ -63,7 +63,7 @@ steps:
       # the Cloud Run service account) rather than the public Gemini API path
       # (which requires GOOGLE_API_KEY). Without these, every /chat request
       # fails at the first LLM call with "No API key was provided".
-      - --set-env-vars=GCP_PROJECT_ID=apex-internal-apps,GCP_LOCATION=us-central1,FIRESTORE_DATABASE=(default),GOOGLE_GENAI_USE_VERTEXAI=TRUE,GOOGLE_CLOUD_PROJECT=apex-internal-apps,GOOGLE_CLOUD_LOCATION=us-central1,MODEL_ROUTING_ENABLED=false,MEMORY_ENABLED=false,FIREBASE_AUTH_ENABLED=false
+      - --set-env-vars=GCP_PROJECT_ID=apex-internal-apps,GCP_LOCATION=us-central1,FIRESTORE_DATABASE=(default),GOOGLE_GENAI_USE_VERTEXAI=TRUE,GOOGLE_CLOUD_PROJECT=apex-internal-apps,GOOGLE_CLOUD_LOCATION=us-central1,MODEL_ROUTING_ENABLED=false,MEMORY_ENABLED=true,MEMORY_BANK_REASONING_ENGINE_ID=1568060811371347968,FIREBASE_AUTH_ENABLED=false
       - --quiet
     waitFor: [push-sha]
 
