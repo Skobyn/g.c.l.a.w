@@ -24,9 +24,16 @@ logger = logging.getLogger(__name__)
 class UsageRecorder:
     """Async-safe, exception-safe wrapper over :class:`UsageRepo`."""
 
-    def __init__(self, repo: UsageRepo | None, *, enabled: bool = True) -> None:
+    def __init__(
+        self,
+        repo: UsageRepo | None,
+        *,
+        enabled: bool = True,
+        cost_lookup: Callable[[str, int, int], float | None] | None = None,
+    ) -> None:
         self._repo = repo
         self._enabled = enabled and repo is not None
+        self._cost_lookup = cost_lookup
 
     @property
     def enabled(self) -> bool:
@@ -64,6 +71,19 @@ class UsageRecorder:
         caller: str | None = None,
         metadata: dict | None = None,
     ) -> None:
+        if (
+            cost_usd is None
+            and self._cost_lookup is not None
+            and tokens_in is not None
+            and tokens_out is not None
+        ):
+            try:
+                cost_usd = self._cost_lookup(model_id, tokens_in, tokens_out)
+            except Exception:
+                logger.warning(
+                    "usage: cost_lookup failed for %s", model_id, exc_info=True,
+                )
+                cost_usd = None
         self._emit(UsageEvent(
             kind=UsageKind.MODEL,
             name=model_id,

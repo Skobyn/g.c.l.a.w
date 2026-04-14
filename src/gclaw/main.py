@@ -449,9 +449,14 @@ def build_app():
 
     # Usage telemetry — records model/agent/skill/tool events.
     usage_repo = UsageRepo(db=db, user_id=dev_user_id or "system")
+    cost_lookup = None
+    if catalog_service is not None:
+        from gclaw.usage.cost import build_catalog_cost_lookup
+        cost_lookup = build_catalog_cost_lookup(catalog_service)
     usage_recorder = UsageRecorder(
         repo=usage_repo,
         enabled=settings.usage_telemetry_enabled,
+        cost_lookup=cost_lookup,
     )
     set_recorder(usage_recorder)
 
