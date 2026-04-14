@@ -87,10 +87,21 @@ def test_gather_with_tasks(gatherer, board_service, cron_service):
 
 def test_gather_with_crons(gatherer, board_service, cron_service):
     board_service.get_all_tasks.return_value = []
+    from gclaw.models.cron import AgentTurnPayload, CronExprSchedule
     cron_service.list_all.return_value = [
-        Cron(title="C1", schedule="0 8 * * *", assignee="dev-mgr"),
-        Cron(title="C2", schedule="0 9 * * *", assignee="workspace-mgr",
-             mode=CronMode.AUTO),
+        Cron(
+            title="C1",
+            schedule=CronExprSchedule(expr="0 8 * * *"),
+            payload=AgentTurnPayload(message="do"),
+            assignee="dev-mgr",
+        ),
+        Cron(
+            title="C2",
+            schedule=CronExprSchedule(expr="0 9 * * *"),
+            payload=AgentTurnPayload(message="do"),
+            assignee="workspace-mgr",
+            mode=CronMode.AUTO,
+        ),
     ]
 
     ctx = gatherer.gather()

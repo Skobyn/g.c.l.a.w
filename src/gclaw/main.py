@@ -18,7 +18,9 @@ from gclaw.dispatch.runner import AgentRunner
 from gclaw.firestore.client import get_firestore_client
 from gclaw.firestore.board_repo import BoardRepo
 from gclaw.firestore.session_repo import SessionRepo
+from gclaw.firestore.usage_repo import UsageRepo
 from gclaw.session.service import SessionService
+from gclaw.usage.recorder import UsageRecorder, set_recorder
 from gclaw.api.app import create_app
 
 logger = logging.getLogger(__name__)
@@ -198,7 +200,19 @@ def _make_heartbeat_log_factory(db):
     return lambda uid: HeartbeatLogRepo(db=db, user_id=uid)
 
 
-def _build_heartbeat_service(
+def _iter_agent_names(config_dir: str) -> list[str]:
+    """Return agent names discovered under ``config_dir/agents/*.md``."""
+    agents_dir = os.path.join(config_dir, "agents")
+    if not os.path.isdir(agents_dir):
+        return []
+    names: list[str] = []
+    for fname in sorted(os.listdir(agents_dir)):
+        if fname.endswith(".md"):
+            names.append(fname.removesuffix(".md"))
+    return names
+
+
+def _build_heartbeat_registry(
     *,
     db,
     settings,
@@ -207,24 +221,36 @@ def _build_heartbeat_service(
     memory_service,
     session_store,
     runner,
+    config_loader,
+    delivery_service,
 ):
-    """Construct the HeartbeatService stack in dev mode.
+    """Build a HeartbeatRegistry containing one HeartbeatService per
+    agent that opted into the heartbeat via YAML frontmatter.
 
-    Returns None when dev_user_id is absent (multi-tenant auth mode —
-    per-user heartbeat scheduling is a follow-up).
+    Always returns a registry (possibly empty). Returns ``None`` only
+    when ``dev_user_id`` is absent (multi-tenant auth mode — per-user
+    heartbeat scheduling is a follow-up).
     """
     if dev_user_id is None:
         return None
 
     from gclaw.cron.service import CronService
+    from gclaw.firestore.cron_event_queue_repo import CronEventQueueRepo
     from gclaw.firestore.cron_repo import CronRepo
     from gclaw.heartbeat.context import HeartbeatContextGatherer
     from gclaw.heartbeat.log import HeartbeatLogRepo
+    from gclaw.heartbeat.registry import HeartbeatRegistry
     from gclaw.heartbeat.service import HeartbeatService
     from gclaw.memory.consolidation import MemoryConsolidator
 
     cron_repo = CronRepo(db=db, user_id=dev_user_id)
-    cron_service = CronService(cron_repo=cron_repo, board_service=board_service)
+    cron_event_queue_repo = CronEventQueueRepo(db=db, user_id=dev_user_id)
+    cron_service = CronService(
+        cron_repo=cron_repo,
+        board_service=board_service,
+        cron_event_queue_repo=cron_event_queue_repo,
+        delivery_service=delivery_service,
+    )
     context_gatherer = HeartbeatContextGatherer(
         board_service=board_service,
         cron_service=cron_service,
@@ -237,16 +263,56 @@ def _build_heartbeat_service(
         if memory_service is not None
         else None
     )
-    return HeartbeatService(
-        context_gatherer=context_gatherer,
-        agent_runner=runner,
-        log_repo=log_repo,
-        user_id=dev_user_id,
-        session_id=settings.heartbeat_session_id,
-        consolidator=consolidator,
-        session_store=session_store,
-        stale_session_threshold_seconds=settings.stale_session_threshold_seconds,
+
+    registry = HeartbeatRegistry()
+
+    agent_names = _iter_agent_names(settings.config_dir)
+    # Always ensure orchestrator is represented (even without frontmatter)
+    # so legacy POST /heartbeat keeps working.
+    if "orchestrator" not in agent_names:
+        agent_names.insert(0, "orchestrator")
+
+    for name in agent_names:
+        try:
+            cfg = config_loader.load_agent_heartbeat_config(name)
+        except Exception:
+            logger.warning(
+                "Failed to load heartbeat config for agent %s", name,
+                exc_info=True,
+            )
+            cfg = None
+
+        # Orchestrator always gets a service (legacy trigger). Other
+        # agents only get one if they opted in via frontmatter.
+        if cfg is None:
+            if name != "orchestrator":
+                continue
+            from gclaw.heartbeat.config import HeartbeatConfig
+            cfg = HeartbeatConfig(enabled=False)
+
+        service = HeartbeatService(
+            context_gatherer=context_gatherer,
+            agent_runner=runner,
+            log_repo=log_repo,
+            user_id=dev_user_id,
+            session_id=settings.heartbeat_session_id,
+            consolidator=consolidator,
+            session_store=session_store,
+            stale_session_threshold_seconds=(
+                settings.stale_session_threshold_seconds
+            ),
+            agent_name=name,
+            heartbeat_config=cfg,
+            cron_event_queue_repo=cron_event_queue_repo,
+        )
+        registry.register(name, service, cfg)
+
+    logger.info(
+        "heartbeat: registered %d agent service(s): %s",
+        len(registry.all_agents()),
+        registry.all_agents(),
     )
+    return registry
 
 
 def build_app():
@@ -268,17 +334,71 @@ def build_app():
     board_repo = BoardRepo(db=db, user_id=dev_user_id)
     board_service = BoardService(repo=board_repo, user_id=dev_user_id)
 
-    # Model routing
-    model_router = _build_model_router(settings)
+    # Catalog (providers + models)
+    catalog_service = None
+    if settings.catalog_enabled:
+        from gclaw.catalog.service import CatalogService
+        from gclaw.firestore.catalog_repo import ModelRepo, ProviderRepo
+        catalog_service = CatalogService(
+            provider_repo=ProviderRepo(db=db),
+            model_repo=ModelRepo(db=db),
+        )
+
+    # Model routing — prefer catalog-backed router when populated.
+    model_router = None
+    if (
+        settings.catalog_enabled
+        and settings.model_routing_enabled
+        and catalog_service is not None
+    ):
+        try:
+            enabled_models = [
+                m for m in catalog_service.list_models() if m.enabled
+            ]
+        except Exception:
+            enabled_models = []
+            logger.warning(
+                "catalog: list_models failed, falling back to hardcoded router",
+                exc_info=True,
+            )
+        if enabled_models:
+            from gclaw.routing.catalog_loader import load_endpoints_from_catalog
+            model_router = load_endpoints_from_catalog(
+                catalog_service,
+                fallback_flash_model=settings.gemini_flash_model,
+            )
+            logger.info(
+                "model router: loaded %d endpoints from catalog",
+                len(enabled_models),
+            )
+    if model_router is None:
+        model_router = _build_model_router(settings)
 
     # Memory
     memory_service = _build_memory_service(settings)
 
-    # Cron service — used by admin routes + heartbeat
+    # Cron service — used by admin routes + heartbeat. The delivery
+    # service is constructed ONCE and shared with both the user-facing
+    # CronService (admin API) and the per-agent CronService inside the
+    # heartbeat registry, so there's a single announce transport in
+    # flight at any time.
+    from gclaw.cron.delivery import (
+        CronDeliveryService,
+        build_transport_registry,
+    )
     from gclaw.cron.service import CronService
     from gclaw.firestore.cron_repo import CronRepo
     cron_repo = CronRepo(db=db, user_id=dev_user_id or "default_user")
-    cron_service = CronService(cron_repo=cron_repo, board_service=board_service)
+    transports, default_transport = build_transport_registry(settings)
+    cron_delivery = CronDeliveryService(
+        transports=transports,
+        default_transport=default_transport,
+    )
+    cron_service = CronService(
+        cron_repo=cron_repo,
+        board_service=board_service,
+        delivery_service=cron_delivery,
+    )
 
     # Config + skills
     from gclaw.skill.loader import SkillLoader
@@ -296,6 +416,7 @@ def build_app():
         default_model=settings.gemini_flash_model,
         model_router=model_router,
         skill_registry=skill_registry,
+        catalog_service=catalog_service,
     )
 
     # Orchestrator
@@ -322,6 +443,14 @@ def build_app():
         user_id=dev_user_id,
     )
 
+    # Usage telemetry — records model/agent/skill/tool events.
+    usage_repo = UsageRepo(db=db, user_id=dev_user_id or "system")
+    usage_recorder = UsageRecorder(
+        repo=usage_repo,
+        enabled=settings.usage_telemetry_enabled,
+    )
+    set_recorder(usage_recorder)
+
     # Runner
     runner = AgentRunner(
         agent=orchestrator,
@@ -330,11 +459,14 @@ def build_app():
         memory_service=memory_service,
         board_service=board_service,
         session_store=session_store,
+        usage_recorder=usage_recorder,
     )
 
-    # Heartbeat — consciousness loop triggered by Cloud Scheduler POST /heartbeat.
-    # Dev mode only for now; multi-tenant heartbeat scheduling is a follow-up.
-    heartbeat_service = _build_heartbeat_service(
+    # Heartbeat — consciousness loop triggered by Cloud Scheduler POST /heartbeat
+    # and (when HEARTBEAT_PER_AGENT_ENABLED) by the in-process background
+    # loop. Dev mode only for now; multi-tenant heartbeat scheduling is a
+    # follow-up.
+    heartbeat_registry = _build_heartbeat_registry(
         db=db,
         settings=settings,
         dev_user_id=dev_user_id,
@@ -342,6 +474,14 @@ def build_app():
         memory_service=memory_service,
         session_store=session_store,
         runner=runner,
+        config_loader=loader,
+        delivery_service=cron_delivery,
+    )
+    # Default/legacy service — the orchestrator's, for POST /heartbeat.
+    heartbeat_service = (
+        heartbeat_registry.get("orchestrator")
+        if heartbeat_registry is not None
+        else None
     )
 
     return create_app(
@@ -352,11 +492,17 @@ def build_app():
         config_loader=loader,
         skill_registry=skill_registry,
         cron_service=cron_service,
+        cron_delivery_service=cron_delivery,
         heartbeat_service=heartbeat_service,
+        heartbeat_registry=heartbeat_registry,
+        heartbeat_loop_enabled=settings.heartbeat_per_agent_enabled,
+        heartbeat_scheduler_seed=settings.heartbeat_scheduler_seed,
         heartbeat_log_repo_factory=(
             _make_heartbeat_log_factory(db)
         ) if dev_user_id is not None else None,
         enable_auth=settings.firebase_auth_enabled,
+        catalog_service=catalog_service,
+        usage_repo=usage_repo,
     )
 
 

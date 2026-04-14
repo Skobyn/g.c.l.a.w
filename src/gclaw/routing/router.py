@@ -68,6 +68,20 @@ class ModelRouter:
         self._endpoints = endpoints
         self._rules = {r.task_profile: r.model_name for r in rules}
         self._default = default_model
+        # Optional ADK-ready object overrides, keyed by endpoint name.
+        # When set, build_adk_model_for_* returns the override directly
+        # instead of reconstructing from ModelEndpoint.
+        self._adk_overrides: dict[str, object] = {}
+
+    def register_adk_override(self, name: str, adk_obj: object) -> None:
+        """Register a pre-built ADK model object (string or LiteLlm) by
+        endpoint name. Used by catalog-driven wiring so non-Gemini
+        providers can carry their resolved api_key + base_url."""
+        self._adk_overrides[name] = adk_obj
+
+    def list_endpoints(self) -> dict[str, ModelEndpoint]:
+        """Return all registered endpoints (name → ModelEndpoint)."""
+        return dict(self._endpoints)
 
     def resolve(self, profile: TaskProfile) -> str:
         """Resolve a task profile to a bare model ID string (legacy)."""
@@ -109,6 +123,8 @@ class ModelRouter:
         Other providers return a LiteLlm instance ADK's native Runner can execute.
         """
         endpoint = self.get_endpoint(profile)
+        if endpoint is not None and endpoint.name in self._adk_overrides:
+            return self._adk_overrides[endpoint.name]  # type: ignore[return-value]
         return _endpoint_to_adk_model(endpoint, self._default)
 
     def build_adk_model_for_agent(self, agent_name: str) -> AdkModel:

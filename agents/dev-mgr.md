@@ -1,3 +1,6 @@
+---
+model: "My OpenAI/gpt-4o"
+---
 You are the Dev Manager agent in GClaw.
 
 ## Role

@@ -23,6 +23,21 @@ import type {
   CrossUserTaskRequest,
   OnboardingStepResponse,
   OnboardingStatus,
+  HeartbeatEvent,
+  HeartbeatHealth,
+  TransportInfo,
+  Provider,
+  ProviderSummary,
+  ProviderCreate,
+  ProviderUpdate,
+  CatalogModel,
+  ModelCreate,
+  ModelUpdate,
+  Presets,
+  TestModelResult,
+  UsageEvent,
+  UsageKind,
+  UsageSummary,
 } from "@/types";
 
 export class ApiClient {
@@ -129,10 +144,36 @@ export class ApiClient {
     return this.request<AgentInfo[]>("/admin/agents");
   }
 
+  async getTransports(): Promise<TransportInfo> {
+    return this.request<TransportInfo>("/admin/transports");
+  }
+
   // --- Admin: Heartbeat Logs ---
 
   async getHeartbeatLogs(limit = 20): Promise<HeartbeatLogEntry[]> {
     return this.request<HeartbeatLogEntry[]>(`/admin/heartbeat-logs?limit=${limit}`);
+  }
+
+  async getHeartbeatEvents(
+    limit = 50,
+    agentId?: string,
+  ): Promise<HeartbeatEvent[]> {
+    let url = `/admin/heartbeat/events?limit=${limit}`;
+    if (agentId) url += `&agent_id=${encodeURIComponent(agentId)}`;
+    return this.request<HeartbeatEvent[]>(url);
+  }
+
+  async getHeartbeatHealth(): Promise<HeartbeatHealth> {
+    return this.request<HeartbeatHealth>("/admin/heartbeat/health");
+  }
+
+  async triggerHeartbeat(
+    agentId: string,
+  ): Promise<{ event: HeartbeatEvent | null }> {
+    return this.post(
+      `/admin/heartbeat/trigger?agent_id=${encodeURIComponent(agentId)}`,
+      {},
+    );
   }
 
   // --- Admin: Soul Files ---
@@ -251,6 +292,120 @@ export class ApiClient {
 
   async getOnboardingStatus(): Promise<OnboardingStatus> {
     return this.get<OnboardingStatus>("/onboarding/status");
+  }
+
+  // --- Admin: Model Catalog ---
+
+  async listProviders(): Promise<ProviderSummary[]> {
+    return this.get<ProviderSummary[]>("/admin/model-providers");
+  }
+
+  async getProvider(id: string): Promise<Provider> {
+    return this.get<Provider>(`/admin/model-providers/${encodeURIComponent(id)}`);
+  }
+
+  async createProvider(body: ProviderCreate): Promise<Provider> {
+    return this.request<Provider>("/admin/model-providers", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  }
+
+  async updateProvider(id: string, body: ProviderUpdate): Promise<Provider> {
+    return this.request<Provider>(
+      `/admin/model-providers/${encodeURIComponent(id)}`,
+      { method: "PATCH", body: JSON.stringify(body) },
+    );
+  }
+
+  async deleteProvider(id: string): Promise<void> {
+    await this.request<{ deleted: boolean }>(
+      `/admin/model-providers/${encodeURIComponent(id)}`,
+      { method: "DELETE" },
+    );
+  }
+
+  async listModels(providerId?: string): Promise<CatalogModel[]> {
+    const q = providerId
+      ? `?provider_id=${encodeURIComponent(providerId)}`
+      : "";
+    return this.get<CatalogModel[]>(`/admin/models${q}`);
+  }
+
+  async getModel(id: string): Promise<CatalogModel> {
+    return this.get<CatalogModel>(`/admin/models/${encodeURIComponent(id)}`);
+  }
+
+  async createModel(body: ModelCreate): Promise<CatalogModel> {
+    return this.request<CatalogModel>("/admin/models", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  }
+
+  async updateModel(id: string, body: ModelUpdate): Promise<CatalogModel> {
+    return this.request<CatalogModel>(
+      `/admin/models/${encodeURIComponent(id)}`,
+      { method: "PATCH", body: JSON.stringify(body) },
+    );
+  }
+
+  async deleteModel(id: string): Promise<void> {
+    await this.request<{ deleted: boolean }>(
+      `/admin/models/${encodeURIComponent(id)}`,
+      { method: "DELETE" },
+    );
+  }
+
+  async testModel(id: string): Promise<TestModelResult> {
+    return this.post<TestModelResult>(
+      `/admin/models/${encodeURIComponent(id)}/test`,
+      {},
+    );
+  }
+
+  async getPresets(): Promise<Presets> {
+    return this.get<Presets>("/admin/model-presets");
+  }
+
+  // --- Admin: Usage / Observability ---
+
+  async getUsageEvents(opts?: {
+    kind?: UsageKind;
+    limit?: number;
+    since?: string;
+  }): Promise<UsageEvent[]> {
+    const params = new URLSearchParams();
+    if (opts?.kind) params.set("kind", opts.kind);
+    if (opts?.limit !== undefined) params.set("limit", String(opts.limit));
+    if (opts?.since) params.set("since", opts.since);
+    const q = params.toString();
+    return this.get<UsageEvent[]>(
+      `/admin/usage/events${q ? `?${q}` : ""}`,
+    );
+  }
+
+  async getUsageSummary(opts?: {
+    since?: string;
+    topN?: number;
+  }): Promise<UsageSummary> {
+    const params = new URLSearchParams();
+    if (opts?.since) params.set("since", opts.since);
+    if (opts?.topN !== undefined) params.set("top_n", String(opts.topN));
+    const q = params.toString();
+    return this.get<UsageSummary>(
+      `/admin/usage/summary${q ? `?${q}` : ""}`,
+    );
+  }
+
+  async installPresets(
+    providerId: string,
+    modelIds: string[],
+  ): Promise<{ created: CatalogModel[] }> {
+    return this.post<{ created: CatalogModel[] }>(
+      `/admin/model-providers/${encodeURIComponent(providerId)}/install-presets`,
+      { model_ids: modelIds },
+    );
   }
 }
 

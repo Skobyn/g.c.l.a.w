@@ -45,6 +45,26 @@ class Settings:
             "HEARTBEAT_SESSION_ID", "heartbeat"
         )
     )
+    # Per-agent heartbeat feature flag. When false, keep the legacy global
+    # HeartbeatService wiring. When true, the scheduler will honor each
+    # agent's `heartbeat` frontmatter block.
+    heartbeat_per_agent_enabled: bool = field(
+        default_factory=lambda: os.environ.get(
+            "HEARTBEAT_PER_AGENT_ENABLED", "false"
+        ).lower() == "true"
+    )
+    heartbeat_default_every: str = field(
+        default_factory=lambda: os.environ.get(
+            "HEARTBEAT_DEFAULT_EVERY", "30m"
+        )
+    )
+    # Seed used by the phase-staggered scheduler to compute deterministic
+    # per-agent phase offsets so heartbeats don't all align to the same tick.
+    heartbeat_scheduler_seed: str = field(
+        default_factory=lambda: os.environ.get(
+            "HEARTBEAT_SCHEDULER_SEED", "gclaw-default-seed"
+        )
+    )
     # Memory Bank settings
     memory_bank_reasoning_engine_id: str = field(
         default_factory=lambda: os.environ.get(
@@ -115,6 +135,28 @@ class Settings:
     )
     openrouter_api_key: str = field(
         default_factory=lambda: os.environ.get("OPENROUTER_API_KEY", "")
+    )
+    # Persistent model catalog — when enabled and a catalog exists with
+    # ≥1 enabled model, ModelRouter is built from the catalog instead of
+    # the hardcoded env-var path in main.py::_build_model_router.
+    catalog_enabled: bool = field(
+        default_factory=lambda: os.environ.get(
+            "CATALOG_ENABLED", "true"
+        ).lower() == "true"
+    )
+    # Cron announce transport backend. "logging" (default, safe) or
+    # "google_chat" (routes DeliveryAnnounce messages through the gws
+    # CLI via post_chat_message). Unknown values fall back to logging.
+    cron_announce_backend: str = field(
+        default_factory=lambda: os.environ.get(
+            "CRON_ANNOUNCE_BACKEND", "logging"
+        )
+    )
+    # Usage telemetry (unified usage collector)
+    usage_telemetry_enabled: bool = field(
+        default_factory=lambda: os.environ.get(
+            "USAGE_TELEMETRY_ENABLED", "true"
+        ).lower() == "true"
     )
     google_workspace_credentials_file: str = field(
         default_factory=lambda: os.environ.get(

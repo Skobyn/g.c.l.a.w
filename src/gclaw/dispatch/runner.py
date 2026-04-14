@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -23,6 +24,7 @@ from gclaw.models.memory import DEFAULT_EXTRACTION_TOPICS
 if TYPE_CHECKING:
     from gclaw.memory.service import MemoryService
     from gclaw.session.service import SessionService
+    from gclaw.usage.recorder import UsageRecorder
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +55,7 @@ class AgentRunner:
         board_service: object | None = None,
         session_store: "SessionService | None" = None,
         extraction_topics: list[str] | None = None,
+        usage_recorder: "UsageRecorder | None" = None,
     ) -> None:
         self._agent = agent
         self._app_name = app_name
@@ -60,6 +63,7 @@ class AgentRunner:
         self._memory_service = memory_service
         self._board_service = board_service
         self._session_store = session_store
+        self._usage_recorder = usage_recorder
         # Default to the full MemoryTopic taxonomy so Memory Bank's
         # generate call has structured guidance instead of picking a
         # narrow category on its own. Callers can override with a
@@ -141,22 +145,65 @@ class AgentRunner:
         )
 
         response = AgentResponse()
-        async for event in self._runner.run_async(
+        turn_start = time.perf_counter()
+        run_error: str | None = None
+        tokens_in_total = 0
+        tokens_out_total = 0
+        model_seen: str | None = None
+        try:
+            async for event in self._runner.run_async(
+                user_id=user_id,
+                session_id=session_id,
+                new_message=content,
+            ):
+                if event.content and event.content.parts:
+                    for part in event.content.parts:
+                        if part.text:
+                            response.text += part.text
+                        if part.function_call:
+                            response.tool_calls.append({
+                                "name": part.function_call.name,
+                                "args": dict(part.function_call.args or {}),
+                            })
+                um = getattr(event, "usage_metadata", None)
+                if um is not None:
+                    tokens_in_total += (
+                        getattr(um, "prompt_token_count", 0) or 0
+                    )
+                    tokens_out_total += (
+                        getattr(um, "candidates_token_count", 0) or 0
+                    )
+                mv = getattr(event, "model_version", None)
+                if mv and model_seen is None:
+                    model_seen = mv
+                if event.is_final_response():
+                    response.is_final = True
+        except Exception as e:  # noqa: BLE001 — record + re-raise
+            run_error = f"{type(e).__name__}: {e}"
+            self._record_turn(
+                user_id=user_id,
+                session_id=session_id,
+                start=turn_start,
+                success=False,
+                error=run_error,
+                tokens_in=tokens_in_total,
+                tokens_out=tokens_out_total,
+                model_seen=model_seen,
+                tool_calls=response.tool_calls,
+            )
+            raise
+
+        self._record_turn(
             user_id=user_id,
             session_id=session_id,
-            new_message=content,
-        ):
-            if event.content and event.content.parts:
-                for part in event.content.parts:
-                    if part.text:
-                        response.text += part.text
-                    if part.function_call:
-                        response.tool_calls.append({
-                            "name": part.function_call.name,
-                            "args": dict(part.function_call.args or {}),
-                        })
-            if event.is_final_response():
-                response.is_final = True
+            start=turn_start,
+            success=True,
+            error=None,
+            tokens_in=tokens_in_total,
+            tokens_out=tokens_out_total,
+            model_seen=model_seen,
+            tool_calls=response.tool_calls,
+        )
 
         if self._session_store is not None and response.text:
             try:
@@ -193,6 +240,72 @@ class AgentRunner:
             task.add_done_callback(self._pending_captures.discard)
 
         return response
+
+    def _record_turn(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        start: float,
+        success: bool,
+        error: str | None,
+        tokens_in: int,
+        tokens_out: int,
+        model_seen: str | None,
+        tool_calls: list[dict],
+    ) -> None:
+        """Best-effort telemetry emission. Never raises."""
+        recorder = self._usage_recorder
+        if recorder is None or not getattr(recorder, "enabled", False):
+            return
+        duration_ms = int((time.perf_counter() - start) * 1000)
+        agent_name = getattr(self._agent, "name", "agent") or "agent"
+        try:
+            recorder.record_agent_invoke(
+                agent_name=agent_name,
+                caller=None,
+                duration_ms=duration_ms,
+                success=success,
+                error=error,
+                user_id=user_id,
+                session_id=session_id,
+                metadata={"tool_call_count": len(tool_calls)},
+            )
+            if tokens_in or tokens_out or model_seen:
+                recorder.record_model_call(
+                    model_id=model_seen or "unknown",
+                    provider_id=None,
+                    tokens_in=tokens_in or None,
+                    tokens_out=tokens_out or None,
+                    cost_usd=None,
+                    duration_ms=duration_ms,
+                    success=success,
+                    error=error,
+                    user_id=user_id,
+                    session_id=session_id,
+                    caller=agent_name,
+                    metadata={
+                        "token_source": (
+                            "adk_usage_metadata"
+                            if (tokens_in or tokens_out)
+                            else "none"
+                        ),
+                    },
+                )
+            for call in tool_calls:
+                recorder.record_tool_call(
+                    tool_name=call.get("name") or "unknown",
+                    agent_name=agent_name,
+                    duration_ms=0,
+                    success=True,
+                    user_id=user_id,
+                    session_id=session_id,
+                    metadata={"args_keys": sorted(
+                        list((call.get("args") or {}).keys())
+                    )},
+                )
+        except Exception:
+            logger.warning("usage: _record_turn failed", exc_info=True)
 
     async def run_trace(
         self,

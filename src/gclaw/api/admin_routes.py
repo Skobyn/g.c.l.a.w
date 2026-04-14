@@ -20,11 +20,14 @@ from pydantic import BaseModel
 
 from gclaw.auth.dependencies import get_current_user_id
 from gclaw.config.loader import ConfigLoader
+from gclaw.heartbeat.events import get_event_bus
 from gclaw.heartbeat.log import HeartbeatLogRepo
+from gclaw.heartbeat.reason import WakeReason
 from gclaw.memory.service import MemoryService
 from gclaw.models.memory import MemoryScope
 from gclaw.skill.registry import SkillRegistry
 from gclaw.cron.service import CronService
+from gclaw.cron.delivery import CronDeliveryService
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +38,8 @@ _hb_repo_factory: Callable[[str], HeartbeatLogRepo] | None = None
 _skill_registry: SkillRegistry | None = None
 _memory_service: MemoryService | None = None
 _cron_service: CronService | None = None
+_cron_delivery_service: CronDeliveryService | None = None
+_heartbeat_registry: object | None = None
 
 
 def init_admin_router(
@@ -43,14 +48,19 @@ def init_admin_router(
     skill_registry: SkillRegistry | None = None,
     memory_service: MemoryService | None = None,
     cron_service: CronService | None = None,
+    heartbeat_registry: object | None = None,
+    cron_delivery_service: CronDeliveryService | None = None,
 ) -> APIRouter:
     global _config_loader, _hb_repo_factory, _skill_registry
-    global _memory_service, _cron_service
+    global _memory_service, _cron_service, _heartbeat_registry
+    global _cron_delivery_service
     _config_loader = config_loader
     _hb_repo_factory = heartbeat_log_repo_factory
     _skill_registry = skill_registry
     _memory_service = memory_service
     _cron_service = cron_service
+    _heartbeat_registry = heartbeat_registry
+    _cron_delivery_service = cron_delivery_service
     return router
 
 
@@ -95,6 +105,89 @@ def list_heartbeat_logs(
     repo = _hb_repo_factory(user_id)
     logs = repo.list_recent(limit=limit)
     return [log.model_dump(mode="json") for log in logs]
+
+
+# --- Heartbeat Events (in-process pubsub) ---
+
+
+@router.get("/heartbeat/events")
+def list_heartbeat_events(
+    limit: int = 50,
+    agent_id: str | None = None,
+    user_id: str = Depends(get_current_user_id),
+):
+    """Return recent heartbeat events from the in-process ring buffer.
+
+    Newest first. Optionally filter to a single agent_id.
+    """
+    bus = get_event_bus()
+    events = bus.recent(limit=limit, agent_id=agent_id)
+    return [e.model_dump(mode="json") for e in events]
+
+
+@router.get("/heartbeat/health")
+def heartbeat_health(user_id: str = Depends(get_current_user_id)):
+    """Per-agent summary of the most recent heartbeat event."""
+    bus = get_event_bus()
+    # Iterate full ring newest-first; collect first seen per agent.
+    events = bus.recent(limit=10_000)
+    seen: dict[str, dict] = {}
+    for e in events:
+        if e.agent_id in seen:
+            continue
+        seen[e.agent_id] = {
+            "agent_id": e.agent_id,
+            "last_event_at": e.timestamp.isoformat(),
+            "last_status": e.status.value,
+            "last_reason": e.reason.value,
+            "last_preview": e.preview,
+        }
+    return {"agents": list(seen.values())}
+
+
+@router.post("/heartbeat/trigger")
+async def trigger_heartbeat(
+    agent_id: str = "orchestrator",
+    user_id: str = Depends(get_current_user_id),
+):
+    """Manually trigger a single heartbeat cycle for ``agent_id``.
+
+    Returns the emitted HeartbeatEvent (if any) alongside the raw run
+    result so the admin UI can surface the outcome immediately.
+    """
+    if _heartbeat_registry is None:
+        raise HTTPException(
+            status_code=503, detail="Heartbeat registry not configured"
+        )
+    service = _heartbeat_registry.get(agent_id)  # type: ignore[attr-defined]
+    if service is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No heartbeat for agent {agent_id!r}",
+        )
+    try:
+        result = await service.run(reason=WakeReason.MANUAL)
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Heartbeat failed: {e}",
+        )
+
+    bus = get_event_bus()
+    recent = bus.recent(limit=1, agent_id=agent_id)
+    event_payload = (
+        recent[0].model_dump(mode="json") if recent else None
+    )
+    status = result.get("status")
+    return {
+        "event": event_payload,
+        "result": {
+            "orchestrator_response": result.get("orchestrator_response", ""),
+            "actions_taken": result.get("actions_taken", []),
+            "tasks_created": result.get("tasks_created", []),
+            "status": status.value if hasattr(status, "value") else status,
+        },
+    }
 
 
 # --- Soul Files ---
@@ -244,6 +337,22 @@ async def wipe_my_memories(
         raise HTTPException(status_code=503, detail="Memory service not enabled")
     deleted = await _memory_service.wipe_user_memories(user_id)
     return {"status": "wiped", "deleted": deleted}
+
+
+# --- Transports ---
+
+
+@router.get("/transports")
+def list_transports(user_id: str = Depends(get_current_user_id)):
+    """List all registered announce transports plus the default."""
+    if _cron_delivery_service is None:
+        raise HTTPException(
+            status_code=503, detail="Cron delivery service not configured"
+        )
+    return {
+        "transports": _cron_delivery_service.list_transports(),
+        "default": _cron_delivery_service.default,
+    }
 
 
 # --- Crons ---

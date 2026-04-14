@@ -3,11 +3,66 @@
 from __future__ import annotations
 
 import os
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
+
+import yaml
+
+from gclaw.heartbeat.config import HeartbeatConfig
+from gclaw.models.catalog import AgentModelRef, ModelParams
 
 if TYPE_CHECKING:
     from gclaw.models.skill import Skill
     from gclaw.skill.loader import SkillLoader
+
+
+_FRONTMATTER_DELIM = "---"
+
+
+def _split_frontmatter(text: str) -> tuple[dict[str, Any] | None, str]:
+    """Split optional YAML frontmatter from a markdown document.
+
+    Returns (frontmatter_dict_or_None, body). Frontmatter must be the very
+    first thing in the file, delimited by lines containing only '---'.
+    """
+    # Must start with delimiter on line 1 (allow a leading BOM / whitespace
+    # on that line? keep it strict — line must be exactly '---').
+    if not text.startswith(_FRONTMATTER_DELIM):
+        return None, text
+
+    # Split into lines, preserving line endings semantics for the body.
+    lines = text.splitlines(keepends=True)
+    if not lines or lines[0].rstrip("\r\n") != _FRONTMATTER_DELIM:
+        return None, text
+
+    # Find closing delimiter.
+    closing_idx: int | None = None
+    for i in range(1, len(lines)):
+        if lines[i].rstrip("\r\n") == _FRONTMATTER_DELIM:
+            closing_idx = i
+            break
+
+    if closing_idx is None:
+        # No closing fence — treat whole file as body.
+        return None, text
+
+    fm_text = "".join(lines[1:closing_idx])
+    body = "".join(lines[closing_idx + 1 :])
+    # Strip a single leading newline from the body if present for cleanliness.
+    if body.startswith("\n"):
+        body = body[1:]
+
+    try:
+        data = yaml.safe_load(fm_text) if fm_text.strip() else None
+    except yaml.YAMLError as e:
+        raise ValueError(f"invalid YAML frontmatter: {e}") from e
+
+    if data is None:
+        return None, body
+    if not isinstance(data, dict):
+        raise ValueError(
+            f"frontmatter must be a mapping, got {type(data).__name__}"
+        )
+    return data, body
 
 
 class ConfigLoader:
@@ -24,6 +79,10 @@ class ConfigLoader:
                 orchestrator.md
                 workspace-mgr.md
                 ...
+
+    Agent .md files MAY begin with YAML frontmatter delimited by '---' for
+    per-agent configuration (e.g. heartbeat settings). The frontmatter is
+    stripped before the body is used as a system prompt.
     """
 
     def __init__(
@@ -52,13 +111,84 @@ class ConfigLoader:
 
         return content
 
-    def load_agent(self, agent_name: str) -> str:
+    def _read_agent_file(self, agent_name: str) -> str:
         path = os.path.join(self._config_dir, "agents", f"{agent_name}.md")
         if not os.path.isfile(path):
             raise FileNotFoundError(f"Agent definition not found: {path}")
 
         with open(path) as f:
             return f.read()
+
+    def load_agent(self, agent_name: str) -> str:
+        """Return the agent definition body (frontmatter stripped)."""
+        raw = self._read_agent_file(agent_name)
+        _, body = _split_frontmatter(raw)
+        return body
+
+    def load_agent_frontmatter(
+        self, agent_name: str
+    ) -> dict[str, Any] | None:
+        """Return parsed YAML frontmatter dict for an agent, or None."""
+        raw = self._read_agent_file(agent_name)
+        fm, _ = _split_frontmatter(raw)
+        return fm
+
+    def load_agent_heartbeat_config(
+        self, agent_name: str
+    ) -> HeartbeatConfig | None:
+        """Return the HeartbeatConfig for an agent, or None if not set."""
+        fm = self.load_agent_frontmatter(agent_name)
+        if not fm:
+            return None
+        hb = fm.get("heartbeat")
+        if hb is None:
+            return None
+        if not isinstance(hb, dict):
+            raise ValueError(
+                f"agent {agent_name!r} heartbeat frontmatter must be a "
+                f"mapping, got {type(hb).__name__}"
+            )
+        return HeartbeatConfig(**hb)
+
+    def load_agent_model_ref(
+        self, agent_name: str
+    ) -> AgentModelRef | None:
+        """Return the ``model:`` frontmatter reference, or None if absent.
+
+        Accepts:
+          - ``model: "ProviderName/model_id"`` (string)
+          - ``model: "bare-model-id"`` (string)
+          - ``model: {name: "...", params: {...}}`` (mapping)
+        """
+        fm = self.load_agent_frontmatter(agent_name)
+        if not fm:
+            return None
+        raw = fm.get("model")
+        if raw is None:
+            return None
+        if isinstance(raw, str):
+            return AgentModelRef(name=raw)
+        if isinstance(raw, dict):
+            name = raw.get("name")
+            if not isinstance(name, str) or not name:
+                raise ValueError(
+                    f"agent {agent_name!r} model frontmatter must include a "
+                    f"string 'name'"
+                )
+            params_raw = raw.get("params")
+            params: ModelParams | None = None
+            if params_raw is not None:
+                if not isinstance(params_raw, dict):
+                    raise ValueError(
+                        f"agent {agent_name!r} model.params must be a "
+                        f"mapping, got {type(params_raw).__name__}"
+                    )
+                params = ModelParams(**params_raw)
+            return AgentModelRef(name=name, params=params)
+        raise ValueError(
+            f"agent {agent_name!r} model frontmatter must be a string or "
+            f"mapping, got {type(raw).__name__}"
+        )
 
     def build_system_prompt(
         self,
@@ -70,7 +200,7 @@ class ConfigLoader:
     ) -> str:
         parts: list[str] = []
 
-        # Agent definition
+        # Agent definition (frontmatter stripped)
         agent_def = self.load_agent(agent_name)
         parts.append(f"# Agent Role\n\n{agent_def}")
 

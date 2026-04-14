@@ -5,8 +5,25 @@ from unittest.mock import MagicMock
 from httpx import AsyncClient, ASGITransport
 
 from gclaw.api.app import create_app
-from gclaw.models.cron import Cron, CronMode, CronStatus
+from gclaw.models.cron import (
+    AgentTurnPayload,
+    Cron,
+    CronExprSchedule,
+    CronMode,
+    CronStatus,
+)
 from gclaw.models.task import BoardTask, TaskStatus
+
+
+def _cron(**kw):
+    base = dict(
+        title="C",
+        assignee="dev-mgr",
+        schedule=CronExprSchedule(expr="0 8 * * *"),
+        payload=AgentTurnPayload(message="do"),
+    )
+    base.update(kw)
+    return Cron(**base)
 
 
 @pytest.fixture
@@ -24,7 +41,11 @@ def agent_runner():
 
 @pytest.fixture
 def cron_service():
-    return MagicMock()
+    from unittest.mock import AsyncMock
+    svc = MagicMock()
+    # execute() is async now
+    svc.execute = AsyncMock()
+    return svc
 
 
 @pytest.fixture
@@ -81,8 +102,8 @@ async def test_trigger_paused_cron(client, cron_service):
 @pytest.mark.asyncio
 async def test_list_crons(client, cron_service):
     cron_service.list_all.return_value = [
-        Cron(title="C1", schedule="0 8 * * *", assignee="dev-mgr"),
-        Cron(title="C2", schedule="0 9 * * *", assignee="workspace-mgr"),
+        _cron(title="C1"),
+        _cron(title="C2", assignee="workspace-mgr"),
     ]
     resp = await client.get("/crons")
     assert resp.status_code == 200
@@ -93,9 +114,8 @@ async def test_list_crons(client, cron_service):
 
 @pytest.mark.asyncio
 async def test_create_cron(client, cron_service):
-    cron_service.create.side_effect = lambda **kw: Cron(
+    cron_service.create.side_effect = lambda **kw: _cron(
         title=kw["title"],
-        schedule=kw["schedule"],
         assignee=kw["assignee"],
     )
     resp = await client.post("/crons", json={

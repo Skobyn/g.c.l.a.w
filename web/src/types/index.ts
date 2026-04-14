@@ -123,6 +123,44 @@ export interface HeartbeatLogEntry {
   timestamp: string;
 }
 
+/** Heartbeat status values (backend enum). */
+export type HeartbeatStatus = "sent" | "ok-token" | "ok-empty" | "skipped" | "failed";
+
+/** Wake reason values (backend enum). */
+export type WakeReason =
+  | "interval"
+  | "manual"
+  | "board-event"
+  | "cron"
+  | "hook"
+  | "retry"
+  | "other";
+
+/** Heartbeat event from the in-process ring buffer. */
+export interface HeartbeatEvent {
+  agent_id: string;
+  status: HeartbeatStatus;
+  reason: WakeReason;
+  duration_ms: number;
+  preview: string;
+  error: string | null;
+  timestamp: string;
+}
+
+/** Per-agent heartbeat health snapshot. */
+export interface AgentHealth {
+  agent_id: string;
+  last_event_at: string | null;
+  last_status: HeartbeatStatus | null;
+  last_reason: WakeReason | null;
+  last_preview: string;
+}
+
+/** Aggregated heartbeat health response. */
+export interface HeartbeatHealth {
+  agents: AgentHealth[];
+}
+
 /** Skill definition from the backend. */
 export interface SkillInfo {
   name: string;
@@ -147,12 +185,65 @@ export interface MemoryEntry {
   score: number | null;
 }
 
-/** Cron job definition. */
+/** Schedule specification (tagged union). */
+export type ScheduleSpec =
+  | { kind: "at"; at: string }
+  | { kind: "every"; every_ms: number; anchor_ms?: number | null }
+  | { kind: "cron"; expr: string; tz?: string | null; stagger_ms?: number | null };
+
+/** Payload specification (tagged union). */
+export type PayloadSpec =
+  | { kind: "system_event"; text: string }
+  | {
+      kind: "agent_turn";
+      message: string;
+      model?: string | null;
+      timeout_seconds?: number | null;
+      light_context?: boolean;
+    };
+
+/** Delivery specification (tagged union). */
+export type DeliverySpec =
+  | { mode: "none" }
+  | {
+      mode: "announce";
+      transport?: string;
+      channel?: string | null;
+      to?: string | null;
+      account_id?: string | null;
+      best_effort?: boolean;
+    }
+  | { mode: "webhook"; url: string; best_effort?: boolean };
+
+/** Failure-alert policy. */
+export interface FailureAlert {
+  after: number;
+  cooldown_ms: number;
+  channel?: string | null;
+  to?: string | null;
+  url?: string | null;
+  mode?: "announce" | "webhook";
+  transport?: string;
+}
+
+/** Announce transport registry info. */
+export interface TransportInfo {
+  transports: string[];
+  default: string;
+}
+
+/** Cron job definition (matches backend structured model). */
 export interface CronInfo {
   id: string;
   title: string;
   description: string;
-  schedule: string;
+  schedule: ScheduleSpec;
+  payload: PayloadSpec;
+  delivery: DeliverySpec;
+  failure_alert: FailureAlert | null;
+  wake_mode: "now" | "next-heartbeat";
+  enabled: boolean;
+  delete_after_run: boolean;
   mode: "auto" | "todo";
   status: "active" | "paused";
   assignee: string;
@@ -161,6 +252,8 @@ export interface CronInfo {
   next_run: string | null;
   created_at: string;
   updated_at: string;
+  consecutive_errors?: number;
+  last_error?: string | null;
 }
 
 /** Connection permission level. */
@@ -208,4 +301,184 @@ export interface OnboardingStatus {
   completed: boolean;
   current_step: string | null;
   progress: number;
+}
+
+// ---------- Model Catalog ----------
+
+export type ProviderKind =
+  | "openai"
+  | "anthropic"
+  | "google_gemini"
+  | "google_vertex"
+  | "openrouter"
+  | "ollama"
+  | "groq"
+  | "together"
+  | "custom_openai";
+
+export type ApiKeyKind = "literal" | "env" | "sm";
+
+export interface ApiKeySpec {
+  kind: ApiKeyKind;
+  value: string;
+}
+
+export interface Provider {
+  id: string;
+  name: string;
+  kind: ProviderKind;
+  base_url: string | null;
+  api_key: ApiKeySpec | null;
+  default_headers: Record<string, string>;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProviderSummary extends Provider {
+  model_count: number;
+}
+
+export interface ProviderCreate {
+  name: string;
+  kind: ProviderKind;
+  base_url?: string | null;
+  api_key?: ApiKeySpec | null;
+  default_headers?: Record<string, string>;
+  enabled?: boolean;
+}
+
+export type ProviderUpdate = Partial<ProviderCreate>;
+
+export interface Capabilities {
+  text: boolean;
+  vision: boolean;
+  tools: boolean;
+  reasoning: boolean;
+  streaming: boolean;
+}
+
+export interface ModelCost {
+  input_per_mtok: number | null;
+  output_per_mtok: number | null;
+  cache_read_per_mtok: number | null;
+  cache_write_per_mtok: number | null;
+}
+
+export interface ModelParams {
+  temperature: number | null;
+  top_p: number | null;
+  max_tokens: number | null;
+  thinking_budget: number | null;
+  extra: Record<string, unknown>;
+}
+
+export interface CatalogModel {
+  id: string;
+  provider_id: string;
+  model_id: string;
+  display_name: string;
+  enabled: boolean;
+  context_window: number | null;
+  max_output_tokens: number | null;
+  capabilities: Capabilities;
+  params: ModelParams;
+  cost: ModelCost;
+  notes: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ModelCreate {
+  provider_id: string;
+  model_id: string;
+  display_name?: string;
+  enabled?: boolean;
+  context_window?: number | null;
+  max_output_tokens?: number | null;
+  capabilities?: Partial<Capabilities>;
+  params?: Partial<ModelParams>;
+  cost?: Partial<ModelCost>;
+  notes?: string;
+}
+
+export type ModelUpdate = Partial<Omit<ModelCreate, "provider_id">>;
+
+export interface PresetModel {
+  model_id: string;
+  display_name: string;
+  context_window?: number;
+  max_output_tokens?: number;
+  capabilities?: Partial<Capabilities>;
+}
+
+export interface Presets {
+  providers: Record<
+    ProviderKind,
+    { base_url_default: string | null; models: PresetModel[] }
+  >;
+}
+
+export interface TestModelResult {
+  ok: boolean;
+  latency_ms: number;
+  error: string | null;
+  sample_response: string | null;
+}
+
+// ---------- Usage / Observability ----------
+
+export type UsageKind = "model" | "agent" | "skill" | "tool";
+
+export interface UsageEvent {
+  id: string;
+  kind: UsageKind;
+  name: string;
+  timestamp: string;
+  user_id: string | null;
+  session_id: string | null;
+  duration_ms: number;
+  success: boolean;
+  error: string | null;
+  provider_id: string | null;
+  tokens_in: number | null;
+  tokens_out: number | null;
+  cost_usd: number | null;
+  caller: string | null;
+  metadata: Record<string, unknown>;
+}
+
+export interface UsageSummary {
+  totals: {
+    model: number;
+    agent: number;
+    skill: number;
+    tool: number;
+    total_cost_usd: number;
+  };
+  top: {
+    models: Array<{
+      name: string;
+      count: number;
+      tokens_in: number;
+      tokens_out: number;
+      cost_usd: number;
+    }>;
+    agents: Array<{
+      name: string;
+      count: number;
+      avg_duration_ms: number;
+      failure_rate: number;
+    }>;
+    skills: Array<{ name: string; count: number }>;
+    tools: Array<{ name: string; count: number; failure_rate: number }>;
+  };
+  timeseries: Array<{
+    hour_iso: string;
+    model_count: number;
+    agent_count: number;
+    skill_count: number;
+    tool_count: number;
+    cost_usd: number;
+  }>;
 }

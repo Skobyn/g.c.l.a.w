@@ -4,7 +4,7 @@
  * Table displaying cron jobs with toggle and trigger actions.
  */
 
-import type { CronInfo } from "@/types";
+import type { CronInfo, ScheduleSpec } from "@/types";
 
 interface CronTableProps {
   crons: CronInfo[];
@@ -20,6 +20,29 @@ function formatDate(dateStr: string | null): string {
     return new Date(dateStr).toLocaleString();
   } catch {
     return dateStr;
+  }
+}
+
+function formatDurationMs(ms: number): string {
+  if (ms % 86_400_000 === 0) return `${ms / 86_400_000}d`;
+  if (ms % 3_600_000 === 0) return `${ms / 3_600_000}h`;
+  if (ms % 60_000 === 0) return `${ms / 60_000}m`;
+  if (ms % 1000 === 0) return `${ms / 1000}s`;
+  return `${ms}ms`;
+}
+
+function formatSchedule(schedule: ScheduleSpec | string | undefined | null): string {
+  if (!schedule) return "—";
+  if (typeof schedule === "string") return schedule;
+  switch (schedule.kind) {
+    case "cron":
+      return schedule.expr;
+    case "every":
+      return `every ${formatDurationMs(schedule.every_ms)}`;
+    case "at":
+      return `at ${formatDate(schedule.at)}`;
+    default:
+      return JSON.stringify(schedule);
   }
 }
 
@@ -48,6 +71,8 @@ export function CronTable({
           <tr>
             <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-400">Title</th>
             <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-400">Schedule</th>
+            <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-400">Payload</th>
+            <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-400">Wake</th>
             <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-400">Mode</th>
             <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-400">Assignee</th>
             <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-400">Status</th>
@@ -68,7 +93,29 @@ export function CronTable({
 
               {/* Schedule */}
               <td className="px-4 py-3">
-                <code className="text-xs text-indigo-300 bg-slate-800 rounded px-1.5 py-0.5">{cron.schedule}</code>
+                <code className="text-xs text-indigo-300 bg-slate-800 rounded px-1.5 py-0.5">
+                  {formatSchedule(cron.schedule)}
+                </code>
+              </td>
+
+              {/* Payload kind */}
+              <td className="px-4 py-3">
+                <span className="inline-flex items-center rounded-full bg-slate-800 px-2 py-0.5 text-xs font-medium text-slate-300">
+                  {cron.payload?.kind ?? "—"}
+                </span>
+              </td>
+
+              {/* Wake mode */}
+              <td className="px-4 py-3">
+                <span
+                  className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
+                    cron.wake_mode === "now"
+                      ? "bg-indigo-900/60 text-indigo-300"
+                      : "bg-purple-900/60 text-purple-300"
+                  }`}
+                >
+                  {cron.wake_mode ?? "—"}
+                </span>
               </td>
 
               {/* Mode */}

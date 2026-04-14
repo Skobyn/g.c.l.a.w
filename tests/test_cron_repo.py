@@ -7,8 +7,25 @@ import pytest
 from unittest.mock import MagicMock
 from datetime import datetime, timezone
 
-from gclaw.models.cron import Cron, CronMode, CronStatus
+from gclaw.models.cron import (
+    AgentTurnPayload,
+    Cron,
+    CronExprSchedule,
+    CronMode,
+    CronStatus,
+)
 from gclaw.firestore.cron_repo import CronRepo
+
+
+def _cron(**kw):
+    base = dict(
+        title="Morning briefing",
+        assignee="workspace-mgr",
+        schedule=CronExprSchedule(expr="0 8 * * *"),
+        payload=AgentTurnPayload(message="do"),
+    )
+    base.update(kw)
+    return Cron(**base)
 
 
 @pytest.fixture
@@ -27,11 +44,7 @@ def test_cron_collection_path(repo):
 
 
 def test_create_cron(repo):
-    cron = Cron(
-        title="Morning briefing",
-        schedule="0 8 * * *",
-        assignee="workspace-mgr",
-    )
+    cron = _cron()
     doc_ref = MagicMock()
     repo._db.collection.return_value.document.return_value.collection.return_value.document.return_value = doc_ref
 
@@ -80,10 +93,10 @@ def test_get_nonexistent_cron(repo):
 
 
 def test_update_cron(repo):
-    cron = Cron(
+    cron = _cron(
         id="cron_abc",
         title="Updated cron",
-        schedule="0 10 * * *",
+        schedule=CronExprSchedule(expr="0 10 * * *"),
         assignee="dev-mgr",
     )
     doc_ref = MagicMock()
@@ -93,7 +106,7 @@ def test_update_cron(repo):
 
     doc_ref.set.assert_called_once()
     call_data = doc_ref.set.call_args[0][0]
-    assert call_data["schedule"] == "0 10 * * *"
+    assert call_data["schedule"] == {"kind": "cron", "expr": "0 10 * * *", "tz": None, "stagger_ms": None}
 
 
 def test_delete_cron(repo):

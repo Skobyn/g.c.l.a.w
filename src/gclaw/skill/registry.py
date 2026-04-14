@@ -31,9 +31,28 @@ class SkillRegistry:
         return self._repo.list_all()
 
     def list_for_agent(self, agent_name: str) -> list[Skill]:
-        """List skills granted to a specific agent."""
+        """List skills granted to a specific agent.
+
+        Each matching skill is recorded as a usage event — being loaded
+        into an agent's prompt counts as that skill being "used" for
+        the turn. Recording is best-effort and never raises.
+        """
         all_skills = self._repo.list_all()
-        return [s for s in all_skills if s.is_granted_to(agent_name)]
+        granted = [s for s in all_skills if s.is_granted_to(agent_name)]
+        try:
+            from gclaw.usage.recorder import get_recorder
+
+            recorder = get_recorder()
+            if recorder.enabled:
+                for skill in granted:
+                    recorder.record_skill_use(
+                        skill_name=skill.name,
+                        agent_name=agent_name,
+                    )
+        except Exception:
+            logger.debug("usage: skill list_for_agent recording failed",
+                         exc_info=True)
+        return granted
 
     def unregister(self, skill_name: str) -> None:
         """Remove a skill from the registry."""

@@ -58,6 +58,30 @@ function MemoryIcon() {
   );
 }
 
+function ModelsIcon() {
+  return (
+    <svg className="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+    </svg>
+  );
+}
+
+function UsageIcon() {
+  return (
+    <svg className="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M3 3v18h18M7 15l4-4 4 4 5-6" />
+    </svg>
+  );
+}
+
+function HeartbeatIcon() {
+  return (
+    <svg className="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M3 12h3l3-8 4 16 3-8h5" />
+    </svg>
+  );
+}
+
 function ConnectionsIcon() {
   return (
     <svg className="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
@@ -98,6 +122,9 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/crons", label: "Crons", icon: <CronsIcon /> },
   { href: "/memory", label: "Memory", icon: <MemoryIcon /> },
   { href: "/connections", label: "Connections", icon: <ConnectionsIcon /> },
+  { href: "/admin/models", label: "Models", icon: <ModelsIcon /> },
+  { href: "/admin/heartbeat", label: "Heartbeat", icon: <HeartbeatIcon /> },
+  { href: "/admin/usage", label: "Usage", icon: <UsageIcon /> },
 ];
 
 interface SidebarProps {
