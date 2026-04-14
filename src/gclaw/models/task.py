@@ -94,6 +94,11 @@ class BoardTask(BaseModel):
     updated_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc)
     )
+    approved_at: datetime | None = None
+    approved_by: str | None = None
+    approval_note: str | None = None
+    rejected_at: datetime | None = None
+    rejection_note: str | None = None
 
     def transition_to(self, new_status: TaskStatus) -> Self:
         valid = _VALID_TRANSITIONS.get(self.status, set())

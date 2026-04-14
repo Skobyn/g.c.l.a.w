@@ -105,7 +105,10 @@ describe("ApiClient", () => {
     };
     (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockResponse);
 
-    const task = await client.createBoardTask("New task", "workspace-mgr");
+    const task = await client.createBoardTask({
+      title: "New task",
+      assignee: "workspace-mgr",
+    });
 
     expect(global.fetch).toHaveBeenCalledWith(
       "http://localhost:8000/board/tasks",

@@ -38,7 +38,22 @@ export interface BoardTask {
   result?: TaskResult;
   created_at: string;
   updated_at: string;
+  approved_at?: string | null;
+  approved_by?: string | null;
+  approval_note?: string | null;
+  rejected_at?: string | null;
+  rejection_note?: string | null;
 }
+
+/** Allowed user-driven status transitions (mirrors backend). */
+export const USER_ALLOWED_TRANSITIONS: Record<TaskStatus, TaskStatus[]> = {
+  backlog: ["queued"],
+  queued: ["backlog"],
+  needs_approval: ["queued", "failed"],
+  failed: ["queued", "backlog"],
+  in_progress: [],
+  done: [],
+};
 
 /** Chat message in the UI. */
 export interface ChatMessage {

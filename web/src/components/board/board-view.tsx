@@ -8,8 +8,15 @@
  *
  * Tasks are subscribed in real-time via Firestore onSnapshot on
  * `users/{uid}/board`. Crons are fetched via REST and polled every 10s
- * (they aren't mirrored to Firestore yet). Clicking a cron card opens the
- * right-hand CronEditDrawer which reuses the CreateCronForm in edit mode.
+ * (they aren't mirrored to Firestore yet).
+ *
+ * Top bar exposes [+ New Task] and [+ New Cron].
+ *
+ * Drag-and-drop uses native HTML5 DnD (no libraries). The currently
+ * dragged task lives in `draggedTask` state; columns highlight green when
+ * the drop is allowed by USER_ALLOWED_TRANSITIONS, red when forbidden,
+ * and the drop is rejected client-side. On allowed drop we call
+ * `api.moveTaskStatus` with optimistic local update + rollback on error.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -22,7 +29,9 @@ import { createApiClient } from "@/lib/api-client";
 import { BoardColumn } from "./board-column";
 import { ScheduledColumn } from "./scheduled-column";
 import { CronEditDrawer } from "./cron-edit-drawer";
-import { TaskCard } from "./task-card";
+import { TaskCard, type DragInfo } from "./task-card";
+import { NewTaskModal } from "./new-task-modal";
+import { NewCronModal } from "./new-cron-modal";
 
 const DONE_LIMIT = 20;
 const CRON_POLL_MS = 10_000;
@@ -32,6 +41,7 @@ export function BoardView() {
   const [tasks, setTasks] = useState<BoardTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const [crons, setCrons] = useState<CronInfo[]>([]);
   const [cronsLoading, setCronsLoading] = useState(true);
@@ -40,9 +50,16 @@ export function BoardView() {
   const [editingCron, setEditingCron] = useState<CronInfo | null>(null);
   const [showAllDone, setShowAllDone] = useState(false);
 
+  const [showNewTask, setShowNewTask] = useState(false);
+  const [showNewCron, setShowNewCron] = useState(false);
+
+  const [draggedTask, setDraggedTask] = useState<DragInfo | null>(null);
+
+  // Refresh helper used after mutations (skipped when Firestore live).
+  const refreshTasksRef = useRef<() => Promise<void>>(async () => {});
+
   // Task source: Firestore real-time when Firebase is configured,
-  // REST polling every 10s otherwise (DEV_BYPASS_AUTH builds have no
-  // Firebase creds — calling collection(db,…) throws there).
+  // REST polling every 10s otherwise.
   useEffect(() => {
     if (!user) return;
 
@@ -65,6 +82,9 @@ export function BoardView() {
           setLoading(false);
         },
       );
+      refreshTasksRef.current = async () => {
+        // Firestore is live — nothing to do.
+      };
       return unsubscribe;
     }
 
@@ -89,6 +109,7 @@ export function BoardView() {
         }
       }
     };
+    refreshTasksRef.current = load;
     load();
     const handle = setInterval(load, 10_000);
     return () => {
@@ -97,7 +118,7 @@ export function BoardView() {
     };
   }, [user, getIdToken]);
 
-  // Cron polling (10s). Uses listCrons which hits /crons.
+  // Cron polling (10s).
   const fetchCronsRef = useRef<() => Promise<void>>(async () => {});
   const fetchCrons = useCallback(async () => {
     try {
@@ -121,6 +142,91 @@ export function BoardView() {
     }, CRON_POLL_MS);
     return () => clearInterval(handle);
   }, [user, fetchCrons]);
+
+  // --- DnD handlers ---
+
+  const handleDragStart = useCallback((info: DragInfo) => {
+    setDraggedTask(info);
+    setActionError(null);
+  }, []);
+
+  const handleDragEnd = useCallback(() => {
+    setDraggedTask(null);
+  }, []);
+
+  const applyOptimistic = useCallback(
+    (taskId: string, patch: Partial<BoardTask>) => {
+      setTasks((prev) =>
+        prev.map((t) => (t.id === taskId ? { ...t, ...patch } : t)),
+      );
+    },
+    [],
+  );
+
+  const handleDrop = useCallback(
+    async (info: DragInfo, target: TaskStatus) => {
+      setDraggedTask(null);
+      const original = tasks.find((t) => t.id === info.id);
+      if (!original) return;
+      // Optimistic
+      applyOptimistic(info.id, { status: target });
+      try {
+        const api = createApiClient(getIdToken);
+        const updated = await api.moveTaskStatus(info.id, target);
+        applyOptimistic(info.id, updated);
+        refreshTasksRef.current?.();
+      } catch (err) {
+        // Rollback
+        applyOptimistic(info.id, { status: original.status });
+        setActionError(
+          err instanceof Error ? err.message : "Failed to move task",
+        );
+      }
+    },
+    [tasks, applyOptimistic, getIdToken],
+  );
+
+  // --- Approve / Reject ---
+
+  const handleApprove = useCallback(
+    async (task: BoardTask) => {
+      const original = task.status;
+      applyOptimistic(task.id, { status: "queued" });
+      try {
+        const api = createApiClient(getIdToken);
+        const updated = await api.approveTask(task.id);
+        applyOptimistic(task.id, updated);
+        refreshTasksRef.current?.();
+      } catch (err) {
+        applyOptimistic(task.id, { status: original });
+        setActionError(
+          err instanceof Error ? err.message : "Failed to approve task",
+        );
+        throw err;
+      }
+    },
+    [applyOptimistic, getIdToken],
+  );
+
+  const handleReject = useCallback(
+    async (task: BoardTask, note: string) => {
+      const original = task.status;
+      applyOptimistic(task.id, { status: "failed", rejection_note: note });
+      try {
+        const api = createApiClient(getIdToken);
+        const updated = await api.rejectTask(task.id, note);
+        applyOptimistic(task.id, updated);
+        refreshTasksRef.current?.();
+      } catch (err) {
+        applyOptimistic(task.id, { status: original, rejection_note: null });
+        setActionError(
+          err instanceof Error ? err.message : "Failed to reject task",
+        );
+        throw err;
+      }
+    },
+    [applyOptimistic, getIdToken],
+  );
 
   if (loading) {
     return (
@@ -153,7 +259,6 @@ export function BoardView() {
     }
   }
 
-  // Sort done by updated_at desc, then optionally trim.
   tasksByStatus.done.sort((a, b) => {
     const ta = a.updated_at ? new Date(a.updated_at).getTime() : 0;
     const tb = b.updated_at ? new Date(b.updated_at).getTime() : 0;
@@ -178,9 +283,63 @@ export function BoardView() {
     setCrons((prev) => prev.filter((c) => c.id !== id));
   };
 
+  const handleTaskCreated = (task: BoardTask) => {
+    setTasks((prev) =>
+      prev.some((t) => t.id === task.id) ? prev : [task, ...prev],
+    );
+    refreshTasksRef.current?.();
+  };
+
   return (
-    <>
-      <div className="flex h-full gap-3 overflow-x-auto p-4">
+    <div className="flex h-full flex-col">
+      {/* Top bar */}
+      <div className="sticky top-0 z-20 flex items-center justify-between border-b border-slate-800 bg-slate-950 px-4 py-3">
+        <h1 className="text-lg font-semibold text-slate-100">Board</h1>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setShowNewTask(true)}
+            className="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 transition-colors"
+          >
+            + New Task
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowNewCron(true)}
+            className="rounded-md border border-purple-600 bg-purple-900/40 px-3 py-1.5 text-sm font-medium text-purple-200 hover:bg-purple-900/60 transition-colors"
+          >
+            + New Cron
+          </button>
+        </div>
+      </div>
+
+      {actionError && (
+        <div className="mx-4 mt-3 flex items-center justify-between rounded-md border border-red-700 bg-red-950/40 px-3 py-2 text-sm text-red-300">
+          <span>{actionError}</span>
+          <button
+            type="button"
+            onClick={() => setActionError(null)}
+            aria-label="Dismiss"
+            className="ml-2 rounded p-0.5 text-red-300 hover:bg-red-900/40"
+          >
+            <svg
+              className="h-4 w-4"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M6 18L18 6M6 6l12 12"
+              />
+            </svg>
+          </button>
+        </div>
+      )}
+
+      <div className="flex flex-1 gap-3 overflow-x-auto p-4">
         <ScheduledColumn
           crons={crons}
           loading={cronsLoading}
@@ -191,43 +350,18 @@ export function BoardView() {
         {BOARD_COLUMNS.map((column) => {
           if (column.status === "done") {
             return (
-              <div
+              <DoneColumn
                 key="done"
-                className="flex w-64 shrink-0 flex-col rounded-xl border border-slate-700 bg-slate-900"
-              >
-                <div
-                  className={`sticky top-0 z-10 flex items-center justify-between rounded-t-xl border-b-2 ${column.color} bg-slate-800 px-3 py-2`}
-                >
-                  <span className="text-sm font-semibold text-slate-200">
-                    {column.label}
-                  </span>
-                  <span className="rounded-full bg-slate-700 px-2 py-0.5 text-xs font-medium text-slate-300">
-                    {doneTotal}
-                  </span>
-                </div>
-                <div className="flex flex-1 flex-col gap-2 overflow-y-auto p-2">
-                  {doneVisible.length === 0 ? (
-                    <p className="py-4 text-center text-xs text-slate-500">
-                      No tasks
-                    </p>
-                  ) : (
-                    <>
-                      {doneVisible.map((task) => (
-                        <DoneTaskCardWrapper key={task.id} task={task} />
-                      ))}
-                      {!showAllDone && doneTotal > DONE_LIMIT && (
-                        <button
-                          type="button"
-                          onClick={() => setShowAllDone(true)}
-                          className="mt-1 rounded-md border border-slate-600 px-2 py-1 text-xs text-slate-300 hover:bg-slate-800 transition-colors"
-                        >
-                          Show all ({doneTotal})
-                        </button>
-                      )}
-                    </>
-                  )}
-                </div>
-              </div>
+                column={column}
+                visible={doneVisible}
+                total={doneTotal}
+                showAll={showAllDone}
+                onShowAll={() => setShowAllDone(true)}
+                draggedTask={draggedTask}
+                onDragStart={handleDragStart}
+                onDragEnd={handleDragEnd}
+                onDrop={handleDrop}
+              />
             );
           }
           return (
@@ -235,6 +369,12 @@ export function BoardView() {
               key={column.status}
               column={column}
               tasks={tasksByStatus[column.status]}
+              draggedTask={draggedTask}
+              onDragStart={handleDragStart}
+              onDragEnd={handleDragEnd}
+              onDrop={handleDrop}
+              onApprove={handleApprove}
+              onReject={handleReject}
             />
           );
         })}
@@ -246,10 +386,83 @@ export function BoardView() {
         onSaved={handleCronSaved}
         onDeleted={handleCronDeleted}
       />
-    </>
+
+      <NewTaskModal
+        open={showNewTask}
+        onClose={() => setShowNewTask(false)}
+        onCreated={handleTaskCreated}
+      />
+
+      <NewCronModal
+        open={showNewCron}
+        onClose={() => setShowNewCron(false)}
+        onCreated={(c) => {
+          handleCronSaved(c);
+          fetchCronsRef.current?.();
+        }}
+      />
+    </div>
   );
 }
 
-function DoneTaskCardWrapper({ task }: { task: BoardTask }) {
-  return <TaskCard task={task} />;
+interface DoneColumnProps {
+  column: (typeof BOARD_COLUMNS)[number];
+  visible: BoardTask[];
+  total: number;
+  showAll: boolean;
+  onShowAll: () => void;
+  draggedTask: DragInfo | null;
+  onDragStart: (info: DragInfo) => void;
+  onDragEnd: () => void;
+  onDrop: (info: DragInfo, target: TaskStatus) => void;
+}
+
+function DoneColumn({
+  column,
+  visible,
+  total,
+  showAll,
+  onShowAll,
+  draggedTask,
+}: DoneColumnProps) {
+  // Done is a terminal column — nothing transitions into it via user DnD,
+  // and tasks in `done` aren't draggable. Render with no drop targets.
+  return (
+    <div className="flex w-64 shrink-0 flex-col rounded-xl border border-slate-700 bg-slate-900">
+      <div
+        className={`sticky top-0 z-10 flex items-center justify-between rounded-t-xl border-b-2 ${column.color} bg-slate-800 px-3 py-2`}
+      >
+        <span className="text-sm font-semibold text-slate-200">
+          {column.label}
+        </span>
+        <span className="rounded-full bg-slate-700 px-2 py-0.5 text-xs font-medium text-slate-300">
+          {total}
+        </span>
+      </div>
+      <div className="flex flex-1 flex-col gap-2 overflow-y-auto p-2">
+        {visible.length === 0 ? (
+          <p className="py-4 text-center text-xs text-slate-500">No tasks</p>
+        ) : (
+          <>
+            {visible.map((task) => (
+              <TaskCard
+                key={task.id}
+                task={task}
+                isDragging={draggedTask?.id === task.id}
+              />
+            ))}
+            {!showAll && total > visible.length && (
+              <button
+                type="button"
+                onClick={onShowAll}
+                className="mt-1 rounded-md border border-slate-600 px-2 py-1 text-xs text-slate-300 hover:bg-slate-800 transition-colors"
+              >
+                Show all ({total})
+              </button>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
 }

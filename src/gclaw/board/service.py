@@ -2,6 +2,12 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
+from gclaw.board.transitions import (
+    TransitionNotAllowed,
+    is_user_transition_allowed,
+)
 from gclaw.firestore.board_repo import BoardRepo
 from gclaw.models.task import (
     BoardTask,
@@ -102,3 +108,91 @@ class BoardService:
 
     def get_all_tasks(self, user_id: str | None = None) -> list[BoardTask]:
         return self._repo.list_all(user_id=self._uid(user_id))
+
+    def get_task(
+        self, task_id: str, user_id: str | None = None
+    ) -> BoardTask | None:
+        return self._repo.get(task_id, user_id=self._uid(user_id))
+
+    def move_status(
+        self,
+        task_id: str,
+        target: TaskStatus,
+        *,
+        user_id: str | None = None,
+    ) -> BoardTask:
+        """Move a task to ``target`` via a user-initiated transition.
+
+        Raises :class:`TransitionNotAllowed` if the move is not allowed for
+        users. Raises ``ValueError`` if the task does not exist.
+        """
+        uid = self._uid(user_id)
+        task = self._repo.get(task_id, user_id=uid)
+        if task is None:
+            raise ValueError(f"Task {task_id} not found")
+        if not is_user_transition_allowed(task.status, target):
+            raise TransitionNotAllowed(task.status, target)
+        updated = task.model_copy(
+            update={
+                "status": target,
+                "updated_at": datetime.now(timezone.utc),
+            }
+        )
+        return self._repo.update(updated, user_id=uid)
+
+    def approve(
+        self,
+        task_id: str,
+        *,
+        user_id: str,
+        note: str | None = None,
+    ) -> BoardTask:
+        """Approve a NEEDS_APPROVAL task and move it back to QUEUED."""
+        uid = self._uid(user_id)
+        task = self._repo.get(task_id, user_id=uid)
+        if task is None:
+            raise ValueError(f"Task {task_id} not found")
+        if task.status != TaskStatus.NEEDS_APPROVAL:
+            raise ValueError(
+                f"Task {task_id} is not awaiting approval "
+                f"(status={task.status.value})"
+            )
+        now = datetime.now(timezone.utc)
+        updated = task.model_copy(
+            update={
+                "status": TaskStatus.QUEUED,
+                "approved_at": now,
+                "approved_by": user_id,
+                "approval_note": note,
+                "updated_at": now,
+            }
+        )
+        return self._repo.update(updated, user_id=uid)
+
+    def reject(
+        self,
+        task_id: str,
+        *,
+        user_id: str,
+        note: str,
+    ) -> BoardTask:
+        """Reject a NEEDS_APPROVAL task and move it to FAILED."""
+        uid = self._uid(user_id)
+        task = self._repo.get(task_id, user_id=uid)
+        if task is None:
+            raise ValueError(f"Task {task_id} not found")
+        if task.status != TaskStatus.NEEDS_APPROVAL:
+            raise ValueError(
+                f"Task {task_id} is not awaiting approval "
+                f"(status={task.status.value})"
+            )
+        now = datetime.now(timezone.utc)
+        updated = task.model_copy(
+            update={
+                "status": TaskStatus.FAILED,
+                "rejected_at": now,
+                "rejection_note": note,
+                "updated_at": now,
+            }
+        )
+        return self._repo.update(updated, user_id=uid)

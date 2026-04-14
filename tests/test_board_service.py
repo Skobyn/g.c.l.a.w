@@ -11,6 +11,7 @@ from gclaw.models.task import (
     TaskResult,
 )
 from gclaw.board.service import BoardService
+from gclaw.board.transitions import TransitionNotAllowed
 
 
 @pytest.fixture
@@ -114,3 +115,96 @@ def test_get_pending_tasks_for_agent(service, repo):
     repo.list_by_assignee.assert_called_with(
         "workspace-mgr", status=TaskStatus.QUEUED, user_id=None
     )
+
+
+def test_move_status_allowed(service, repo):
+    task = BoardTask(
+        id="t1",
+        title="T",
+        assignee="workspace-mgr",
+        status=TaskStatus.BACKLOG,
+    )
+    repo.get.return_value = task
+    repo.update.side_effect = lambda t, user_id=None: t
+
+    moved = service.move_status("t1", TaskStatus.QUEUED, user_id="u1")
+    assert moved.status == TaskStatus.QUEUED
+
+
+def test_move_status_forbidden_raises(service, repo):
+    task = BoardTask(
+        id="t1",
+        title="T",
+        assignee="workspace-mgr",
+        status=TaskStatus.BACKLOG,
+    )
+    repo.get.return_value = task
+
+    with pytest.raises(TransitionNotAllowed):
+        service.move_status("t1", TaskStatus.DONE, user_id="u1")
+    repo.update.assert_not_called()
+
+
+def test_move_status_missing_task_raises(service, repo):
+    repo.get.return_value = None
+    with pytest.raises(ValueError, match="not found"):
+        service.move_status("nope", TaskStatus.QUEUED, user_id="u1")
+
+
+def test_approve_happy_path(service, repo):
+    task = BoardTask(
+        id="t1",
+        title="T",
+        assignee="workspace-mgr",
+        status=TaskStatus.NEEDS_APPROVAL,
+    )
+    repo.get.return_value = task
+    repo.update.side_effect = lambda t, user_id=None: t
+
+    approved = service.approve("t1", user_id="u1", note="go ahead")
+    assert approved.status == TaskStatus.QUEUED
+    assert approved.approved_by == "u1"
+    assert approved.approved_at is not None
+    assert approved.approval_note == "go ahead"
+
+
+def test_approve_wrong_status_raises(service, repo):
+    task = BoardTask(
+        id="t1",
+        title="T",
+        assignee="workspace-mgr",
+        status=TaskStatus.QUEUED,
+    )
+    repo.get.return_value = task
+
+    with pytest.raises(ValueError, match="not awaiting approval"):
+        service.approve("t1", user_id="u1")
+
+
+def test_reject_happy_path(service, repo):
+    task = BoardTask(
+        id="t1",
+        title="T",
+        assignee="workspace-mgr",
+        status=TaskStatus.NEEDS_APPROVAL,
+    )
+    repo.get.return_value = task
+    repo.update.side_effect = lambda t, user_id=None: t
+
+    rejected = service.reject("t1", user_id="u1", note="bad idea")
+    assert rejected.status == TaskStatus.FAILED
+    assert rejected.rejection_note == "bad idea"
+    assert rejected.rejected_at is not None
+
+
+def test_reject_wrong_status_raises(service, repo):
+    task = BoardTask(
+        id="t1",
+        title="T",
+        assignee="workspace-mgr",
+        status=TaskStatus.DONE,
+    )
+    repo.get.return_value = task
+
+    with pytest.raises(ValueError, match="not awaiting approval"):
+        service.reject("t1", user_id="u1", note="no")

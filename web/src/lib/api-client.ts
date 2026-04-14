@@ -11,6 +11,8 @@ import type {
   ChatRequest,
   ChatResponse,
   BoardTask,
+  TaskStatus,
+  TaskPriority,
   AgentInfo,
   HeartbeatLogEntry,
   SoulFile,
@@ -121,19 +123,43 @@ export class ApiClient {
   }
 
   /** Create a new board task. */
-  async createBoardTask(
-    title: string,
-    assignee: string,
-    description?: string,
-    priority?: string
-  ): Promise<BoardTask> {
-    const body: Record<string, string> = { title, assignee };
-    if (description) body.description = description;
-    if (priority) body.priority = priority;
+  async createBoardTask(body: {
+    title: string;
+    description?: string;
+    assignee: string;
+    priority?: TaskPriority;
+    initial_status?: "backlog" | "queued";
+    requires_approval?: boolean;
+    dependencies?: string[];
+  }): Promise<BoardTask> {
     return this.request<BoardTask>("/board/tasks", {
       method: "POST",
       body: JSON.stringify(body),
     });
+  }
+
+  /** Move a task to a new status (subject to backend transition rules). */
+  async moveTaskStatus(id: string, target: TaskStatus): Promise<BoardTask> {
+    return this.request<BoardTask>(
+      `/board/tasks/${encodeURIComponent(id)}/status`,
+      { method: "POST", body: JSON.stringify({ target }) },
+    );
+  }
+
+  /** Approve a needs_approval task → moves to queued. */
+  async approveTask(id: string, note?: string): Promise<BoardTask> {
+    return this.request<BoardTask>(
+      `/board/tasks/${encodeURIComponent(id)}/approve`,
+      { method: "POST", body: JSON.stringify(note ? { note } : {}) },
+    );
+  }
+
+  /** Reject a needs_approval task → moves to failed. Note is required. */
+  async rejectTask(id: string, note: string): Promise<BoardTask> {
+    return this.request<BoardTask>(
+      `/board/tasks/${encodeURIComponent(id)}/reject`,
+      { method: "POST", body: JSON.stringify({ note }) },
+    );
   }
 
   /** Health check (no auth required). */

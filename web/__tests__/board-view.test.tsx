@@ -115,23 +115,59 @@ const inProgressColumn: BoardColumnType = {
 
 describe("BoardColumn", () => {
   it("renders the column label", () => {
-    render(<BoardColumn column={inProgressColumn} tasks={[]} />);
+    render(
+      <BoardColumn
+        column={inProgressColumn}
+        tasks={[]}
+        draggedTask={null}
+        onDragStart={() => {}}
+        onDragEnd={() => {}}
+        onDrop={() => {}}
+      />,
+    );
     expect(screen.getByText("In Progress")).toBeInTheDocument();
   });
 
   it("shows count of 0 when no tasks", () => {
-    render(<BoardColumn column={inProgressColumn} tasks={[]} />);
+    render(
+      <BoardColumn
+        column={inProgressColumn}
+        tasks={[]}
+        draggedTask={null}
+        onDragStart={() => {}}
+        onDragEnd={() => {}}
+        onDrop={() => {}}
+      />,
+    );
     expect(screen.getByText("0")).toBeInTheDocument();
   });
 
   it("shows empty state message when no tasks", () => {
-    render(<BoardColumn column={inProgressColumn} tasks={[]} />);
+    render(
+      <BoardColumn
+        column={inProgressColumn}
+        tasks={[]}
+        draggedTask={null}
+        onDragStart={() => {}}
+        onDragEnd={() => {}}
+        onDrop={() => {}}
+      />,
+    );
     expect(screen.getByText(/no tasks/i)).toBeInTheDocument();
   });
 
   it("renders task cards and count when tasks are provided", () => {
     const tasks = [sampleTask, { ...sampleTask, id: "task-2", title: "Second task" }];
-    render(<BoardColumn column={inProgressColumn} tasks={tasks} />);
+    render(
+      <BoardColumn
+        column={inProgressColumn}
+        tasks={tasks}
+        draggedTask={null}
+        onDragStart={() => {}}
+        onDragEnd={() => {}}
+        onDrop={() => {}}
+      />,
+    );
     expect(screen.getByText("2")).toBeInTheDocument();
     expect(screen.getByText("Fix the login bug")).toBeInTheDocument();
     expect(screen.getByText("Second task")).toBeInTheDocument();
