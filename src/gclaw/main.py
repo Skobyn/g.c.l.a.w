@@ -415,12 +415,25 @@ def build_app():
     loaded_skills = skill_registry.load_builtins(settings.skills_dir)
     logger.info("Loaded %d built-in skills", len(loaded_skills))
 
+    # Agent config overrides — Firestore-backed merge on top of .md files.
+    from gclaw.config.agent_config_service import AgentConfigService
+    from gclaw.firestore.agent_override_repo import AgentOverrideRepo
+    agent_override_repo = AgentOverrideRepo(db=db)
+    agent_config_service = AgentConfigService(
+        override_repo=agent_override_repo,
+        loader=loader,
+        skill_registry=skill_registry,
+        agents_dir=os.path.join(settings.config_dir, "agents"),
+    )
+    loader.set_override_provider(agent_config_service.get_override)
+
     factory = AgentFactory(
         loader=loader,
         default_model=settings.gemini_flash_model,
         model_router=model_router,
         skill_registry=skill_registry,
         catalog_service=catalog_service,
+        agent_config_service=agent_config_service,
     )
 
     # Orchestrator
@@ -512,6 +525,7 @@ def build_app():
         enable_auth=settings.firebase_auth_enabled,
         catalog_service=catalog_service,
         usage_repo=usage_repo,
+        agent_config_service=agent_config_service,
     )
 
 

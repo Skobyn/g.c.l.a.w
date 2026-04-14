@@ -38,6 +38,10 @@ import type {
   UsageEvent,
   UsageKind,
   UsageSummary,
+  AgentListEntry,
+  EffectiveAgentConfig,
+  AgentOverride,
+  CreateAgentPayload,
 } from "@/types";
 
 export class ApiClient {
@@ -142,6 +146,74 @@ export class ApiClient {
 
   async getAgents(): Promise<AgentInfo[]> {
     return this.request<AgentInfo[]>("/admin/agents");
+  }
+
+  // --- Admin: Agents (rich CRUD) ---
+
+  async listAgentsRich(): Promise<AgentListEntry[]> {
+    return this.request<AgentListEntry[]>("/admin/agents");
+  }
+
+  async getAgentConfig(name: string): Promise<EffectiveAgentConfig> {
+    return this.request<EffectiveAgentConfig>(
+      `/admin/agents/${encodeURIComponent(name)}`,
+    );
+  }
+
+  async getAgentOverride(name: string): Promise<AgentOverride | null> {
+    const hdrs = await this.headers();
+    const response = await fetch(
+      `${this.baseUrl}/admin/agents/${encodeURIComponent(name)}/override`,
+      { headers: hdrs },
+    );
+    if (response.status === 404) return null;
+    if (!response.ok) {
+      let detail = response.statusText;
+      try {
+        const body = await response.json();
+        detail = body.detail || detail;
+      } catch {
+        // ignore
+      }
+      throw new Error(`API error ${response.status}: ${detail}`);
+    }
+    return response.json() as Promise<AgentOverride>;
+  }
+
+  async getAgentBaseline(
+    name: string,
+  ): Promise<{ body: string; has_baseline: boolean }> {
+    return this.request<{ body: string; has_baseline: boolean }>(
+      `/admin/agents/${encodeURIComponent(name)}/baseline`,
+    );
+  }
+
+  async createAgent(body: CreateAgentPayload): Promise<AgentOverride> {
+    return this.request<AgentOverride>("/admin/agents", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  }
+
+  async updateAgent(
+    name: string,
+    patch: Partial<AgentOverride>,
+  ): Promise<AgentOverride> {
+    return this.request<AgentOverride>(
+      `/admin/agents/${encodeURIComponent(name)}`,
+      { method: "PATCH", body: JSON.stringify(patch) },
+    );
+  }
+
+  async deleteAgent(
+    name: string,
+    force = false,
+  ): Promise<{ deleted: boolean; reverted_to_baseline: boolean }> {
+    const q = force ? "?force=true" : "";
+    return this.request<{ deleted: boolean; reverted_to_baseline: boolean }>(
+      `/admin/agents/${encodeURIComponent(name)}${q}`,
+      { method: "DELETE" },
+    );
   }
 
   async getTransports(): Promise<TransportInfo> {

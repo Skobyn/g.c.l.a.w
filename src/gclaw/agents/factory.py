@@ -11,6 +11,8 @@ from gclaw.config.loader import ConfigLoader
 
 if TYPE_CHECKING:
     from gclaw.catalog.service import CatalogService
+    from gclaw.config.agent_config_service import AgentConfigService
+    from gclaw.models.agent_config import AgentOverride
     from gclaw.models.catalog import ModelParams
     from gclaw.models.skill import Skill
     from gclaw.routing.router import ModelRouter
@@ -29,12 +31,103 @@ class AgentFactory:
         model_router: "ModelRouter | None" = None,
         skill_registry: "SkillRegistry | None" = None,
         catalog_service: "CatalogService | None" = None,
+        agent_config_service: "AgentConfigService | None" = None,
     ) -> None:
         self._loader = loader
         self._default_model = default_model
         self._router = model_router
         self._skill_registry = skill_registry
         self._catalog = catalog_service
+        self._agent_config_service = agent_config_service
+
+    def _get_override(
+        self, agent_name: str
+    ) -> "AgentOverride | None":
+        if self._agent_config_service is None:
+            return None
+        try:
+            return self._agent_config_service.get_override(agent_name)
+        except Exception:
+            logger.warning(
+                "factory: failed to load override for %s",
+                agent_name,
+                exc_info=True,
+            )
+            return None
+
+    @staticmethod
+    def _tool_name(tool: Any) -> str:
+        """Best-effort extraction of a tool's identifier."""
+        for attr in ("name", "__name__"):
+            val = getattr(tool, attr, None)
+            if isinstance(val, str) and val:
+                return val
+        return type(tool).__name__
+
+    def _apply_override(
+        self,
+        agent_name: str,
+        tools: list[Any] | None,
+        sub_agents: list[LlmAgent] | None,
+        skills: "list[Skill] | None",
+    ) -> tuple[list[Any] | None, list[LlmAgent] | None, "list[Skill] | None"]:
+        """Filter tools/sub_agents/skills based on the agent's override.
+
+        - tools: drop anything whose name is in ``tools.deny``; if
+          ``tools.allow`` is non-empty, keep only names in allow. Profile
+          is logged only (follow-up maps presets to tool lists).
+        - sub_agents: if ``subagents.allow`` is a list without "*", drop
+          sub-agents whose names aren't in allow.
+        - skills: if override.skills is a list, filter to that allowlist.
+        """
+        override = self._get_override(agent_name)
+        if override is None:
+            return tools, sub_agents, skills
+
+        # Tools filter.
+        if tools and (override.tools.deny or override.tools.allow):
+            deny = set(override.tools.deny or [])
+            allow = set(override.tools.allow or [])
+            filtered: list[Any] = []
+            for t in tools:
+                name = self._tool_name(t)
+                if name in deny:
+                    continue
+                if allow and name not in allow:
+                    continue
+                filtered.append(t)
+            tools = filtered
+        if override.tools.profile:
+            logger.info(
+                "factory: agent %s has tools.profile=%r (not yet enforced)",
+                agent_name, override.tools.profile,
+            )
+
+        # Sub-agent filter.
+        if sub_agents and override.subagents.allow is not None:
+            allow_list = override.subagents.allow
+            if "*" not in allow_list:
+                allow_set = set(allow_list)
+                sub_agents = [
+                    a for a in sub_agents
+                    if getattr(a, "name", None) in allow_set
+                    or getattr(a, "name", "").replace("_", "-") in allow_set
+                ]
+
+        # Skills filter.
+        if skills and override.skills is not None:
+            allow_skills = set(override.skills)
+            skills = [s for s in skills if s.name in allow_skills]
+
+        # Thinking level: stored for future use; log a TODO for Gemini.
+        if override.model.thinking is not None:
+            logger.debug(
+                "factory: agent %s thinking=%s (TODO: wire into LiteLlm "
+                "metadata / Gemini generation_config)",
+                agent_name, override.model.thinking,
+            )
+
+        return tools, sub_agents, skills
 
     def _apply_params_override(
         self, adk_model: Any, params: "ModelParams | None"
@@ -117,6 +210,10 @@ class AgentFactory:
     ) -> LlmAgent:
         if skills is None and self._skill_registry is not None:
             skills = self._skill_registry.list_for_agent(agent_name)
+
+        tools, sub_agents, skills = self._apply_override(
+            agent_name, tools, sub_agents, skills
+        )
 
         instruction = self._loader.build_system_prompt(
             agent_name=agent_name,

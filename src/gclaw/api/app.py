@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 logger = logging.getLogger(__name__)
 
 from gclaw.api.admin_routes import init_admin_router
+from gclaw.api.agent_config_routes import init_agent_config_router
 from gclaw.api.catalog_routes import init_catalog_router
 from gclaw.api.usage_routes import init_usage_router
 from gclaw.api.chat import init_chat_router
@@ -50,6 +51,7 @@ def create_app(
     heartbeat_loop_enabled: bool = False,
     heartbeat_scheduler_seed: str = "gclaw-default-seed",
     usage_repo: object | None = None,
+    agent_config_service: object | None = None,
 ) -> FastAPI:
     # Lifespan that optionally starts the per-agent heartbeat loop.
     _loop_holder: dict = {}
@@ -121,6 +123,15 @@ def create_app(
         )
 
     app.include_router(init_voice_router(gemini_live_model))
+
+    # Mount the agent-config router BEFORE the admin router so its
+    # richer /admin/agents shadows the legacy fallback.
+    if agent_config_service is not None:
+        app.include_router(init_agent_config_router(
+            agent_config_service=agent_config_service,
+            config_loader=config_loader,
+        ))
+        app.state.agent_config_service = agent_config_service
 
     if config_loader is not None and skill_registry is not None:
         app.include_router(init_admin_router(

@@ -65,6 +65,12 @@ def init_admin_router(
 
 
 # --- Agents ---
+#
+# Agent listing + CRUD has moved to ``agent_config_routes.py`` which is
+# service-backed (Firestore overrides). When that service isn't wired
+# the app still mounts a fallback ``GET /admin/agents`` that scans the
+# .md directory — so tests and callers that expect the legacy shape
+# keep working.
 
 
 class AgentInfo(BaseModel):
@@ -72,16 +78,14 @@ class AgentInfo(BaseModel):
     has_soul_overlay: bool
 
 
-@router.get("/agents")
-def list_agents(user_id: str = Depends(get_current_user_id)):
-    """List all configured agents with basic info."""
+def _legacy_list_agents() -> list[dict]:
+    """Scan-only listing used when no AgentConfigService is wired."""
     agents_dir = os.path.join(_config_loader._config_dir, "agents")
     result = []
     if os.path.isdir(agents_dir):
         for fname in sorted(os.listdir(agents_dir)):
             if fname.endswith(".md"):
                 agent_name = fname.removesuffix(".md")
-                # Check for soul overlay matching the first segment of the agent name
                 soul_dir = os.path.join(_config_loader._config_dir, "soul")
                 has_overlay = os.path.isfile(
                     os.path.join(soul_dir, f"{agent_name.split('-')[0]}.md")
@@ -91,6 +95,13 @@ def list_agents(user_id: str = Depends(get_current_user_id)):
                     "has_soul_overlay": has_overlay,
                 })
     return result
+
+
+@router.get("/agents")
+def list_agents_legacy(user_id: str = Depends(get_current_user_id)):
+    """Legacy fallback. Overridden by agent_config_routes when the
+    AgentConfigService is wired into ``create_app``."""
+    return _legacy_list_agents()
 
 
 # --- Heartbeat Logs ---

@@ -448,6 +448,120 @@ export interface UsageEvent {
   metadata: Record<string, unknown>;
 }
 
+// ---------- Agent Admin ----------
+
+export type ThinkingLevel =
+  | "off"
+  | "minimal"
+  | "low"
+  | "medium"
+  | "high"
+  | "xhigh"
+  | "adaptive";
+
+export interface AgentIdentity {
+  display_name: string | null;
+  emoji: string | null;
+  avatar_url: string | null;
+  description: string | null;
+}
+
+export interface AgentModelSpec {
+  primary: string | null;
+  fallbacks: string[];
+  thinking: ThinkingLevel | null;
+  params: Record<string, unknown>;
+}
+
+export interface AgentToolsSpec {
+  profile: string | null;
+  allow: string[];
+  deny: string[];
+}
+
+export interface AgentSubagentsSpec {
+  allow: string[] | null;
+}
+
+export interface AgentHeartbeatConfig {
+  enabled: boolean;
+  every: string;
+  prompt: string | null;
+  session: string;
+  isolated_session: boolean;
+  light_context: boolean;
+  timeout_seconds: number;
+  ack_max_chars: number;
+  active_hours: { start: string; end: string; timezone: string } | null;
+  target: "none" | "last" | "channel";
+  channel: string | null;
+  include_reasoning: boolean;
+}
+
+export interface AgentOverride {
+  agent_name: string;
+  identity: AgentIdentity;
+  model: AgentModelSpec;
+  tools: AgentToolsSpec;
+  subagents: AgentSubagentsSpec;
+  skills: string[] | null;
+  heartbeat: AgentHeartbeatConfig | null;
+  system_prompt_override: string | null;
+  body_override: string | null;
+  soul_overlay: string | null;
+  enabled: boolean;
+  is_standalone: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface EffectiveAgentConfig {
+  name: string;
+  identity: AgentIdentity;
+  model: AgentModelSpec;
+  tools: AgentToolsSpec;
+  subagents: AgentSubagentsSpec;
+  skills: string[] | null;
+  heartbeat: AgentHeartbeatConfig | null;
+  system_prompt: string;
+  body: string;
+  soul_overlay: string | null;
+  is_standalone: boolean;
+  has_baseline: boolean;
+  has_override: boolean;
+}
+
+export interface AgentListEntry {
+  name: string;
+  display_name: string | null;
+  description: string | null;
+  has_override: boolean;
+  enabled: boolean;
+  is_standalone: boolean;
+  model_ref: string | null;
+  heartbeat_enabled: boolean;
+  tools_profile: string | null;
+}
+
+export interface CreateAgentPayload {
+  agent_name: string;
+  display_name?: string;
+  body: string;
+  model?: Partial<AgentModelSpec>;
+  tools?: Partial<AgentToolsSpec>;
+  skills?: string[] | null;
+  heartbeat?: Partial<AgentHeartbeatConfig>;
+}
+
+export const PROTECTED_AGENTS = [
+  "orchestrator",
+  "workspace-mgr",
+  "dev-mgr",
+  "home-mgr",
+  "comms-mgr",
+  "research-mgr",
+] as const;
+
 export interface UsageSummary {
   totals: {
     model: number;

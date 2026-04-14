@@ -118,6 +118,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/chat", label: "Chat", icon: <ChatIcon /> },
   { href: "/board", label: "Board", icon: <BoardIcon /> },
   { href: "/agents", label: "Agents", icon: <AgentsIcon /> },
+  { href: "/admin/agents", label: "Manage Agents", icon: <AgentsIcon /> },
   { href: "/skills", label: "Skills", icon: <SkillsIcon /> },
   { href: "/crons", label: "Crons", icon: <CronsIcon /> },
   { href: "/memory", label: "Memory", icon: <MemoryIcon /> },

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 import yaml
 
@@ -11,6 +11,7 @@ from gclaw.heartbeat.config import HeartbeatConfig
 from gclaw.models.catalog import AgentModelRef, ModelParams
 
 if TYPE_CHECKING:
+    from gclaw.models.agent_config import AgentOverride
     from gclaw.models.skill import Skill
     from gclaw.skill.loader import SkillLoader
 
@@ -89,9 +90,30 @@ class ConfigLoader:
         self,
         config_dir: str,
         skill_loader: SkillLoader | None = None,
+        override_provider: (
+            Callable[[str], "AgentOverride | None"] | None
+        ) = None,
     ) -> None:
         self._config_dir = config_dir
         self._skill_loader = skill_loader
+        self._override_provider = override_provider
+
+    def _get_override(self, agent_name: str) -> "AgentOverride | None":
+        if self._override_provider is None:
+            return None
+        try:
+            return self._override_provider(agent_name)
+        except Exception:
+            # Override lookup must never break baseline loading.
+            return None
+
+    def set_override_provider(
+        self,
+        provider: Callable[[str], "AgentOverride | None"] | None,
+    ) -> None:
+        """Set (or clear) the override provider. Used when the service is
+        constructed after the loader (chicken-and-egg at app boot)."""
+        self._override_provider = provider
 
     def load_soul(self, base: str, overlay: str | None = None) -> str:
         base_path = os.path.join(self._config_dir, "soul", f"{base}.md")
@@ -120,16 +142,46 @@ class ConfigLoader:
             return f.read()
 
     def load_agent(self, agent_name: str) -> str:
-        """Return the agent definition body (frontmatter stripped)."""
-        raw = self._read_agent_file(agent_name)
-        _, body = _split_frontmatter(raw)
-        return body
+        """Return the agent definition body (frontmatter stripped).
+
+        If an override provides ``system_prompt_override`` or
+        ``body_override`` it wins. Standalone overrides (no baseline .md)
+        must supply one of them.
+        """
+        override = self._get_override(agent_name)
+        if override is not None and override.system_prompt_override:
+            return override.system_prompt_override
+
+        baseline_body: str | None = None
+        try:
+            raw = self._read_agent_file(agent_name)
+            _, baseline_body = _split_frontmatter(raw)
+        except FileNotFoundError:
+            baseline_body = None
+
+        if override is not None and override.body_override is not None:
+            return override.body_override
+        if baseline_body is not None:
+            return baseline_body
+        if override is not None:
+            # Standalone override with no body — return empty body rather
+            # than raise. Callers should have set a body_override.
+            return ""
+        raise FileNotFoundError(
+            f"Agent definition not found: {agent_name}"
+        )
 
     def load_agent_frontmatter(
         self, agent_name: str
     ) -> dict[str, Any] | None:
-        """Return parsed YAML frontmatter dict for an agent, or None."""
-        raw = self._read_agent_file(agent_name)
+        """Return parsed YAML frontmatter dict for an agent, or None.
+
+        Standalone overrides with no baseline file return ``None``.
+        """
+        try:
+            raw = self._read_agent_file(agent_name)
+        except FileNotFoundError:
+            return None
         fm, _ = _split_frontmatter(raw)
         return fm
 
@@ -137,6 +189,9 @@ class ConfigLoader:
         self, agent_name: str
     ) -> HeartbeatConfig | None:
         """Return the HeartbeatConfig for an agent, or None if not set."""
+        override = self._get_override(agent_name)
+        if override is not None and override.heartbeat is not None:
+            return override.heartbeat
         fm = self.load_agent_frontmatter(agent_name)
         if not fm:
             return None
@@ -160,6 +215,15 @@ class ConfigLoader:
           - ``model: "bare-model-id"`` (string)
           - ``model: {name: "...", params: {...}}`` (mapping)
         """
+        override = self._get_override(agent_name)
+        if override is not None and override.model.primary:
+            params = None
+            if override.model.params:
+                try:
+                    params = ModelParams(**override.model.params)
+                except Exception:
+                    params = None
+            return AgentModelRef(name=override.model.primary, params=params)
         fm = self.load_agent_frontmatter(agent_name)
         if not fm:
             return None
@@ -205,7 +269,19 @@ class ConfigLoader:
         parts.append(f"# Agent Role\n\n{agent_def}")
 
         # Soul
-        soul = self.load_soul(soul_base, overlay=soul_overlay)
+        try:
+            soul = self.load_soul(soul_base, overlay=soul_overlay)
+        except FileNotFoundError:
+            # Standalone agents may be created without a matching soul
+            # base/overlay file — degrade to an empty soul rather than crash.
+            soul = ""
+        # Override-provided raw soul overlay markdown is appended verbatim.
+        override = self._get_override(agent_name)
+        if override is not None and override.soul_overlay:
+            if soul:
+                soul = soul + "\n" + override.soul_overlay
+            else:
+                soul = override.soul_overlay
         parts.append(f"# Personality & User Context\n\n{soul}")
 
         # Injected memories
