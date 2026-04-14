@@ -485,6 +485,14 @@ def build_app():
         model_chain_provider=factory.resolve_model_chain,
     )
 
+    # Onboarding (conversational interview driving soul generation).
+    from gclaw.onboarding.service import OnboardingService
+    onboarding_service = OnboardingService(
+        db=db,
+        agent_runner=runner,
+        memory_service=memory_service,
+    )
+
     # Heartbeat — consciousness loop triggered by Cloud Scheduler POST /heartbeat
     # and (when HEARTBEAT_PER_AGENT_ENABLED) by the in-process background
     # loop. Dev mode only for now; multi-tenant heartbeat scheduling is a
@@ -527,6 +535,7 @@ def build_app():
         catalog_service=catalog_service,
         usage_repo=usage_repo,
         agent_config_service=agent_config_service,
+        onboarding_service=onboarding_service,
     )
 
 
