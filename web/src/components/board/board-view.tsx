@@ -14,7 +14,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { collection, onSnapshot, query } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { db, firebaseConfigured } from "@/lib/firebase";
 import { useAuth } from "@/contexts/auth-context";
 import { BOARD_COLUMNS } from "@/types";
 import type { BoardTask, CronInfo, TaskStatus } from "@/types";
@@ -40,32 +40,62 @@ export function BoardView() {
   const [editingCron, setEditingCron] = useState<CronInfo | null>(null);
   const [showAllDone, setShowAllDone] = useState(false);
 
-  // Firestore real-time task subscription.
+  // Task source: Firestore real-time when Firebase is configured,
+  // REST polling every 10s otherwise (DEV_BYPASS_AUTH builds have no
+  // Firebase creds — calling collection(db,…) throws there).
   useEffect(() => {
     if (!user) return;
 
-    const boardRef = collection(db, "users", user.uid, "board");
-    const q = query(boardRef);
+    if (firebaseConfigured) {
+      const boardRef = collection(db, "users", user.uid, "board");
+      const q = query(boardRef);
+      const unsubscribe = onSnapshot(
+        q,
+        (snapshot) => {
+          const fetched: BoardTask[] = snapshot.docs.map((doc) => ({
+            id: doc.id,
+            ...(doc.data() as Omit<BoardTask, "id">),
+          }));
+          setTasks(fetched);
+          setLoading(false);
+        },
+        (err) => {
+          console.error("Firestore onSnapshot error:", err);
+          setError("Failed to load board tasks.");
+          setLoading(false);
+        },
+      );
+      return unsubscribe;
+    }
 
-    const unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        const fetched: BoardTask[] = snapshot.docs.map((doc) => ({
-          id: doc.id,
-          ...(doc.data() as Omit<BoardTask, "id">),
-        }));
-        setTasks(fetched);
-        setLoading(false);
-      },
-      (err) => {
-        console.error("Firestore onSnapshot error:", err);
-        setError("Failed to load board tasks.");
-        setLoading(false);
-      },
-    );
-
-    return unsubscribe;
-  }, [user]);
+    // REST polling fallback.
+    let cancelled = false;
+    const api = createApiClient(getIdToken);
+    const load = async () => {
+      try {
+        const list = await api.getBoardTasks();
+        if (!cancelled) {
+          setTasks(list);
+          setError(null);
+          setLoading(false);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          console.error("getBoardTasks failed:", err);
+          setError(
+            err instanceof Error ? err.message : "Failed to load board tasks.",
+          );
+          setLoading(false);
+        }
+      }
+    };
+    load();
+    const handle = setInterval(load, 10_000);
+    return () => {
+      cancelled = true;
+      clearInterval(handle);
+    };
+  }, [user, getIdToken]);
 
   // Cron polling (10s). Uses listCrons which hits /crons.
   const fetchCronsRef = useRef<() => Promise<void>>(async () => {});

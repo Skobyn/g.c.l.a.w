@@ -44,3 +44,6 @@ export const auth: Auth = hasFirebaseConfig ? getAuth(app) : ({} as Auth);
 export const db: Firestore = hasFirebaseConfig
   ? getFirestore(app)
   : ({} as Firestore);
+
+/** True when real Firebase config is available (auth + Firestore). */
+export const firebaseConfigured = hasFirebaseConfig;
