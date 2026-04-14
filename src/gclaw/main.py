@@ -482,6 +482,7 @@ def build_app():
         board_service=board_service,
         session_store=session_store,
         usage_recorder=usage_recorder,
+        model_chain_provider=factory.resolve_model_chain,
     )
 
     # Heartbeat — consciousness loop triggered by Cloud Scheduler POST /heartbeat

@@ -127,3 +127,35 @@ async def test_create_cron(client, cron_service):
     data = resp.json()
     assert data["title"] == "New cron"
     cron_service.create.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_update_cron(client, cron_service):
+    cron_service.update.return_value = _cron(title="Renamed")
+    resp = await client.patch(
+        "/crons/cron_abc",
+        json={"title": "Renamed", "enabled": False},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["title"] == "Renamed"
+    cron_service.update.assert_called_once()
+    args, kwargs = cron_service.update.call_args
+    assert args[0] == "cron_abc"
+    assert kwargs.get("title") == "Renamed"
+    assert kwargs.get("enabled") is False
+
+
+@pytest.mark.asyncio
+async def test_update_cron_not_found(client, cron_service):
+    cron_service.update.side_effect = ValueError("Cron cron_nope not found")
+    resp = await client.patch("/crons/cron_nope", json={"title": "x"})
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_delete_cron(client, cron_service):
+    cron_service.delete.return_value = None
+    resp = await client.delete("/crons/cron_abc")
+    assert resp.status_code == 204
+    cron_service.delete.assert_called_once_with("cron_abc")

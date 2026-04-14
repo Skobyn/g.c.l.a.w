@@ -298,6 +298,38 @@ export class ApiClient {
     return this.request<CronInfo[]>("/admin/crons");
   }
 
+  async listCrons(): Promise<CronInfo[]> {
+    return this.request<CronInfo[]>("/crons");
+  }
+
+  async updateCron(
+    cronId: string,
+    body: Partial<CronInfo>,
+  ): Promise<CronInfo> {
+    return this.request<CronInfo>(`/crons/${encodeURIComponent(cronId)}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    });
+  }
+
+  async deleteCron(cronId: string): Promise<void> {
+    const hdrs = await this.headers();
+    const response = await fetch(
+      `${this.baseUrl}/crons/${encodeURIComponent(cronId)}`,
+      { method: "DELETE", headers: hdrs },
+    );
+    if (!response.ok && response.status !== 204) {
+      let detail = response.statusText;
+      try {
+        const body = await response.json();
+        detail = body.detail || detail;
+      } catch {
+        /* ignore */
+      }
+      throw new Error(`API error ${response.status}: ${detail}`);
+    }
+  }
+
   async toggleCron(cronId: string): Promise<CronInfo> {
     return this.request<CronInfo>(`/admin/crons/${cronId}/toggle`, {
       method: "POST",

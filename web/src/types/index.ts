@@ -256,6 +256,11 @@ export interface CronInfo {
   last_error?: string | null;
 }
 
+/** Discriminated union for kanban cards on the unified board. */
+export type BoardItem =
+  | { kind: "task"; task: BoardTask }
+  | { kind: "cron"; cron: CronInfo };
+
 /** Connection permission level. */
 export type ConnectionPermission = "read" | "write" | "task" | "full";
 

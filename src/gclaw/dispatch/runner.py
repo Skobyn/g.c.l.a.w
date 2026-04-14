@@ -11,8 +11,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from copy import copy
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable
 
 from google.adk.agents import LlmAgent
 from google.adk.runners import Runner
@@ -27,6 +28,67 @@ if TYPE_CHECKING:
     from gclaw.usage.recorder import UsageRecorder
 
 logger = logging.getLogger(__name__)
+
+
+def _is_retryable_model_error(exc: BaseException) -> bool:
+    """Return True for errors that warrant trying the next fallback model.
+
+    Narrowly scoped to transport- and provider-capacity-level failures that
+    might succeed on a different model. Excludes programming errors and
+    anything that clearly won't be fixed by swapping models.
+    """
+    # Never retry these — different model won't help.
+    if isinstance(exc, (ValueError, TypeError, KeyError, AttributeError)):
+        return False
+    try:
+        from pydantic import ValidationError
+        if isinstance(exc, ValidationError):
+            return False
+    except Exception:
+        pass
+
+    # Generic transport-level errors.
+    if isinstance(exc, (TimeoutError, ConnectionError, asyncio.TimeoutError)):
+        return True
+
+    # google-api-core exceptions — capacity, availability, deadlines, quota.
+    try:
+        from google.api_core import exceptions as gapi_exc
+        retryable_gapi = (
+            gapi_exc.ResourceExhausted,
+            gapi_exc.ServiceUnavailable,
+            gapi_exc.InternalServerError,
+            gapi_exc.DeadlineExceeded,
+            gapi_exc.PermissionDenied,  # billing / quota denial
+            gapi_exc.TooManyRequests,
+            gapi_exc.BadGateway,
+            gapi_exc.GatewayTimeout,
+        )
+        if isinstance(exc, retryable_gapi):
+            return True
+    except Exception:
+        pass
+
+    # litellm provider errors.
+    try:
+        from litellm import exceptions as lite_exc  # type: ignore
+        retryable_lite = tuple(
+            c for c in (
+                getattr(lite_exc, "APIError", None),
+                getattr(lite_exc, "APIConnectionError", None),
+                getattr(lite_exc, "Timeout", None),
+                getattr(lite_exc, "RateLimitError", None),
+                getattr(lite_exc, "ServiceUnavailableError", None),
+                getattr(lite_exc, "InternalServerError", None),
+                getattr(lite_exc, "ContextWindowExceededError", None),
+            ) if c is not None
+        )
+        if retryable_lite and isinstance(exc, retryable_lite):
+            return True
+    except Exception:
+        pass
+
+    return False
 
 
 @dataclass
@@ -56,6 +118,7 @@ class AgentRunner:
         session_store: "SessionService | None" = None,
         extraction_topics: list[str] | None = None,
         usage_recorder: "UsageRecorder | None" = None,
+        model_chain_provider: Callable[[str], list[Any]] | None = None,
     ) -> None:
         self._agent = agent
         self._app_name = app_name
@@ -75,10 +138,24 @@ class AgentRunner:
             else list(DEFAULT_EXTRACTION_TOPICS)
         )
         self._pending_captures: set[asyncio.Task] = set()
+        self._model_chain_provider = model_chain_provider
         self._runner = Runner(
             agent=agent,
             app_name=app_name,
             session_service=session_service,
+        )
+
+    def _build_fallback_runner(self, next_model: Any) -> Runner:
+        """Shallow-clone the agent with a swapped ``model`` and wrap it in
+        a fresh ADK Runner. Shares ``app_name`` and ``session_service``
+        only; transient runner state is not reused.
+        """
+        fallback_agent = copy(self._agent)
+        fallback_agent.model = next_model
+        return Runner(
+            agent=fallback_agent,
+            app_name=self._app_name,
+            session_service=self._session_service,
         )
 
     async def run(
@@ -86,6 +163,7 @@ class AgentRunner:
         user_id: str,
         session_id: str,
         message: str,
+        agent_name: str | None = None,
     ) -> AgentResponse:
         """Execute a single user turn with memory hooks."""
         if self._board_service is not None:
@@ -144,66 +222,114 @@ class AgentRunner:
             parts=[types.Part(text=full_message)],
         )
 
-        response = AgentResponse()
-        turn_start = time.perf_counter()
-        run_error: str | None = None
-        tokens_in_total = 0
-        tokens_out_total = 0
-        model_seen: str | None = None
-        try:
-            async for event in self._runner.run_async(
-                user_id=user_id,
-                session_id=session_id,
-                new_message=content,
-            ):
-                if event.content and event.content.parts:
-                    for part in event.content.parts:
-                        if part.text:
-                            response.text += part.text
-                        if part.function_call:
-                            response.tool_calls.append({
-                                "name": part.function_call.name,
-                                "args": dict(part.function_call.args or {}),
-                            })
-                um = getattr(event, "usage_metadata", None)
-                if um is not None:
-                    tokens_in_total += (
-                        getattr(um, "prompt_token_count", 0) or 0
-                    )
-                    tokens_out_total += (
-                        getattr(um, "candidates_token_count", 0) or 0
-                    )
-                mv = getattr(event, "model_version", None)
-                if mv and model_seen is None:
-                    model_seen = mv
-                if event.is_final_response():
-                    response.is_final = True
-        except Exception as e:  # noqa: BLE001 — record + re-raise
-            run_error = f"{type(e).__name__}: {e}"
+        # Resolve fallback chain. We only need the fallbacks (index>=1);
+        # the primary is whatever the existing self._runner is already
+        # wrapping — we don't rebuild it on the happy path.
+        if agent_name is None:
+            agent_name = getattr(self._agent, "name", "agent") or "agent"
+        fallback_models: list[Any] = []
+        if self._model_chain_provider is not None:
+            try:
+                chain = self._model_chain_provider(agent_name) or []
+                # Skip index 0 (primary — already in self._runner).
+                fallback_models = list(chain[1:])
+            except Exception:
+                logger.warning(
+                    "model_chain_provider(%s) failed; no fallbacks available",
+                    agent_name,
+                    exc_info=True,
+                )
+                fallback_models = []
+
+        attempt_index = 0
+        active_runner = self._runner
+        last_error: BaseException | None = None
+
+        while True:
+            response = AgentResponse()
+            attempt_start = time.perf_counter()
+            tokens_in_total = 0
+            tokens_out_total = 0
+            model_seen: str | None = None
+            try:
+                async for event in active_runner.run_async(
+                    user_id=user_id,
+                    session_id=session_id,
+                    new_message=content,
+                ):
+                    if event.content and event.content.parts:
+                        for part in event.content.parts:
+                            if part.text:
+                                response.text += part.text
+                            if part.function_call:
+                                response.tool_calls.append({
+                                    "name": part.function_call.name,
+                                    "args": dict(
+                                        part.function_call.args or {}
+                                    ),
+                                })
+                    um = getattr(event, "usage_metadata", None)
+                    if um is not None:
+                        tokens_in_total += (
+                            getattr(um, "prompt_token_count", 0) or 0
+                        )
+                        tokens_out_total += (
+                            getattr(um, "candidates_token_count", 0) or 0
+                        )
+                    mv = getattr(event, "model_version", None)
+                    if mv and model_seen is None:
+                        model_seen = mv
+                    if event.is_final_response():
+                        response.is_final = True
+            except Exception as e:  # noqa: BLE001
+                run_error = f"{type(e).__name__}: {e}"
+                retryable = _is_retryable_model_error(e)
+                has_next = retryable and attempt_index < len(fallback_models)
+                self._record_turn(
+                    user_id=user_id,
+                    session_id=session_id,
+                    start=attempt_start,
+                    success=False,
+                    error=run_error,
+                    tokens_in=tokens_in_total,
+                    tokens_out=tokens_out_total,
+                    model_seen=model_seen,
+                    tool_calls=response.tool_calls,
+                    fallback_index=attempt_index,
+                )
+                if not has_next:
+                    last_error = e
+                    raise
+                next_model = fallback_models[attempt_index]
+                logger.info(
+                    "agent=%s attempt_index=%d failed with %s — retrying "
+                    "with fallback index=%d (%r)",
+                    agent_name,
+                    attempt_index,
+                    type(e).__name__,
+                    attempt_index + 1,
+                    getattr(next_model, "model", next_model),
+                )
+                attempt_index += 1
+                active_runner = self._build_fallback_runner(next_model)
+                continue
+
+            # Success.
             self._record_turn(
                 user_id=user_id,
                 session_id=session_id,
-                start=turn_start,
-                success=False,
-                error=run_error,
+                start=attempt_start,
+                success=True,
+                error=None,
                 tokens_in=tokens_in_total,
                 tokens_out=tokens_out_total,
                 model_seen=model_seen,
                 tool_calls=response.tool_calls,
+                fallback_index=attempt_index,
             )
-            raise
+            break
 
-        self._record_turn(
-            user_id=user_id,
-            session_id=session_id,
-            start=turn_start,
-            success=True,
-            error=None,
-            tokens_in=tokens_in_total,
-            tokens_out=tokens_out_total,
-            model_seen=model_seen,
-            tool_calls=response.tool_calls,
-        )
+        _ = last_error  # silence unused-assignment warning
 
         if self._session_store is not None and response.text:
             try:
@@ -253,6 +379,7 @@ class AgentRunner:
         tokens_out: int,
         model_seen: str | None,
         tool_calls: list[dict],
+        fallback_index: int = 0,
     ) -> None:
         """Best-effort telemetry emission. Never raises."""
         recorder = self._usage_recorder
@@ -260,6 +387,9 @@ class AgentRunner:
             return
         duration_ms = int((time.perf_counter() - start) * 1000)
         agent_name = getattr(self._agent, "name", "agent") or "agent"
+        agent_meta: dict = {"tool_call_count": len(tool_calls)}
+        if fallback_index:
+            agent_meta["fallback_index"] = fallback_index
         try:
             recorder.record_agent_invoke(
                 agent_name=agent_name,
@@ -269,9 +399,18 @@ class AgentRunner:
                 error=error,
                 user_id=user_id,
                 session_id=session_id,
-                metadata={"tool_call_count": len(tool_calls)},
+                metadata=agent_meta,
             )
             if tokens_in or tokens_out or model_seen:
+                model_meta: dict = {
+                    "token_source": (
+                        "adk_usage_metadata"
+                        if (tokens_in or tokens_out)
+                        else "none"
+                    ),
+                }
+                if fallback_index:
+                    model_meta["fallback_index"] = fallback_index
                 recorder.record_model_call(
                     model_id=model_seen or "unknown",
                     provider_id=None,
@@ -284,13 +423,7 @@ class AgentRunner:
                     user_id=user_id,
                     session_id=session_id,
                     caller=agent_name,
-                    metadata={
-                        "token_source": (
-                            "adk_usage_metadata"
-                            if (tokens_in or tokens_out)
-                            else "none"
-                        ),
-                    },
+                    metadata=model_meta,
                 )
             for call in tool_calls:
                 recorder.record_tool_call(

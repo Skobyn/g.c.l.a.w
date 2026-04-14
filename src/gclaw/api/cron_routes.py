@@ -67,6 +67,38 @@ def create_cron(req: CreateCronRequest):
     return cron.model_dump(mode="json")
 
 
+class UpdateCronRequest(BaseModel):
+    """Partial-update payload for a cron. All fields optional."""
+
+    title: str | None = None
+    description: str | None = None
+    assignee: str | None = None
+    schedule: Any | None = None
+    payload: Any | None = None
+    delivery: Any | None = None
+    failure_alert: Any | None = None
+    wake_mode: str | None = None
+    enabled: bool | None = None
+    delete_after_run: bool | None = None
+    mode: str | None = None
+    task_priority: str | None = None
+
+
+@router.patch("/{cron_id}")
+def update_cron(cron_id: str, req: UpdateCronRequest):
+    try:
+        updated = _cron_service.update(
+            cron_id,
+            **req.model_dump(exclude_unset=True),
+        )
+    except ValueError as exc:
+        msg = str(exc)
+        if "not found" in msg:
+            raise HTTPException(status_code=404, detail=msg)
+        raise HTTPException(status_code=400, detail=msg)
+    return updated.model_dump(mode="json")
+
+
 @router.delete("/{cron_id}", status_code=204)
 def delete_cron(cron_id: str):
     _cron_service.delete(cron_id)

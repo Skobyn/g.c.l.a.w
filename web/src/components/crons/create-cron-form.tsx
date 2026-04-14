@@ -26,8 +26,12 @@ import type {
 } from "@/types";
 
 interface CreateCronFormProps {
-  onCreated: (cron: CronInfo) => void;
+  onCreated?: (cron: CronInfo) => void;
+  onSaved?: (cron: CronInfo) => void;
+  onDeleted?: (cronId: string) => void;
   onCancel: () => void;
+  /** When provided, the form runs in "edit" mode (PATCH instead of POST). */
+  initial?: CronInfo;
 }
 
 type EveryUnit = "minutes" | "hours" | "days";
@@ -205,9 +209,177 @@ function Toggle({
 
 // -----------------------------------------------------------------------
 
-export function CreateCronForm({ onCreated, onCancel }: CreateCronFormProps) {
+function formStateFromCron(cron: CronInfo): FormState {
+  const s = cron.schedule;
+  let scheduleKind: ScheduleKind = "every";
+  let everyCount = INITIAL_FORM.everyCount;
+  let everyUnit: EveryUnit = "minutes";
+  let atISO = "";
+  let cronExpr = INITIAL_FORM.cronExpr;
+  let cronTz = "";
+  let cronStaggerCount = 0;
+  let cronStaggerUnit: EveryUnit = "minutes";
+  let cronStaggerEnabled = false;
+
+  if (s && typeof s === "object") {
+    if (s.kind === "every") {
+      scheduleKind = "every";
+      const ms = s.every_ms;
+      if (ms % UNIT_MS.days === 0) {
+        everyCount = ms / UNIT_MS.days;
+        everyUnit = "days";
+      } else if (ms % UNIT_MS.hours === 0) {
+        everyCount = ms / UNIT_MS.hours;
+        everyUnit = "hours";
+      } else {
+        everyCount = Math.round(ms / UNIT_MS.minutes);
+        everyUnit = "minutes";
+      }
+    } else if (s.kind === "at") {
+      scheduleKind = "at";
+      try {
+        const d = new Date(s.at);
+        const pad = (n: number) => String(n).padStart(2, "0");
+        atISO = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+      } catch {
+        atISO = "";
+      }
+    } else if (s.kind === "cron") {
+      scheduleKind = "cron";
+      cronExpr = s.expr;
+      cronTz = s.tz ?? "";
+      if (s.stagger_ms && s.stagger_ms > 0) {
+        cronStaggerEnabled = true;
+        const ms = s.stagger_ms;
+        if (ms % UNIT_MS.days === 0) {
+          cronStaggerCount = ms / UNIT_MS.days;
+          cronStaggerUnit = "days";
+        } else if (ms % UNIT_MS.hours === 0) {
+          cronStaggerCount = ms / UNIT_MS.hours;
+          cronStaggerUnit = "hours";
+        } else {
+          cronStaggerCount = Math.round(ms / UNIT_MS.minutes);
+          cronStaggerUnit = "minutes";
+        }
+      }
+    }
+  }
+
+  const p = cron.payload;
+  let payloadKind: PayloadKind = "agent_turn";
+  let agentMessage = "";
+  let agentModel = "";
+  let agentTimeoutSeconds = "";
+  let agentLightContext = false;
+  let systemEventText = "";
+  if (p && p.kind === "agent_turn") {
+    payloadKind = "agent_turn";
+    agentMessage = p.message ?? "";
+    agentModel = p.model ?? "";
+    agentTimeoutSeconds =
+      p.timeout_seconds != null ? String(p.timeout_seconds) : "";
+    agentLightContext = !!p.light_context;
+  } else if (p && p.kind === "system_event") {
+    payloadKind = "system_event";
+    systemEventText = p.text ?? "";
+  }
+
+  const d = cron.delivery;
+  let deliveryMode: DeliveryMode = "none";
+  let deliveryTransport = "default";
+  let deliveryChannel = "";
+  let deliveryTo = "";
+  let deliveryAccountId = "";
+  let deliveryBestEffort = false;
+  let deliveryUrl = "";
+  if (d && d.mode === "announce") {
+    deliveryMode = "announce";
+    deliveryTransport = d.transport ?? "default";
+    deliveryChannel = d.channel ?? "";
+    deliveryTo = d.to ?? "";
+    deliveryAccountId = d.account_id ?? "";
+    deliveryBestEffort = !!d.best_effort;
+  } else if (d && d.mode === "webhook") {
+    deliveryMode = "webhook";
+    deliveryUrl = d.url ?? "";
+    deliveryBestEffort = !!d.best_effort;
+  }
+
+  const fa = cron.failure_alert;
+  const failureAlertEnabled = !!fa;
+  const failureAfter = fa?.after ?? 3;
+  const failureCooldownSeconds = fa
+    ? Math.round((fa.cooldown_ms ?? 0) / 1000)
+    : 3600;
+  const failureMode: "announce" | "webhook" = fa?.mode ?? "announce";
+  const failureTransport = fa?.transport ?? "default";
+  const failureChannel = fa?.channel ?? "";
+  const failureTo = fa?.to ?? "";
+  const failureUrl = fa?.url ?? "";
+
+  return {
+    title: cron.title ?? "",
+    description: cron.description ?? "",
+    assignee: cron.assignee ?? "",
+    enabled: cron.enabled,
+
+    scheduleKind,
+    everyCount,
+    everyUnit,
+    atISO,
+    cronExpr,
+    cronTz,
+    cronStaggerCount,
+    cronStaggerUnit,
+    cronStaggerEnabled,
+
+    wakeMode: cron.wake_mode,
+    payloadKind,
+    agentMessage,
+    agentModel,
+    agentTimeoutSeconds,
+    agentLightContext,
+    mode: cron.mode,
+    task_priority: (["high", "medium", "low"].includes(
+      cron.task_priority as string,
+    )
+      ? (cron.task_priority as "high" | "medium" | "low")
+      : "medium"),
+    systemEventText,
+
+    deliveryMode,
+    deliveryTransport,
+    deliveryChannel,
+    deliveryTo,
+    deliveryAccountId,
+    deliveryBestEffort,
+    deliveryUrl,
+
+    deleteAfterRun: cron.delete_after_run,
+    failureAlertEnabled,
+    failureAfter,
+    failureCooldownSeconds,
+    failureChannel,
+    failureTo,
+    failureUrl,
+    failureMode,
+    failureTransport,
+  };
+}
+
+export function CreateCronForm({
+  onCreated,
+  onSaved,
+  onDeleted,
+  onCancel,
+  initial,
+}: CreateCronFormProps) {
   const { getIdToken } = useAuth();
-  const [form, setForm] = useState<FormState>(INITIAL_FORM);
+  const isEdit = !!initial;
+  const [form, setForm] = useState<FormState>(() =>
+    initial ? formStateFromCron(initial) : INITIAL_FORM,
+  );
+  const [deleting, setDeleting] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -397,13 +569,46 @@ export function CreateCronForm({ onCreated, onCancel }: CreateCronFormProps) {
     setError(null);
     try {
       const api = createApiClient(getIdToken);
-      // POST /crons (not /admin/crons — backend exposes create there).
-      const created = await api.post<CronInfo>("/crons", body);
-      onCreated(created);
+      if (isEdit && initial) {
+        const updated = await api.updateCron(
+          initial.id,
+          body as Partial<CronInfo>,
+        );
+        onSaved?.(updated);
+      } else {
+        const created = await api.post<CronInfo>("/crons", body);
+        onCreated?.(created);
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create cron");
+      setError(
+        err instanceof Error
+          ? err.message
+          : isEdit
+          ? "Failed to save cron"
+          : "Failed to create cron",
+      );
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function handleDelete() {
+    if (!initial) return;
+    if (
+      typeof window !== "undefined" &&
+      !window.confirm(`Delete cron "${initial.title}"? This cannot be undone.`)
+    ) {
+      return;
+    }
+    setDeleting(true);
+    setError(null);
+    try {
+      const api = createApiClient(getIdToken);
+      await api.deleteCron(initial.id);
+      onDeleted?.(initial.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete cron");
+      setDeleting(false);
     }
   }
 
@@ -987,21 +1192,41 @@ export function CreateCronForm({ onCreated, onCancel }: CreateCronFormProps) {
       </Section>
 
       {/* Actions */}
-      <div className="flex items-center justify-end gap-3 pt-2">
-        <button
-          type="button"
-          onClick={onCancel}
-          className="rounded-md border border-slate-600 px-4 py-2 text-sm text-slate-300 hover:bg-slate-800 transition-colors"
-        >
-          Cancel
-        </button>
-        <button
-          type="submit"
-          disabled={submitting}
-          className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50 transition-colors"
-        >
-          {submitting ? "Creating..." : "Create Cron"}
-        </button>
+      <div className="flex items-center justify-between gap-3 pt-2">
+        <div>
+          {isEdit && (
+            <button
+              type="button"
+              onClick={handleDelete}
+              disabled={deleting || submitting}
+              className="rounded-md border border-red-700 px-4 py-2 text-sm text-red-300 hover:bg-red-900/30 disabled:opacity-50 transition-colors"
+            >
+              {deleting ? "Deleting..." : "Delete"}
+            </button>
+          )}
+        </div>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="rounded-md border border-slate-600 px-4 py-2 text-sm text-slate-300 hover:bg-slate-800 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={submitting || deleting}
+            className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50 transition-colors"
+          >
+            {submitting
+              ? isEdit
+                ? "Saving..."
+                : "Creating..."
+              : isEdit
+              ? "Save changes"
+              : "Create Cron"}
+          </button>
+        </div>
       </div>
     </form>
   );

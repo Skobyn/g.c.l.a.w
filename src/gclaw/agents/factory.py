@@ -156,6 +156,110 @@ class AgentFactory:
             setattr(adk_model, key, value)
         return adk_model
 
+    def _resolve_ref_to_adk(
+        self, ref_name: str, params: Any | None = None
+    ) -> Any | None:
+        """Resolve a catalog ref string (``Provider/model_id`` or bare id)
+        to an ADK-ready model object via the catalog service.
+
+        Returns None when the catalog is unset or resolution fails
+        (warning logged). ``params`` is an optional ``ModelParams`` applied
+        to LiteLlm instances.
+        """
+        if not ref_name or self._catalog is None:
+            return None
+        from gclaw.catalog.adk_builder import build_adk_override_from_model
+        from gclaw.catalog.model_resolver import resolve_agent_model
+        from gclaw.models.catalog import AgentModelRef
+
+        try:
+            ref = AgentModelRef(name=ref_name, params=params)
+        except Exception:
+            logger.warning(
+                "factory: invalid model ref %r", ref_name, exc_info=True,
+            )
+            return None
+        try:
+            resolved = resolve_agent_model(ref, self._catalog)
+        except Exception:
+            logger.warning(
+                "factory: resolve_agent_model failed for %r",
+                ref_name,
+                exc_info=True,
+            )
+            return None
+        if resolved is None:
+            return None
+        provider, model = resolved
+        try:
+            api_key = self._catalog.resolve_api_key(provider)
+        except Exception:
+            logger.warning(
+                "factory: resolve_api_key failed for provider %s",
+                getattr(provider, "name", provider),
+                exc_info=True,
+            )
+            api_key = None
+        try:
+            adk_model = build_adk_override_from_model(provider, model, api_key)
+        except Exception:
+            logger.warning(
+                "factory: build_adk_override_from_model failed for %r",
+                ref_name,
+                exc_info=True,
+            )
+            return None
+        return self._apply_params_override(adk_model, params)
+
+    def resolve_model_chain(self, agent_name: str) -> list[Any]:
+        """Return ``[primary, *fallbacks]`` as ADK-ready model objects.
+
+        Resolution rules:
+        - If an override exists with ``model.primary`` set: start with
+          that, then append each ``model.fallbacks`` entry. Entries that
+          fail to resolve are skipped (warning logged) rather than
+          raising.
+        - Otherwise: fall back to the router-resolved primary (no
+          fallbacks). If no router either, return ``[]``.
+        """
+        chain: list[Any] = []
+        override = self._get_override(agent_name)
+
+        if override is not None and override.model.primary:
+            primary = self._resolve_ref_to_adk(override.model.primary)
+            if primary is not None:
+                chain.append(primary)
+            else:
+                logger.warning(
+                    "factory: agent %s primary %r did not resolve — skipping",
+                    agent_name,
+                    override.model.primary,
+                )
+            for fb_ref in override.model.fallbacks or []:
+                fb = self._resolve_ref_to_adk(fb_ref)
+                if fb is None:
+                    logger.warning(
+                        "factory: agent %s fallback %r did not resolve "
+                        "— skipping",
+                        agent_name,
+                        fb_ref,
+                    )
+                    continue
+                chain.append(fb)
+            return chain
+
+        # No override primary: router-resolved primary only.
+        if self._router is not None:
+            try:
+                chain.append(self._router.build_adk_model_for_agent(agent_name))
+            except Exception:
+                logger.warning(
+                    "factory: router.build_adk_model_for_agent(%s) failed",
+                    agent_name,
+                    exc_info=True,
+                )
+        return chain
+
     def _resolve_agent_model(self, agent_name: str) -> Any | None:
         """Resolve a frontmatter ``model:`` to an ADK-ready object.
 

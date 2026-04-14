@@ -18,7 +18,7 @@ export function BoardColumn({ column, tasks }: BoardColumnProps) {
     <div className="flex w-64 shrink-0 flex-col rounded-xl border border-slate-700 bg-slate-900">
       {/* Column header */}
       <div
-        className={`flex items-center justify-between rounded-t-xl border-b-2 ${column.color} bg-slate-800 px-3 py-2`}
+        className={`sticky top-0 z-10 flex items-center justify-between rounded-t-xl border-b-2 ${column.color} bg-slate-800 px-3 py-2`}
       >
         <span className="text-sm font-semibold text-slate-200">
           {column.label}
