@@ -96,15 +96,15 @@ class UsageRepo:
         in memory. Acceptable while per-user volume is modest (bounded by
         the 90d TTL and typical hourly rates).
         """
-        q = (
-            self._collection_ref(user_id)
-            .where("kind", "==", kind.value)
-            .where("timestamp", ">=", since)
-        )
+        # Single-field filter (timestamp only) avoids requiring a Firestore
+        # composite index on (kind, timestamp). Filter by kind in memory —
+        # the rowcount is already bounded by the timestamp window.
+        q = self._collection_ref(user_id).where("timestamp", ">=", since)
         docs = list(q.stream())
         events = [
             UsageEvent.from_firestore_dict(d.id, d.to_dict()) for d in docs
         ]
+        events = [e for e in events if e.kind == kind]
 
         buckets: dict[str, dict] = defaultdict(
             lambda: {

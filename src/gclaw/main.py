@@ -343,6 +343,10 @@ def build_app():
             provider_repo=ProviderRepo(db=db),
             model_repo=ModelRepo(db=db),
         )
+        try:
+            catalog_service.seed_system_defaults(settings=settings)
+        except Exception:
+            logger.warning("catalog: seed_system_defaults failed", exc_info=True)
 
     # Model routing — prefer catalog-backed router when populated.
     model_router = None

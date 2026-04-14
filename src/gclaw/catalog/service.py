@@ -188,3 +188,85 @@ class CatalogService:
                 )
                 return None
         return None
+
+    # --- Seeding --------------------------------------------------------
+
+    def seed_system_defaults(self, *, settings) -> dict:
+        """Idempotently upsert a 'System (Google)' provider reflecting the
+        hardcoded Gemini endpoints the app falls back to when no other
+        provider is configured. Users see what's actually running on the
+        /admin/models page even before they add their own keys.
+
+        Returns {created_providers, created_models} counts for logging.
+        """
+        provider_name = "System (Google)"
+        existing = next(
+            (p for p in self.list_providers() if p.name == provider_name),
+            None,
+        )
+        if existing is None:
+            provider = self.create_provider(
+                name=provider_name,
+                kind=ProviderKind.GOOGLE_GEMINI,
+                base_url=None,
+                api_key=None,  # uses ADC / Gemini API default
+                default_headers={},
+                enabled=True,
+            )
+            created_providers = 1
+        else:
+            provider = existing
+            created_providers = 0
+
+        # Models to reflect: whatever the hardcoded router wires today.
+        defaults: list[dict] = []
+        if settings.gemini_flash_model:
+            defaults.append({
+                "model_id": settings.gemini_flash_model,
+                "display_name": f"Gemini Flash ({settings.gemini_flash_model})",
+                "context_window": 1_000_000,
+                "capabilities": Capabilities(vision=True, tools=True),
+            })
+        if getattr(settings, "gemma_endpoint_id", None):
+            defaults.append({
+                "model_id": settings.gemma_endpoint_id,
+                "display_name": f"Gemma ({settings.gemma_endpoint_id})",
+                "context_window": 128_000,
+                "capabilities": Capabilities(),
+            })
+        if getattr(settings, "nemotron_endpoint_id", None):
+            # Nemotron actually routes through OpenRouter; seed it under its
+            # own provider for accuracy.
+            pass
+
+        existing_model_ids = {
+            m.model_id for m in self.list_models(provider_id=provider.id)
+        }
+        created_models = 0
+        for spec in defaults:
+            if spec["model_id"] in existing_model_ids:
+                continue
+            self.create_model(
+                provider_id=provider.id,
+                model_id=spec["model_id"],
+                display_name=spec["display_name"],
+                enabled=True,
+                context_window=spec.get("context_window"),
+                max_output_tokens=None,
+                capabilities=spec.get("capabilities", Capabilities()),
+                params=ModelParams(),
+                cost=ModelCost(),
+                notes="Seeded default — reflects hardcoded router fallback.",
+            )
+            created_models += 1
+
+        logger.info(
+            "catalog seed: provider=%s created_providers=%d created_models=%d",
+            provider_name,
+            created_providers,
+            created_models,
+        )
+        return {
+            "created_providers": created_providers,
+            "created_models": created_models,
+        }
