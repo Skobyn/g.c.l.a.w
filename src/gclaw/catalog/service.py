@@ -35,10 +35,21 @@ class CatalogService:
         self,
         provider_repo: ProviderRepo,
         model_repo: ModelRepo,
+        oauth_manager: "object | None" = None,
     ) -> None:
         self._providers = provider_repo
         self._models = model_repo
         self._sm_client = None
+        # Optional OAuth manager for ANTHROPIC_OAUTH providers. When wired,
+        # resolve_api_key uses it to mint a fresh access_token; otherwise we
+        # fall back to a raw SM read + JSON parse.
+        self._oauth_manager = oauth_manager
+
+    def set_oauth_manager(self, oauth_manager) -> None:
+        """Install an OAuth manager after construction (main.py wires this
+        post-init because the manager needs the sm_service which is built
+        alongside the catalog)."""
+        self._oauth_manager = oauth_manager
 
     # --- Providers ------------------------------------------------------
 
@@ -173,21 +184,69 @@ class CatalogService:
                 )
             return value
         if spec.kind == ApiKeyKind.SECRET_MANAGER:
-            try:
-                if self._sm_client is None:
-                    from google.cloud import secretmanager
-                    self._sm_client = secretmanager.SecretManagerServiceClient()
-                resp = self._sm_client.access_secret_version(name=spec.value)
-                return resp.payload.data.decode("utf-8")
-            except Exception as e:
-                logger.warning(
-                    "Secret Manager access failed for provider %s at %s: %s",
-                    provider.name,
-                    spec.value,
-                    e,
-                )
-                return None
+            # OAuth-aware branch: for ANTHROPIC_OAUTH providers, prefer the
+            # token manager (auto-refreshes near-expiry tokens). Fall back
+            # to raw SM read + JSON extract when no manager is wired (tests
+            # and older deploys).
+            if provider.kind == ProviderKind.ANTHROPIC_OAUTH:
+                if self._oauth_manager is not None:
+                    try:
+                        import asyncio
+                        # Sync callers (e.g. adk_builder at agent construction)
+                        # need a blocking resolve. We run the coroutine on the
+                        # current thread via asyncio.run when not already
+                        # inside a loop; otherwise schedule + wait.
+                        coro = self._oauth_manager.get_access_token(spec.value)
+                        try:
+                            loop = asyncio.get_event_loop()
+                            if loop.is_running():
+                                # Can't await in a sync context — fall back
+                                # to a fresh loop in a worker thread.
+                                import concurrent.futures
+                                with concurrent.futures.ThreadPoolExecutor(
+                                    max_workers=1
+                                ) as ex:
+                                    fut = ex.submit(asyncio.run, coro)
+                                    return fut.result(timeout=30)
+                            return loop.run_until_complete(coro)
+                        except RuntimeError:
+                            return asyncio.run(coro)
+                    except Exception as e:
+                        logger.warning(
+                            "oauth-manager resolve failed for provider %s: %s",
+                            provider.name,
+                            e,
+                        )
+                        # Fall through to raw-read fallback.
+
+                # Raw read + JSON parse (no manager wired)
+                raw = self._raw_sm_read(spec.value, provider.name)
+                if raw is None:
+                    return None
+                from gclaw.catalog.oauth_tokens import OAuthTokenBundle
+                bundle = OAuthTokenBundle.parse(raw)
+                if bundle is None:
+                    return None
+                return bundle.access_token
+
+            return self._raw_sm_read(spec.value, provider.name)
         return None
+
+    def _raw_sm_read(self, sm_path: str, provider_name: str) -> str | None:
+        try:
+            if self._sm_client is None:
+                from google.cloud import secretmanager
+                self._sm_client = secretmanager.SecretManagerServiceClient()
+            resp = self._sm_client.access_secret_version(name=sm_path)
+            return resp.payload.data.decode("utf-8")
+        except Exception as e:
+            logger.warning(
+                "Secret Manager access failed for provider %s at %s: %s",
+                provider_name,
+                sm_path,
+                e,
+            )
+            return None
 
     # --- Seeding --------------------------------------------------------
 

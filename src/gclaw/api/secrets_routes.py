@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/admin/secrets", tags=["secrets"])
 
 _sm_service: SecretManagerService | None = None
+_oauth_manager: object | None = None
 
 
 # --- Request/response models ------------------------------------------------
@@ -67,6 +68,25 @@ class ListSecretsResponse(BaseModel):
     secrets: list[SMSecretSummary]
 
 
+class OAuthSecretRequest(BaseModel):
+    name: str = Field(
+        ...,
+        min_length=1,
+        max_length=255,
+        pattern=r"^[a-z0-9][a-z0-9-]*$",
+    )
+    access_token: str = Field(..., min_length=1)
+    refresh_token: str = Field(..., min_length=1)
+    # Optional — if the user knows it. Defaults to 8h to match Claude Code
+    # tokens' typical lifetime.
+    expires_in_seconds: int | None = Field(default=None, ge=60)
+
+
+class OAuthRefreshResponse(BaseModel):
+    refreshed: bool
+    expires_at: str | None = None
+
+
 # --- Helpers ----------------------------------------------------------------
 
 
@@ -102,6 +122,7 @@ def _map_error(exc: Exception) -> HTTPException:
 
 def init_secrets_router(
     sm_service: SecretManagerService | None,
+    oauth_manager: object | None = None,
 ) -> APIRouter:
     """Install the provided service and return the router.
 
@@ -109,8 +130,9 @@ def init_secrets_router(
     reply 503 so callers can mount it unconditionally and have a
     consistent URL space.
     """
-    global _sm_service
+    global _sm_service, _oauth_manager
     _sm_service = sm_service
+    _oauth_manager = oauth_manager
 
     @router.post("", response_model=WriteSecretResponse)
     def write_secret(
@@ -167,6 +189,89 @@ def init_secrets_router(
             name=result["name"],
             path=result["path"],
             version_id=result["version_id"],
+        )
+
+    @router.post("/oauth", response_model=WriteSecretResponse)
+    async def write_oauth_secret(
+        body: OAuthSecretRequest,
+        user_id: str = Depends(get_current_user_id),
+    ) -> WriteSecretResponse:
+        """Bundle access + refresh tokens into a JSON blob and write to SM.
+
+        The bundle schema is consumed by CatalogService.resolve_api_key for
+        ANTHROPIC_OAUTH providers, and by OAuthTokenManager for the
+        background refresh loop.
+        """
+        svc = _require_service()
+        from datetime import datetime, timedelta, timezone
+
+        from gclaw.catalog.oauth_tokens import (
+            DEFAULT_EXPIRES_IN_SECONDS,
+            OAuthTokenBundle,
+        )
+
+        expires_in = body.expires_in_seconds or DEFAULT_EXPIRES_IN_SECONDS
+        expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
+        bundle = OAuthTokenBundle(
+            access_token=body.access_token,
+            refresh_token=body.refresh_token,
+            expires_at=expires_at,
+        )
+        try:
+            result = svc.write(
+                name=body.name,
+                value=bundle.to_json(),
+                create_if_missing=True,
+            )
+        except Exception as e:
+            raise _map_error(e)
+        # Opportunistically register the new secret with the refresh loop.
+        if _oauth_manager is not None:
+            try:
+                await _oauth_manager.register(result["path"])  # type: ignore[attr-defined]
+            except Exception:
+                logger.warning(
+                    "oauth-register: failed to register new secret with manager",
+                    exc_info=True,
+                )
+        return WriteSecretResponse(**result)
+
+    @router.post("/oauth/{name}/refresh-now", response_model=OAuthRefreshResponse)
+    async def refresh_oauth_secret_now(
+        name: str,
+        user_id: str = Depends(get_current_user_id),
+    ) -> OAuthRefreshResponse:
+        """Force an immediate refresh of the named OAuth secret.
+
+        Useful for debugging from the UI. 404 if the secret doesn't exist
+        or doesn't contain a refresh_token. 503 if no oauth_manager wired.
+        """
+        svc = _require_service()
+        if _oauth_manager is None:
+            raise HTTPException(
+                status_code=503,
+                detail="OAuth token manager not configured on this server.",
+            )
+        norm = svc.normalize_name(name)
+        sm_path = f"projects/{svc.project}/secrets/{norm}/versions/latest"
+        try:
+            new_bundle = await _oauth_manager.refresh_now(sm_path)  # type: ignore[attr-defined]
+        except Exception as e:
+            raise HTTPException(
+                status_code=502,
+                detail=f"OAuth refresh failed: {e}",
+            )
+        if new_bundle is None:
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    f"Secret {norm!r} has no refresh_token or isn't an "
+                    "OAuth bundle."
+                ),
+            )
+        return OAuthRefreshResponse(
+            refreshed=True,
+            expires_at=new_bundle.expires_at.isoformat(),
         )
 
     return router

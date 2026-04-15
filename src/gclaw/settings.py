@@ -175,6 +175,26 @@ class Settings:
             "SHARED_CONTEXT_ENABLED", "true"
         ).lower() == "true"
     )
+    # Anthropic Claude Code OAuth — token refresh configuration.
+    # These defaults are documented but may need verification against the
+    # live Anthropic service; override via env vars without a redeploy.
+    anthropic_oauth_token_url: str = field(
+        default_factory=lambda: os.environ.get(
+            "ANTHROPIC_OAUTH_TOKEN_URL",
+            "https://console.anthropic.com/v1/oauth/token",
+        )
+    )
+    anthropic_oauth_client_id: str = field(
+        default_factory=lambda: os.environ.get(
+            "ANTHROPIC_OAUTH_CLIENT_ID",
+            "9d1c250a-e61b-44d9-88ed-5944d1962f5e",
+        )
+    )
+    oauth_refresh_check_interval_seconds: int = field(
+        default_factory=lambda: int(os.environ.get(
+            "OAUTH_REFRESH_CHECK_INTERVAL_SECONDS", "300"
+        ))
+    )
     # Secret Manager bootstrap — loads GH_TOKEN, gws credentials file, etc.
     # at startup from configured secrets. Defaults on; set to "false" only
     # when running locally with the env vars already set another way.

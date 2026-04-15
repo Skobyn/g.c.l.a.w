@@ -363,6 +363,10 @@ def build_app():
         except Exception:
             logger.warning("catalog: seed_system_defaults failed", exc_info=True)
 
+    # OAuth token manager — constructed below once SM service is ready;
+    # forward-declared so we can pass it into create_app().
+    oauth_manager = None
+    oauth_loop_enabled = False
     # Secret Manager service — used by the /admin/secrets UI write flow.
     # Constructed whenever we have a project ID; the SDK client is built
     # lazily so this is cheap and safe in all environments.
@@ -376,6 +380,74 @@ def build_app():
         except Exception:
             logger.warning(
                 "secret manager service init failed", exc_info=True
+            )
+
+    # OAuth token manager — wired once we have both SM service + catalog.
+    # Scans catalog for ANTHROPIC_OAUTH providers with SM-backed keys and
+    # registers them for periodic refresh.
+    if (
+        secret_manager_service is not None
+        and catalog_service is not None
+    ):
+        try:
+            from gclaw.catalog.oauth_tokens import (
+                AnthropicOAuthRefresher,
+                OAuthTokenManager,
+            )
+            from gclaw.models.catalog import ApiKeyKind, ProviderKind
+
+            refresher = AnthropicOAuthRefresher(
+                token_url=settings.anthropic_oauth_token_url,
+                client_id=settings.anthropic_oauth_client_id,
+            )
+            oauth_manager = OAuthTokenManager(
+                sm_service=secret_manager_service,
+                refresher=refresher,
+            )
+            catalog_service.set_oauth_manager(oauth_manager)
+
+            # Register all ANTHROPIC_OAUTH providers whose key is in SM.
+            registered = 0
+            try:
+                for prov in catalog_service.list_providers():
+                    if prov.kind != ProviderKind.ANTHROPIC_OAUTH:
+                        continue
+                    if prov.api_key is None:
+                        continue
+                    if prov.api_key.kind != ApiKeyKind.SECRET_MANAGER:
+                        continue
+                    # Synchronous register since oauth_manager.register is
+                    # a coroutine; drive with asyncio.run to avoid needing
+                    # an event loop here.
+                    import asyncio
+                    asyncio.run(oauth_manager.register(prov.api_key.value))
+                    registered += 1
+            except Exception:
+                logger.warning(
+                    "oauth-manager: provider scan failed", exc_info=True
+                )
+            if registered > 0:
+                oauth_loop_enabled = True
+                logger.info(
+                    "oauth-manager: registered %d provider(s) for refresh",
+                    registered,
+                )
+                # Kick a synchronous ensure_fresh pass to catch any tokens
+                # that expired while we were down.
+                try:
+                    import asyncio
+                    async def _initial_refresh():
+                        for p in oauth_manager.tracked_paths():
+                            await oauth_manager.ensure_fresh(p)
+                    asyncio.run(_initial_refresh())
+                except Exception:
+                    logger.warning(
+                        "oauth-manager: initial ensure_fresh pass failed",
+                        exc_info=True,
+                    )
+        except Exception:
+            logger.warning(
+                "oauth-manager: initialization failed", exc_info=True
             )
 
     # Model routing — prefer catalog-backed router when populated.
@@ -598,6 +670,11 @@ def build_app():
         onboarding_service=onboarding_service,
         shared_context_service=shared_context_service,
         secret_manager_service=secret_manager_service,
+        oauth_manager=oauth_manager,
+        oauth_loop_enabled=oauth_loop_enabled,
+        oauth_refresh_interval_seconds=(
+            settings.oauth_refresh_check_interval_seconds
+        ),
     )
 
 

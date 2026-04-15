@@ -56,6 +56,9 @@ def create_app(
     agent_config_service: object | None = None,
     shared_context_service: object | None = None,
     secret_manager_service: object | None = None,
+    oauth_manager: object | None = None,
+    oauth_loop_enabled: bool = False,
+    oauth_refresh_interval_seconds: int = 300,
 ) -> FastAPI:
     # Lifespan that optionally starts the per-agent heartbeat loop.
     _loop_holder: dict = {}
@@ -75,6 +78,17 @@ def create_app(
             loop.start()
             _loop_holder["loop"] = loop
             logger.info("heartbeat: background loop started")
+
+        if oauth_loop_enabled and oauth_manager is not None:
+            from gclaw.catalog.oauth_refresh_loop import OAuthRefreshLoop
+
+            oauth_loop = OAuthRefreshLoop(
+                oauth_manager,  # type: ignore[arg-type]
+                check_interval_seconds=oauth_refresh_interval_seconds,
+            )
+            oauth_loop.start()
+            _loop_holder["oauth_loop"] = oauth_loop
+            logger.info("oauth-refresh: background loop started")
         try:
             yield
         finally:
@@ -86,6 +100,16 @@ def create_app(
                 except Exception:
                     logger.warning(
                         "heartbeat: background loop stop failed",
+                        exc_info=True,
+                    )
+            oauth_loop = _loop_holder.get("oauth_loop")
+            if oauth_loop is not None:
+                try:
+                    await oauth_loop.stop()
+                    logger.info("oauth-refresh: background loop stopped")
+                except Exception:
+                    logger.warning(
+                        "oauth-refresh: background loop stop failed",
                         exc_info=True,
                     )
 
@@ -163,8 +187,12 @@ def create_app(
         app.state.catalog_service = catalog_service
 
     if secret_manager_service is not None:
-        app.include_router(init_secrets_router(secret_manager_service))  # type: ignore[arg-type]
+        app.include_router(init_secrets_router(
+            secret_manager_service,  # type: ignore[arg-type]
+            oauth_manager=oauth_manager,
+        ))
         app.state.secret_manager_service = secret_manager_service
+        app.state.oauth_manager = oauth_manager
 
     if shared_context_service is not None:
         app.include_router(init_context_router(shared_context_service))  # type: ignore[arg-type]

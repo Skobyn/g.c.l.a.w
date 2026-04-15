@@ -527,6 +527,24 @@ export class ApiClient {
     return this.get<{ secrets: SMSecretSummary[] }>("/admin/secrets");
   }
 
+  async writeOAuthSecret(body: {
+    name: string;
+    access_token: string;
+    refresh_token: string;
+    expires_in_seconds?: number;
+  }): Promise<WriteSecretResponse> {
+    return this.post<WriteSecretResponse>("/admin/secrets/oauth", body);
+  }
+
+  async refreshOAuthNow(
+    name: string,
+  ): Promise<{ refreshed: boolean; expires_at: string | null }> {
+    return this.post<{ refreshed: boolean; expires_at: string | null }>(
+      `/admin/secrets/oauth/${encodeURIComponent(name)}/refresh-now`,
+      {},
+    );
+  }
+
   // --- Admin: Usage / Observability ---
 
   async getUsageEvents(opts?: {

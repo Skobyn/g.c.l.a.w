@@ -127,6 +127,73 @@ def test_resolve_api_key_none(service):
     assert service.resolve_api_key(p) is None
 
 
+def test_resolve_api_key_anthropic_oauth_with_manager():
+    """ANTHROPIC_OAUTH provider returns .access_token via oauth_manager."""
+    import asyncio
+
+    class FakeManager:
+        def __init__(self):
+            self.calls: list[str] = []
+
+        async def get_access_token(self, sm_path: str):
+            self.calls.append(sm_path)
+            return "refreshed-access-token"
+
+    mgr = FakeManager()
+    service = CatalogService(
+        provider_repo=FakeProviderRepo(),
+        model_repo=FakeModelRepo(),
+        oauth_manager=mgr,
+    )
+    p = service.create_provider(
+        name="claude-oauth",
+        kind=ProviderKind.ANTHROPIC_OAUTH,
+        api_key=ApiKeySpec(
+            kind=ApiKeyKind.SECRET_MANAGER,
+            value="projects/p/secrets/watson-c/versions/latest",
+        ),
+    )
+    assert service.resolve_api_key(p) == "refreshed-access-token"
+    assert mgr.calls == ["projects/p/secrets/watson-c/versions/latest"]
+
+
+def test_resolve_api_key_anthropic_oauth_without_manager_parses_json(monkeypatch):
+    """Without oauth_manager wired, resolve_api_key falls back to SM read +
+    JSON parse and returns .access_token."""
+    import json
+    from datetime import datetime, timedelta, timezone
+
+    service = CatalogService(
+        provider_repo=FakeProviderRepo(),
+        model_repo=FakeModelRepo(),
+    )
+
+    bundle_json = json.dumps({
+        "access_token": "json-access",
+        "refresh_token": "r",
+        "expires_at": (
+            datetime.now(timezone.utc) + timedelta(hours=1)
+        ).isoformat(),
+    })
+
+    def fake_raw_read(self, sm_path, provider_name):
+        return bundle_json
+
+    monkeypatch.setattr(
+        CatalogService, "_raw_sm_read", fake_raw_read, raising=True
+    )
+
+    p = service.create_provider(
+        name="claude-oauth",
+        kind=ProviderKind.ANTHROPIC_OAUTH,
+        api_key=ApiKeySpec(
+            kind=ApiKeyKind.SECRET_MANAGER,
+            value="projects/p/secrets/watson-c/versions/latest",
+        ),
+    )
+    assert service.resolve_api_key(p) == "json-access"
+
+
 def test_update_model(service):
     p = service.create_provider(name="x", kind=ProviderKind.OPENAI)
     m = service.create_model(provider_id=p.id, model_id="a", display_name="A")

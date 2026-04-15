@@ -158,6 +158,11 @@ export function ProviderForm({
     defaultSecretName(initial?.name ?? ""),
   );
   const [smStoreNameDirty, setSmStoreNameDirty] = useState(false);
+  // OAuth-specific: two tokens + optional expiry hint.
+  const [oauthAccessToken, setOauthAccessToken] = useState("");
+  const [oauthRefreshToken, setOauthRefreshToken] = useState("");
+  const [oauthExpiresHours, setOauthExpiresHours] = useState<number>(8);
+  const isOAuthSmStore = kind === "anthropic_oauth" && mode === "sm_store";
   const [rotateValue, setRotateValue] = useState("");
   const [rotating, setRotating] = useState(false);
   const [rotateMsg, setRotateMsg] = useState<string | null>(null);
@@ -251,6 +256,43 @@ export function ProviderForm({
       if (isEdit && initialApiKey?.kind === "sm" && !replaceKey) {
         // In edit mode, if the user didn't check replace, leave untouched.
         api_key = undefined;
+      } else if (isOAuthSmStore) {
+        // OAuth dual-token path — access + refresh, bundled server-side.
+        if (!oauthAccessToken.trim() || !oauthRefreshToken.trim()) {
+          setError(
+            "Both access token and refresh token are required for Claude Code OAuth.",
+          );
+          return;
+        }
+        if (!SM_NAME_RE.test(smStoreName)) {
+          setError(
+            "Secret name must match /^watson-[a-z0-9-]+$/ (lowercase, digits, hyphens; watson- prefix).",
+          );
+          return;
+        }
+        setSubmitting(true);
+        setProgressNote("Writing OAuth token bundle to Secret Manager...");
+        try {
+          const res = await api.writeOAuthSecret({
+            name: smStoreName,
+            access_token: oauthAccessToken.trim(),
+            refresh_token: oauthRefreshToken.trim(),
+            expires_in_seconds: Math.max(
+              60,
+              Math.round((oauthExpiresHours || 8) * 3600),
+            ),
+          });
+          api_key = { kind: "sm", value: res.path };
+        } catch (err) {
+          setSubmitting(false);
+          setProgressNote(null);
+          setError(
+            err instanceof Error
+              ? `OAuth secret write failed: ${err.message}`
+              : "OAuth secret write failed",
+          );
+          return;
+        }
       } else {
         if (!smStoreValue.trim()) {
           setError("Paste the API key value to store in Secret Manager.");
@@ -491,6 +533,79 @@ export function ProviderForm({
                   </div>
                 )}
               </div>
+            ) : isOAuthSmStore ? (
+              <>
+                <div>
+                  <label className={LABEL_CLS}>Access token *</label>
+                  <div className="flex gap-2">
+                    <input
+                      className={INPUT_CLS}
+                      type={showKey ? "text" : "password"}
+                      value={oauthAccessToken}
+                      onChange={(e) => setOauthAccessToken(e.target.value)}
+                      placeholder="sk-ant-oat..."
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowKey((s) => !s)}
+                      className="rounded-md border border-slate-600 px-3 text-xs text-slate-300 hover:bg-slate-800"
+                    >
+                      {showKey ? "Hide" : "Show"}
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <label className={LABEL_CLS}>Refresh token *</label>
+                  <input
+                    className={INPUT_CLS}
+                    type={showKey ? "text" : "password"}
+                    value={oauthRefreshToken}
+                    onChange={(e) => setOauthRefreshToken(e.target.value)}
+                    placeholder="sk-ant-ort..."
+                  />
+                  <p className="mt-1 text-xs text-slate-500">
+                    The refresh token is long-lived. GClaw will use it to
+                    mint fresh access tokens in the background, so you
+                    won&apos;t need to re-paste daily.
+                  </p>
+                </div>
+                <div>
+                  <label className={LABEL_CLS}>Expires in (hours)</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={720}
+                    step={1}
+                    className={INPUT_CLS}
+                    value={oauthExpiresHours}
+                    onChange={(e) =>
+                      setOauthExpiresHours(Number(e.target.value) || 8)
+                    }
+                  />
+                  <p className="mt-1 text-xs text-slate-500">
+                    Hint for the initial expiry. Refresh happens ~10 min
+                    before expiry; after the first refresh, the real
+                    server-provided expiry is used.
+                  </p>
+                </div>
+                <div>
+                  <label className={LABEL_CLS}>Secret name *</label>
+                  <input
+                    className={INPUT_CLS}
+                    value={smStoreName}
+                    onChange={(e) => {
+                      setSmStoreName(e.target.value);
+                      setSmStoreNameDirty(true);
+                    }}
+                    pattern="^watson-[a-z0-9-]+$"
+                    title="Must match ^watson-[a-z0-9-]+$"
+                  />
+                  <p className="mt-1 text-xs text-indigo-300">
+                    Token will auto-refresh in the background. Stored as a
+                    JSON bundle in Secret Manager.
+                  </p>
+                </div>
+              </>
             ) : (
               <>
                 <div>
