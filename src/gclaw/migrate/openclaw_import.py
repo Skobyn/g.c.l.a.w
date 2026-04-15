@@ -338,6 +338,35 @@ def _workspace_files_for(source: Path, agent_id: str) -> tuple[str | None, str |
     return (body, soul)
 
 
+#: Map env-var fallback → canonical Secret Manager secret name
+_ENV_TO_SM: dict[str, str] = {
+    "ANTHROPIC_API_KEY": "gclaw-anthropic-api-key",
+    "OPENAI_API_KEY": "gclaw-openai-api-key",
+    "GOOGLE_API_KEY": "gclaw-google-api-key",
+    "OPENROUTER_API_KEY": "gclaw-openrouter-api-key",
+    "GROQ_API_KEY": "gclaw-groq-api-key",
+    "TOGETHER_API_KEY": "gclaw-together-api-key",
+    "GITHUB_COPILOT_TOKEN": "gclaw-github-copilot-token",
+    "PERPLEXITY_API_KEY": "gclaw-perplexity-api-key",
+    "SLACK_BOT_TOKEN": "gclaw-slack-bot-token",
+    "SLACK_APP_TOKEN": "gclaw-slack-app-token",
+    "DISCORD_BOT_TOKEN": "gclaw-discord-bot-token",
+}
+
+
+def _sm_api_key(env_name: str | None, *, project: str) -> ApiKeySpec | None:
+    """Return a Secret-Manager ApiKeySpec for the given env-var alias, or None."""
+    if not env_name:
+        return None
+    sm_name = _ENV_TO_SM.get(env_name)
+    if not sm_name:
+        return None
+    return ApiKeySpec(
+        kind=ApiKeyKind.SECRET_MANAGER,
+        value=f"projects/{project}/secrets/{sm_name}/versions/latest",
+    )
+
+
 def build_plan(
     source: Path,
     *,
@@ -347,6 +376,8 @@ def build_plan(
     skip_providers: bool = False,
     skip_agents: bool = False,
     skip_context: bool = False,
+    use_secret_manager: bool = False,
+    sm_project: str = "apex-internal-apps",
 ) -> ImportPlan:
     """Parse the OpenClaw source tree and return a full import plan.
 
@@ -385,9 +416,12 @@ def build_plan(
             cp = openclaw_providers.get(prefix) or {}
             if cp.get("baseUrl"):
                 base_url = cp["baseUrl"]
-            api_key = (
-                ApiKeySpec(kind=ApiKeyKind.ENV, value=env) if env else None
-            )
+            if use_secret_manager:
+                api_key = _sm_api_key(env, project=sm_project)
+            else:
+                api_key = (
+                    ApiKeySpec(kind=ApiKeyKind.ENV, value=env) if env else None
+                )
             if kind == ProviderKind.CUSTOM_OPENAI and not env and prefix.startswith("custom-"):
                 notes = "Custom OpenAI-compatible endpoint — set API key manually."
             if prefix not in _PROVIDER_MAP and not prefix.startswith(
@@ -572,6 +606,8 @@ def render_plan(plan: ImportPlan) -> str:
         note = ""
         if p.api_key and p.api_key.kind == ApiKeyKind.ENV:
             note = f" (env {p.api_key.value} expected)"
+        elif p.api_key and p.api_key.kind == ApiKeyKind.SECRET_MANAGER:
+            note = f" (sm {p.api_key.value})"
         elif p.api_key is None:
             note = " (no api key)"
         if p.notes:
@@ -961,6 +997,19 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--skip-providers", action="store_true")
     parser.add_argument("--skip-agents", action="store_true")
     parser.add_argument("--skip-context", action="store_true")
+    parser.add_argument(
+        "--use-secret-manager",
+        action="store_true",
+        help=(
+            "Reference Secret Manager paths for provider api keys instead of "
+            "env vars. Run `python -m gclaw.migrate.seed_secrets --apply` first."
+        ),
+    )
+    parser.add_argument(
+        "--sm-project",
+        default="apex-internal-apps",
+        help="GCP project for Secret Manager paths (default apex-internal-apps).",
+    )
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -985,6 +1034,8 @@ def main(argv: list[str] | None = None) -> int:
         skip_providers=args.skip_providers,
         skip_agents=args.skip_agents,
         skip_context=args.skip_context,
+        use_secret_manager=args.use_secret_manager,
+        sm_project=args.sm_project,
     )
 
     print(render_plan(plan))
@@ -1000,6 +1051,8 @@ def main(argv: list[str] | None = None) -> int:
         skip_providers=args.skip_providers,
         skip_agents=args.skip_agents,
         skip_context=args.skip_context,
+        use_secret_manager=args.use_secret_manager,
+        sm_project=args.sm_project,
     )
     print()
     print(render_apply(result))
