@@ -7,6 +7,7 @@ sending the collected interview through the orchestrator.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
@@ -24,6 +25,18 @@ if TYPE_CHECKING:
     from gclaw.memory.service import MemoryService
 
 logger = logging.getLogger(__name__)
+
+# Default per-turn timeout for onboarding agent calls. Generous enough
+# to accommodate the root orchestrator plus any fallback-chain retries
+# plus memory recall, but short enough that a stuck quota error surfaces
+# as a clear 503 rather than an indefinite hang.
+#
+# TODO: The orchestrator is heavy (tool registry, memory recall, routing).
+# For simple "ask the user a question" onboarding turns this is overkill
+# and needlessly burns model quota. A future improvement is a dedicated
+# lightweight onboarding agent (no tools, small model, no memory recall)
+# that only conducts the interview.
+_DEFAULT_TURN_TIMEOUT_S = 90.0
 
 # System prompts for each interview step
 _STEP_PROMPTS: dict[OnboardingStep, str] = {
@@ -93,10 +106,30 @@ class OnboardingService:
         db: FirestoreClient,
         agent_runner: AgentRunner,
         memory_service: MemoryService | None = None,
+        turn_timeout_s: float = _DEFAULT_TURN_TIMEOUT_S,
     ) -> None:
         self._db = db
         self._agent_runner = agent_runner
         self._memory_service = memory_service
+        self._turn_timeout_s = turn_timeout_s
+
+    async def _run_with_timeout(self, **kwargs):
+        """Invoke agent_runner.run with a wall-clock timeout.
+
+        Converts an asyncio.TimeoutError into a RuntimeError with a clear
+        message — the onboarding route handler turns that into a 503.
+        """
+        try:
+            return await asyncio.wait_for(
+                self._agent_runner.run(**kwargs),
+                timeout=self._turn_timeout_s,
+            )
+        except asyncio.TimeoutError as e:
+            raise RuntimeError(
+                f"Onboarding turn timed out after {self._turn_timeout_s:.0f}s "
+                "— likely model quota exhaustion or upstream stall. "
+                "Try again in a minute or check Vertex AI quota."
+            ) from e
 
     def _profile_ref(self, user_id: str):
         return (
@@ -133,7 +166,7 @@ class OnboardingService:
             # Resume from current step
             step = existing.current_step
             prompt = _STEP_PROMPTS.get(step, "")
-            result = await self._agent_runner.run(
+            result = await self._run_with_timeout(
                 user_id=user_id,
                 message=prompt,
                 session_id=f"onboarding_{user_id}",
@@ -157,7 +190,7 @@ class OnboardingService:
 
         # Get introduction from orchestrator
         prompt = _STEP_PROMPTS[OnboardingStep.INTRODUCTION]
-        result = await self._agent_runner.run(
+        result = await self._run_with_timeout(
             user_id=user_id,
             message=prompt,
             session_id=f"onboarding_{user_id}",
@@ -227,7 +260,7 @@ class OnboardingService:
         # Get next question from orchestrator
         prompt = _STEP_PROMPTS.get(new_step, "")
         context = f"User's previous response: {response}\n\n{prompt}"
-        result = await self._agent_runner.run(
+        result = await self._run_with_timeout(
             user_id=user_id,
             message=context,
             session_id=f"onboarding_{user_id}",
@@ -256,7 +289,7 @@ class OnboardingService:
             responses=formatted_responses
         )
 
-        result = await self._agent_runner.run(
+        result = await self._run_with_timeout(
             user_id=user_id,
             message=prompt,
             session_id=f"onboarding_{user_id}_soul",

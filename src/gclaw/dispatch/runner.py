@@ -69,6 +69,26 @@ def _is_retryable_model_error(exc: BaseException) -> bool:
     except Exception:
         pass
 
+    # google-genai SDK errors — different class hierarchy from google-api-core.
+    # ClientError wraps 4xx responses; carries .code (HTTP status int) and
+    # .status (string like "RESOURCE_EXHAUSTED"). ServerError wraps 5xx.
+    try:
+        from google.genai import errors as genai_errors
+        if isinstance(exc, genai_errors.ServerError):
+            return True
+        if isinstance(exc, genai_errors.ClientError):
+            code = getattr(exc, "code", None)
+            status = (getattr(exc, "status", None) or "").upper()
+            if code in (429, 503, 504) or status in (
+                "RESOURCE_EXHAUSTED",
+                "SERVICE_UNAVAILABLE",
+                "DEADLINE_EXCEEDED",
+                "UNAVAILABLE",
+            ):
+                return True
+    except Exception:
+        pass
+
     # litellm provider errors.
     try:
         from litellm import exceptions as lite_exc  # type: ignore

@@ -236,6 +236,131 @@ async def test_empty_chain_primary_failure_raises():
 
 
 @pytest.mark.asyncio
+async def test_genai_client_error_429_is_retryable():
+    """google.genai.errors.ClientError with 429 triggers fallback."""
+    from google.genai import errors as genai_errors
+
+    agent = MagicMock(spec_set=["name", "model"])
+    agent.name = "orchestrator"
+    agent.model = "primary-model"
+    session_service = AsyncMock()
+    repo = MagicMock()
+    recorder = UsageRecorder(repo=repo, enabled=True)
+
+    async def fail_stream(**kwargs):
+        raise genai_errors.ClientError(
+            429, {"error": {"message": "quota", "status": "RESOURCE_EXHAUSTED"}}
+        )
+        yield  # pragma: no cover
+
+    async def ok_stream(**kwargs):
+        yield _event(text="recovered", final=True, model_version="fallback-1")
+
+    primary_runner = MagicMock()
+    primary_runner.run_async = fail_stream
+    fallback_runner = MagicMock()
+    fallback_runner.run_async = ok_stream
+
+    with patch(
+        "gclaw.dispatch.runner.Runner",
+        side_effect=_install_runner_mock([primary_runner, fallback_runner]),
+    ):
+        runner = AgentRunner(
+            agent=agent,
+            app_name="gclaw",
+            session_service=session_service,
+            usage_recorder=recorder,
+            model_chain_provider=lambda name: ["primary-model", "fallback-1"],
+        )
+        resp = await runner.run(user_id="u1", session_id="s1", message="hi")
+
+    assert resp.text == "recovered"
+
+
+@pytest.mark.asyncio
+async def test_genai_client_error_400_is_not_retryable():
+    """A 400 INVALID_ARGUMENT is a programming error — no fallback."""
+    from google.genai import errors as genai_errors
+
+    agent = MagicMock(spec_set=["name", "model"])
+    agent.name = "orchestrator"
+    agent.model = "primary-model"
+    session_service = AsyncMock()
+    repo = MagicMock()
+    recorder = UsageRecorder(repo=repo, enabled=True)
+
+    async def fail_stream(**kwargs):
+        raise genai_errors.ClientError(
+            400, {"error": {"message": "bad", "status": "INVALID_ARGUMENT"}}
+        )
+        yield  # pragma: no cover
+
+    primary_runner = MagicMock()
+    primary_runner.run_async = fail_stream
+
+    with patch(
+        "gclaw.dispatch.runner.Runner",
+        side_effect=_install_runner_mock([primary_runner]),
+    ):
+        runner = AgentRunner(
+            agent=agent,
+            app_name="gclaw",
+            session_service=session_service,
+            usage_recorder=recorder,
+            model_chain_provider=lambda name: ["primary-model", "fallback-1"],
+        )
+        with pytest.raises(genai_errors.ClientError):
+            await runner.run(user_id="u1", session_id="s1", message="hi")
+
+    agent_evs = [c.args[0] for c in repo.record.call_args_list
+                 if c.args[0].kind.value == "agent"]
+    # Only one attempt — no fallback retry for non-retryable client error.
+    assert len(agent_evs) == 1
+
+
+@pytest.mark.asyncio
+async def test_genai_server_error_is_retryable():
+    """5xx from google.genai triggers fallback."""
+    from google.genai import errors as genai_errors
+
+    agent = MagicMock(spec_set=["name", "model"])
+    agent.name = "orchestrator"
+    agent.model = "primary-model"
+    session_service = AsyncMock()
+    repo = MagicMock()
+    recorder = UsageRecorder(repo=repo, enabled=True)
+
+    async def fail_stream(**kwargs):
+        raise genai_errors.ServerError(
+            503, {"error": {"message": "unavailable", "status": "UNAVAILABLE"}}
+        )
+        yield  # pragma: no cover
+
+    async def ok_stream(**kwargs):
+        yield _event(text="recovered", final=True, model_version="fallback-1")
+
+    primary_runner = MagicMock()
+    primary_runner.run_async = fail_stream
+    fallback_runner = MagicMock()
+    fallback_runner.run_async = ok_stream
+
+    with patch(
+        "gclaw.dispatch.runner.Runner",
+        side_effect=_install_runner_mock([primary_runner, fallback_runner]),
+    ):
+        runner = AgentRunner(
+            agent=agent,
+            app_name="gclaw",
+            session_service=session_service,
+            usage_recorder=recorder,
+            model_chain_provider=lambda name: ["primary-model", "fallback-1"],
+        )
+        resp = await runner.run(user_id="u1", session_id="s1", message="hi")
+
+    assert resp.text == "recovered"
+
+
+@pytest.mark.asyncio
 async def test_primary_only_chain_no_fallbacks_raises():
     """Chain of length 1 means no fallbacks available."""
     agent = MagicMock(spec_set=["name", "model"])
