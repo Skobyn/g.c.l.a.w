@@ -47,6 +47,8 @@ import type {
   ContextEntry,
   ContextNamespaceSummary,
   ContextBlobUrl,
+  WriteSecretResponse,
+  SMSecretSummary,
 } from "@/types";
 
 export class ApiClient {
@@ -499,6 +501,30 @@ export class ApiClient {
 
   async getPresets(): Promise<Presets> {
     return this.get<Presets>("/admin/model-presets");
+  }
+
+  // --- Admin: Secret Manager (UI-driven secret storage) ---
+
+  async writeSecret(body: {
+    name: string;
+    value: string;
+    create_if_missing?: boolean;
+  }): Promise<WriteSecretResponse> {
+    return this.post<WriteSecretResponse>("/admin/secrets", body);
+  }
+
+  async rotateSecret(
+    name: string,
+    value: string,
+  ): Promise<WriteSecretResponse> {
+    return this.post<WriteSecretResponse>(
+      `/admin/secrets/${encodeURIComponent(name)}/rotate`,
+      { value },
+    );
+  }
+
+  async listSecrets(): Promise<{ secrets: SMSecretSummary[] }> {
+    return this.get<{ secrets: SMSecretSummary[] }>("/admin/secrets");
   }
 
   // --- Admin: Usage / Observability ---

@@ -348,6 +348,21 @@ def build_app():
         except Exception:
             logger.warning("catalog: seed_system_defaults failed", exc_info=True)
 
+    # Secret Manager service — used by the /admin/secrets UI write flow.
+    # Constructed whenever we have a project ID; the SDK client is built
+    # lazily so this is cheap and safe in all environments.
+    secret_manager_service = None
+    if settings.gcp_project_id:
+        try:
+            from gclaw.catalog.secret_manager import SecretManagerService
+            secret_manager_service = SecretManagerService(
+                project=settings.gcp_project_id,
+            )
+        except Exception:
+            logger.warning(
+                "secret manager service init failed", exc_info=True
+            )
+
     # Model routing — prefer catalog-backed router when populated.
     model_router = None
     if (
@@ -567,6 +582,7 @@ def build_app():
         agent_config_service=agent_config_service,
         onboarding_service=onboarding_service,
         shared_context_service=shared_context_service,
+        secret_manager_service=secret_manager_service,
     )
 
 

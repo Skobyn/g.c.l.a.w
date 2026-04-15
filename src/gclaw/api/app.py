@@ -22,6 +22,7 @@ from gclaw.api.cron_routes import init_cron_router
 from gclaw.api.heartbeat_routes import init_heartbeat_router
 from gclaw.api.onboarding_routes import init_onboarding_router
 from gclaw.api.routing_routes import init_routing_router
+from gclaw.api.secrets_routes import init_secrets_router
 from gclaw.api.voice_ws import init_voice_router
 from gclaw.auth.middleware import FirebaseAuthMiddleware
 from gclaw.board.service import BoardService
@@ -54,6 +55,7 @@ def create_app(
     usage_repo: object | None = None,
     agent_config_service: object | None = None,
     shared_context_service: object | None = None,
+    secret_manager_service: object | None = None,
 ) -> FastAPI:
     # Lifespan that optionally starts the per-agent heartbeat loop.
     _loop_holder: dict = {}
@@ -159,6 +161,10 @@ def create_app(
     if catalog_service is not None:
         app.include_router(init_catalog_router(catalog_service))
         app.state.catalog_service = catalog_service
+
+    if secret_manager_service is not None:
+        app.include_router(init_secrets_router(secret_manager_service))  # type: ignore[arg-type]
+        app.state.secret_manager_service = secret_manager_service
 
     if shared_context_service is not None:
         app.include_router(init_context_router(shared_context_service))  # type: ignore[arg-type]

@@ -370,6 +370,19 @@ export interface ProviderCreate {
 
 export type ProviderUpdate = Partial<ProviderCreate>;
 
+export interface WriteSecretResponse {
+  name: string;
+  path: string;
+  version_id: string;
+  created_secret: boolean;
+}
+
+export interface SMSecretSummary {
+  name: string;
+  path: string;
+  latest_version_created_at: string | null;
+}
+
 export interface Capabilities {
   text: boolean;
   vision: boolean;
