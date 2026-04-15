@@ -63,6 +63,29 @@ PRESETS: dict[ProviderKind, dict] = {
             },
         ],
     },
+    ProviderKind.ANTHROPIC_OAUTH: {
+        "base_url_default": "https://api.anthropic.com",
+        "models": [
+            {
+                "model_id": "claude-opus-4-6",
+                "display_name": "Claude Opus 4.6 (OAuth)",
+                "context_window": 200000,
+                "capabilities": {"vision": True, "tools": True, "reasoning": True},
+            },
+            {
+                "model_id": "claude-sonnet-4-6",
+                "display_name": "Claude Sonnet 4.6 (OAuth)",
+                "context_window": 200000,
+                "capabilities": {"vision": True, "tools": True},
+            },
+            {
+                "model_id": "claude-haiku-4-5",
+                "display_name": "Claude Haiku 4.5 (OAuth)",
+                "context_window": 200000,
+                "capabilities": {"vision": True, "tools": True},
+            },
+        ],
+    },
     ProviderKind.GOOGLE_GEMINI: {
         "base_url_default": None,
         "models": [

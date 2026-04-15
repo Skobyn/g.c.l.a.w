@@ -44,6 +44,7 @@ class ProviderKind(str, Enum):
     GROQ = "groq"
     TOGETHER = "together"
     CUSTOM_OPENAI = "custom_openai"  # OpenAI-compatible endpoint with custom base_url
+    ANTHROPIC_OAUTH = "anthropic_oauth"  # Anthropic API via Claude Code OAuth bearer token
 
 
 class ModelProvider(BaseModel):

@@ -21,6 +21,7 @@ export const PROVIDER_KIND_LABELS: Record<ProviderKind, string> = {
   groq: "Groq",
   together: "Together AI",
   custom_openai: "Custom OpenAI-compatible",
+  anthropic_oauth: "Anthropic (Claude Code OAuth)",
 };
 
 const KIND_BADGE_CLS: Record<ProviderKind, string> = {
@@ -33,6 +34,7 @@ const KIND_BADGE_CLS: Record<ProviderKind, string> = {
   groq: "border-pink-700 bg-pink-600/20 text-pink-300",
   together: "border-amber-700 bg-amber-600/20 text-amber-300",
   custom_openai: "border-teal-700 bg-teal-600/20 text-teal-300",
+  anthropic_oauth: "border-zinc-600 bg-zinc-700/30 text-amber-200",
 };
 
 export function KindBadge({ kind }: { kind: ProviderKind }) {

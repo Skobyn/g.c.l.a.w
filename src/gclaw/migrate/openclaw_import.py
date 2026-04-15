@@ -51,6 +51,7 @@ logger = logging.getLogger(__name__)
 # ``provider prefix`` → (ProviderKind, display_name, env_var_for_api_key)
 _PROVIDER_MAP: dict[str, tuple[ProviderKind, str, str | None]] = {
     "anthropic": (ProviderKind.ANTHROPIC, "Anthropic", "ANTHROPIC_API_KEY"),
+    "anthropic-oauth": (ProviderKind.ANTHROPIC_OAUTH, "Anthropic (OAuth)", None),
     "openai": (ProviderKind.OPENAI, "OpenAI", "OPENAI_API_KEY"),
     "google": (ProviderKind.GOOGLE_GEMINI, "Google Gemini", "GOOGLE_API_KEY"),
     "openrouter": (ProviderKind.OPENROUTER, "OpenRouter", "OPENROUTER_API_KEY"),

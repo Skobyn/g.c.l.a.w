@@ -43,6 +43,19 @@ def test_provider_round_trip_env_key():
     assert restored.api_key.value == "ANTHROPIC_API_KEY"
 
 
+def test_provider_round_trip_anthropic_oauth():
+    p = ModelProvider(
+        name="Claude Code",
+        kind=ProviderKind.ANTHROPIC_OAUTH,
+        api_key=ApiKeySpec(kind=ApiKeyKind.LITERAL, value="sk-ant-oat-abc"),
+    )
+    d = p.to_firestore_dict()
+    assert d["kind"] == "anthropic_oauth"
+    restored = ModelProvider.from_firestore_dict(p.id, d)
+    assert restored.kind == ProviderKind.ANTHROPIC_OAUTH
+    assert restored.api_key.value == "sk-ant-oat-abc"
+
+
 def test_provider_without_api_key():
     p = ModelProvider(name="Local", kind=ProviderKind.OLLAMA)
     d = p.to_firestore_dict()

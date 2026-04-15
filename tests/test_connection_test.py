@@ -103,6 +103,38 @@ async def test_anthropic_sends_correct_headers(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_anthropic_oauth_sends_bearer_auth(monkeypatch):
+    captured: dict = {}
+
+    def handler(request):
+        captured["url"] = str(request.url)
+        captured["auth"] = request.headers.get("Authorization")
+        captured["x_api_key"] = request.headers.get("x-api-key")
+        captured["version"] = request.headers.get("anthropic-version")
+        captured["beta"] = request.headers.get("anthropic-beta")
+        return httpx.Response(200, json={"content": [{"text": "pong"}]})
+
+    _mount(monkeypatch, handler)
+
+    provider = ModelProvider(
+        name="CC",
+        kind=ProviderKind.ANTHROPIC_OAUTH,
+        api_key=ApiKeySpec(kind=ApiKeyKind.LITERAL, value="sk-ant-oat-xyz"),
+    )
+    model = ModelRecord(
+        provider_id=provider.id, model_id="claude-sonnet-4-6", display_name="x"
+    )
+
+    result = await run_connection_test(provider, model)
+    assert result["ok"] is True
+    assert captured["url"].endswith("/v1/messages")
+    assert captured["auth"] == "Bearer sk-ant-oat-xyz"
+    assert captured["x_api_key"] is None
+    assert captured["version"] == "2023-06-01"
+    assert captured["beta"] == "oauth-2025-04-20"
+
+
+@pytest.mark.asyncio
 async def test_gemini_uses_key_query_param(monkeypatch):
     captured: dict = {}
 

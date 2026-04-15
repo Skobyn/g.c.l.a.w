@@ -334,7 +334,8 @@ export type ProviderKind =
   | "ollama"
   | "groq"
   | "together"
-  | "custom_openai";
+  | "custom_openai"
+  | "anthropic_oauth";
 
 export type ApiKeyKind = "literal" | "env" | "sm";
 

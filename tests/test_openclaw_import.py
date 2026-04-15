@@ -217,6 +217,9 @@ def test_split_ref():
 
 def test_classify_provider_known_vendors():
     assert _classify_provider("anthropic")[0] == ProviderKind.ANTHROPIC
+    assert _classify_provider("anthropic-oauth")[0] == ProviderKind.ANTHROPIC_OAUTH
+    assert _classify_provider("anthropic-oauth")[1] == "Anthropic (OAuth)"
+    assert _classify_provider("anthropic-oauth")[2] is None
     assert _classify_provider("openai")[0] == ProviderKind.OPENAI
     assert _classify_provider("google")[0] == ProviderKind.GOOGLE_GEMINI
     assert _classify_provider("github-copilot")[0] == ProviderKind.CUSTOM_OPENAI

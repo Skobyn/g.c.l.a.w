@@ -85,6 +85,42 @@ def test_anthropic_provider_wrapped_as_litellm(populated_service):
     assert "anthropic/claude-opus-4-6" in str(getattr(obj, "model", ""))
 
 
+def test_anthropic_oauth_provider_uses_bearer_extra_headers():
+    svc = CatalogService(
+        provider_repo=FakeProviderRepo(),
+        model_repo=FakeModelRepo(),
+    )
+    oauth = svc.create_provider(
+        name="CC",
+        kind=ProviderKind.ANTHROPIC_OAUTH,
+        api_key=ApiKeySpec(kind=ApiKeyKind.LITERAL, value="sk-ant-oat-xyz"),
+    )
+    svc.create_model(
+        provider_id=oauth.id,
+        model_id="claude-sonnet-4-6",
+        display_name="Sonnet OAuth",
+    )
+    router = load_endpoints_from_catalog(svc, fallback_flash_model="gemini-2.5-flash")
+    obj = router._adk_overrides["CC/claude-sonnet-4-6"]  # type: ignore[attr-defined]
+
+    from google.adk.models.lite_llm import LiteLlm
+    assert isinstance(obj, LiteLlm)
+    assert "anthropic/claude-sonnet-4-6" in str(getattr(obj, "model", ""))
+    # LiteLlm stashes constructor kwargs on the instance; check extra_headers.
+    extra = getattr(obj, "_additional_args", None) or getattr(obj, "kwargs", None)
+    # Fall back to inspecting vars() — look for Bearer-style Authorization header.
+    found = False
+    for container in (extra, vars(obj)):
+        if not container:
+            continue
+        # Recursively check str representations
+        s = str(container)
+        if "Bearer sk-ant-oat-xyz" in s:
+            found = True
+            break
+    assert found, f"expected Bearer header wired through LiteLlm; got {vars(obj)!r}"
+
+
 def test_disabled_models_excluded():
     svc = CatalogService(
         provider_repo=FakeProviderRepo(),

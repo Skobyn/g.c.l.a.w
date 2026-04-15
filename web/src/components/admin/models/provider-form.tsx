@@ -58,6 +58,7 @@ const KINDS: ProviderKind[] = [
   "groq",
   "together",
   "custom_openai",
+  "anthropic_oauth",
 ];
 
 const SM_NAME_RE = /^watson-[a-z0-9-]+$/;
@@ -348,6 +349,17 @@ export function ProviderForm({
             </option>
           ))}
         </select>
+        {kind === "anthropic_oauth" && (
+          <p className="mt-1 text-xs text-amber-300">
+            Paste your Claude Code OAuth token (not an API key). Get one via{" "}
+            <span className="font-mono">claude login</span> in the Claude Code
+            CLI, then{" "}
+            <span className="font-mono">
+              cat ~/.config/claude/auth.json | jq -r .access_token
+            </span>
+            . Note: tokens expire; you&apos;ll need to rotate periodically.
+          </p>
+        )}
       </div>
 
       <div>

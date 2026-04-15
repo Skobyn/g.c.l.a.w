@@ -85,6 +85,8 @@ async def test_connection(
             return await _test_openai_compat(provider, model, start)
         if provider.kind == ProviderKind.ANTHROPIC:
             return await _test_anthropic(provider, model, start)
+        if provider.kind == ProviderKind.ANTHROPIC_OAUTH:
+            return await _test_anthropic_oauth(provider, model, start)
         if provider.kind == ProviderKind.GOOGLE_GEMINI:
             return await _test_google_gemini(provider, model, start)
         if provider.kind == ProviderKind.GOOGLE_VERTEX:
@@ -149,6 +151,41 @@ async def _test_anthropic(
     }
     if key:
         headers["x-api-key"] = key
+    body = {
+        "model": model.model_id,
+        "max_tokens": 5,
+        "messages": [{"role": "user", "content": "ping"}],
+    }
+    async with httpx.AsyncClient(timeout=_TIMEOUT_SECONDS) as client:
+        resp = await client.post(url, json=body, headers=headers)
+    latency = (time.perf_counter() - start) * 1000
+    if resp.status_code >= 400:
+        return _result(
+            False,
+            latency_ms=latency,
+            error=f"HTTP {resp.status_code}: {resp.text[:200]}",
+        )
+    try:
+        data = resp.json()
+    except Exception:
+        data = {"raw": resp.text[:200]}
+    return _result(True, latency_ms=latency, sample_response=data)
+
+
+async def _test_anthropic_oauth(
+    provider: ModelProvider, model: ModelRecord, start: float
+) -> dict:
+    base_url = provider.base_url or _DEFAULT_BASE_URLS[ProviderKind.ANTHROPIC]
+    url = base_url.rstrip("/") + "/v1/messages"
+    key = _resolve_key(provider)
+    headers = {
+        "Content-Type": "application/json",
+        "anthropic-version": "2023-06-01",
+        "anthropic-beta": "oauth-2025-04-20",
+        **provider.default_headers,
+    }
+    if key:
+        headers["Authorization"] = f"Bearer {key}"
     body = {
         "model": model.model_id,
         "max_tokens": 5,
