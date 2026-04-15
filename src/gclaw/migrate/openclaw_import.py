@@ -717,6 +717,8 @@ def apply_plan(
     skip_providers: bool = False,
     skip_agents: bool = False,
     skip_context: bool = False,
+    use_secret_manager: bool = False,  # noqa: ARG001 — consumed during build_plan
+    sm_project: str = "apex-internal-apps",  # noqa: ARG001
 ) -> ApplyResult:
     result = ApplyResult()
 
