@@ -17,6 +17,7 @@ from gclaw.models.task import TaskStatus
 from gclaw.routing.router import ModelRouter
 from gclaw.tools import (
     comms_tools,
+    context_tools,
     dev_tools,
     home_tools,
     research_tools,
@@ -224,6 +225,13 @@ def build_managers(
     `before_agent_callback` that auto-recalls agent-scoped memories before
     the manager's LLM call fires.
     """
+    ctx_tools = [
+        context_tools.context_write,
+        context_tools.context_read_latest,
+        context_tools.context_list,
+        context_tools.context_write_image,
+    ]
+
     ws_tools = [
         workspace_tools.list_unread_email,
         workspace_tools.send_email,
@@ -231,7 +239,7 @@ def build_managers(
         workspace_tools.create_calendar_event,
         workspace_tools.list_drive_files,
         workspace_tools.read_drive_doc,
-    ] + board_tools
+    ] + board_tools + ctx_tools
 
     dv_tools = [
         dev_tools.list_open_prs,
@@ -240,22 +248,22 @@ def build_managers(
         dev_tools.create_issue,
         dev_tools.get_current_diff,
         dev_tools.read_local_file,
-    ] + board_tools
+    ] + board_tools + ctx_tools
 
     hm_tools = [
         home_tools.list_devices,
         home_tools.set_device_state,
-    ] + board_tools
+    ] + board_tools + ctx_tools
 
     cm_tools = [
         comms_tools.list_chat_spaces,
         comms_tools.post_chat_message,
-    ] + board_tools
+    ] + board_tools + ctx_tools
 
     rs_tools = [
         research_tools.web_search,
         research_tools.fetch_url,
-    ] + board_tools
+    ] + board_tools + ctx_tools
 
     def _recall_cb(agent_id: str) -> Any:
         if memory_service is None:

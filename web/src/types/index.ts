@@ -582,6 +582,31 @@ export const PROTECTED_AGENTS = [
   "research-mgr",
 ] as const;
 
+// ---------- Shared Context ----------
+
+export interface ContextEntry {
+  id: string;
+  namespace: string;
+  timestamp: string;
+  created_by: string;
+  content: string | null;
+  blob_url: string | null;
+  blob_mime: string | null;
+  metadata: Record<string, unknown>;
+  expires_at: string;
+}
+
+export interface ContextNamespaceSummary {
+  namespace: string;
+  count: number;
+  latest_at: string | null;
+}
+
+export interface ContextBlobUrl {
+  url: string;
+  expires_in_seconds: number;
+}
+
 export interface UsageSummary {
   totals: {
     model: number;

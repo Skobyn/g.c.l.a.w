@@ -44,6 +44,9 @@ import type {
   EffectiveAgentConfig,
   AgentOverride,
   CreateAgentPayload,
+  ContextEntry,
+  ContextNamespaceSummary,
+  ContextBlobUrl,
 } from "@/types";
 
 export class ApiClient {
@@ -526,6 +529,53 @@ export class ApiClient {
     return this.get<UsageSummary>(
       `/admin/usage/summary${q ? `?${q}` : ""}`,
     );
+  }
+
+  // --- Admin: Shared Context ---
+
+  async listContextNamespaces(): Promise<ContextNamespaceSummary[]> {
+    return this.get<ContextNamespaceSummary[]>("/admin/context/namespaces");
+  }
+
+  async listContextEntries(
+    namespace: string,
+    opts?: { limit?: number; since?: string },
+  ): Promise<ContextEntry[]> {
+    const params = new URLSearchParams();
+    params.set("namespace", namespace);
+    if (opts?.limit !== undefined) params.set("limit", String(opts.limit));
+    if (opts?.since) params.set("since", opts.since);
+    return this.get<ContextEntry[]>(`/admin/context?${params.toString()}`);
+  }
+
+  async getContextEntry(id: string): Promise<ContextEntry> {
+    return this.get<ContextEntry>(
+      `/admin/context/${encodeURIComponent(id)}`,
+    );
+  }
+
+  async getContextBlobUrl(id: string): Promise<ContextBlobUrl> {
+    return this.get<ContextBlobUrl>(
+      `/admin/context/${encodeURIComponent(id)}/blob`,
+    );
+  }
+
+  async deleteContextEntry(id: string): Promise<void> {
+    await this.request<{ deleted: boolean }>(
+      `/admin/context/${encodeURIComponent(id)}`,
+      { method: "DELETE" },
+    );
+  }
+
+  async createContextEntry(body: {
+    namespace: string;
+    content: string;
+    metadata?: Record<string, unknown>;
+  }): Promise<ContextEntry> {
+    return this.request<ContextEntry>("/admin/context", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
   }
 
   async installPresets(

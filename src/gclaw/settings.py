@@ -163,6 +163,18 @@ class Settings:
             "GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE", ""
         )
     )
+    # Shared-context (blackboard) storage
+    shared_context_bucket: str = field(
+        default_factory=lambda: os.environ.get(
+            "SHARED_CONTEXT_BUCKET",
+            "gclaw-shared-context-apex-internal-apps",
+        )
+    )
+    shared_context_enabled: bool = field(
+        default_factory=lambda: os.environ.get(
+            "SHARED_CONTEXT_ENABLED", "true"
+        ).lower() == "true"
+    )
 
 
 def get_settings() -> Settings:

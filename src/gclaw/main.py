@@ -485,6 +485,36 @@ def build_app():
         model_chain_provider=factory.resolve_model_chain,
     )
 
+    # Shared context (blackboard) — Firestore index + optional GCS blobs.
+    shared_context_service = None
+    if settings.shared_context_enabled:
+        from gclaw.firestore.context_entry_repo import ContextEntryRepo
+        from gclaw.shared_context.blob_store import BlobStore
+        from gclaw.shared_context.service import SharedContextService
+        from gclaw.tools.context_tools import set_context_service
+
+        try:
+            blob_store = BlobStore(
+                project=settings.gcp_project_id,
+                bucket_name=settings.shared_context_bucket,
+            )
+        except Exception:
+            logger.warning(
+                "shared-context: BlobStore init failed; running index-only",
+                exc_info=True,
+            )
+            blob_store = None
+        context_repo = ContextEntryRepo(db=db)
+        shared_context_service = SharedContextService(
+            repo=context_repo, blob_store=blob_store
+        )
+        set_context_service(shared_context_service)
+        logger.info(
+            "shared-context: enabled (bucket=%s, blob_store=%s)",
+            settings.shared_context_bucket,
+            "on" if blob_store is not None else "off",
+        )
+
     # Onboarding (conversational interview driving soul generation).
     from gclaw.onboarding.service import OnboardingService
     onboarding_service = OnboardingService(
@@ -536,6 +566,7 @@ def build_app():
         usage_repo=usage_repo,
         agent_config_service=agent_config_service,
         onboarding_service=onboarding_service,
+        shared_context_service=shared_context_service,
     )
 
 

@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 from gclaw.api.admin_routes import init_admin_router
 from gclaw.api.agent_config_routes import init_agent_config_router
 from gclaw.api.catalog_routes import init_catalog_router
+from gclaw.api.context_routes import init_context_router
 from gclaw.api.usage_routes import init_usage_router
 from gclaw.api.chat import init_chat_router
 from gclaw.api.board_routes import init_board_router
@@ -52,6 +53,7 @@ def create_app(
     heartbeat_scheduler_seed: str = "gclaw-default-seed",
     usage_repo: object | None = None,
     agent_config_service: object | None = None,
+    shared_context_service: object | None = None,
 ) -> FastAPI:
     # Lifespan that optionally starts the per-agent heartbeat loop.
     _loop_holder: dict = {}
@@ -157,6 +159,10 @@ def create_app(
     if catalog_service is not None:
         app.include_router(init_catalog_router(catalog_service))
         app.state.catalog_service = catalog_service
+
+    if shared_context_service is not None:
+        app.include_router(init_context_router(shared_context_service))  # type: ignore[arg-type]
+        app.state.shared_context_service = shared_context_service
 
     # Store services on app state for use by future route extensions
     app.state.session_service = session_service
