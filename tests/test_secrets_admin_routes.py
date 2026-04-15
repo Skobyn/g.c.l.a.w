@@ -28,7 +28,7 @@ class FakeSMService:
         self.writes.append(
             {"name": name, "value": value, "create_if_missing": create_if_missing}
         )
-        norm = name if name.startswith("gclaw-") else f"gclaw-{name}"
+        norm = name if name.startswith("watson-") else f"watson-{name}"
         return {
             "name": norm,
             "path": f"projects/p/secrets/{norm}/versions/latest",
@@ -40,7 +40,7 @@ class FakeSMService:
         if self.rotate_exc is not None:
             raise self.rotate_exc
         self.rotates.append({"name": name, "value": value})
-        norm = name if name.startswith("gclaw-") else f"gclaw-{name}"
+        norm = name if name.startswith("watson-") else f"watson-{name}"
         return {
             "name": norm,
             "path": f"projects/p/secrets/{norm}/versions/latest",
@@ -78,17 +78,17 @@ async def client(svc):
 async def test_write_happy_path(client, svc):
     resp = await client.post(
         "/admin/secrets",
-        json={"name": "gclaw-openai-key", "value": "sk-abc"},
+        json={"name": "watson-openai-key", "value": "sk-abc"},
     )
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert body["name"] == "gclaw-openai-key"
+    assert body["name"] == "watson-openai-key"
     assert body["path"].endswith("/versions/latest")
     assert body["version_id"] == "1"
     assert body["created_secret"] is True
     assert svc.writes == [
         {
-            "name": "gclaw-openai-key",
+            "name": "watson-openai-key",
             "value": "sk-abc",
             "create_if_missing": True,
         }
@@ -108,7 +108,7 @@ async def test_write_rejects_invalid_name(client):
 async def test_write_rejects_empty_value(client):
     resp = await client.post(
         "/admin/secrets",
-        json={"name": "gclaw-k", "value": ""},
+        json={"name": "watson-k", "value": ""},
     )
     assert resp.status_code == 422
 
@@ -119,7 +119,7 @@ async def test_write_conflict_when_missing_and_no_create(client, svc):
     resp = await client.post(
         "/admin/secrets",
         json={
-            "name": "gclaw-k",
+            "name": "watson-k",
             "value": "sk",
             "create_if_missing": False,
         },
@@ -134,7 +134,7 @@ async def test_write_permission_error_exposes_helpful_500(client, svc):
     )
     resp = await client.post(
         "/admin/secrets",
-        json={"name": "gclaw-k", "value": "sk"},
+        json={"name": "watson-k", "value": "sk"},
     )
     assert resp.status_code == 500
     assert "roles/secretmanager" in resp.json()["detail"]
@@ -144,35 +144,35 @@ async def test_write_permission_error_exposes_helpful_500(client, svc):
 async def test_list_returns_secrets(client, svc):
     svc.list_result = [
         {
-            "name": "gclaw-openai-key",
-            "path": "projects/p/secrets/gclaw-openai-key/versions/latest",
+            "name": "watson-openai-key",
+            "path": "projects/p/secrets/watson-openai-key/versions/latest",
             "latest_version_created_at": "2026-04-14T00:00:00+00:00",
         },
     ]
     resp = await client.get("/admin/secrets")
     assert resp.status_code == 200
     body = resp.json()
-    assert body["secrets"][0]["name"] == "gclaw-openai-key"
+    assert body["secrets"][0]["name"] == "watson-openai-key"
 
 
 @pytest.mark.asyncio
 async def test_rotate_happy_path(client, svc):
     resp = await client.post(
-        "/admin/secrets/gclaw-openai-key/rotate",
+        "/admin/secrets/watson-openai-key/rotate",
         json={"value": "sk-new"},
     )
     assert resp.status_code == 200
     body = resp.json()
-    assert body["name"] == "gclaw-openai-key"
+    assert body["name"] == "watson-openai-key"
     assert body["version_id"] == "2"
-    assert svc.rotates == [{"name": "gclaw-openai-key", "value": "sk-new"}]
+    assert svc.rotates == [{"name": "watson-openai-key", "value": "sk-new"}]
 
 
 @pytest.mark.asyncio
 async def test_rotate_404_when_missing(client, svc):
     svc.rotate_exc = SecretManagerNotFoundError("missing")
     resp = await client.post(
-        "/admin/secrets/gclaw-unknown/rotate",
+        "/admin/secrets/watson-unknown/rotate",
         json={"value": "x"},
     )
     assert resp.status_code == 404
@@ -181,7 +181,7 @@ async def test_rotate_404_when_missing(client, svc):
 @pytest.mark.asyncio
 async def test_rotate_rejects_empty_value(client):
     resp = await client.post(
-        "/admin/secrets/gclaw-k/rotate",
+        "/admin/secrets/watson-k/rotate",
         json={"value": ""},
     )
     assert resp.status_code == 422

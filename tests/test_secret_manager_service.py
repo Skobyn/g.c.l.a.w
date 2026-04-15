@@ -92,26 +92,26 @@ def _fake_client():
     client.get_secret.side_effect = _NotFoundExc("missing")
     # add_secret_version returns an object with .name
     resp = MagicMock()
-    resp.name = "projects/p/secrets/gclaw-foo/versions/3"
+    resp.name = "projects/p/secrets/watson-foo/versions/3"
     client.add_secret_version.return_value = resp
     return client
 
 
 def test_normalize_name_adds_prefix():
-    assert SecretManagerService.normalize_name("openai-key") == "gclaw-openai-key"
+    assert SecretManagerService.normalize_name("openai-key") == "watson-openai-key"
 
 
 def test_normalize_name_keeps_prefix():
     assert (
-        SecretManagerService.normalize_name("gclaw-openai-key")
-        == "gclaw-openai-key"
+        SecretManagerService.normalize_name("watson-openai-key")
+        == "watson-openai-key"
     )
 
 
 def test_normalize_name_lowercases_and_strips():
     assert (
         SecretManagerService.normalize_name("OpenAI_API KEY!")
-        == "gclaw-openai-api-key"
+        == "watson-openai-api-key"
     )
 
 
@@ -129,24 +129,24 @@ def test_write_creates_secret_then_adds_version():
     with _install_fake_gcloud(client):
         result = svc.write(name="openai-key", value="sk-abc")
 
-    assert result["name"] == "gclaw-openai-key"
-    assert result["path"] == "projects/p/secrets/gclaw-openai-key/versions/latest"
+    assert result["name"] == "watson-openai-key"
+    assert result["path"] == "projects/p/secrets/watson-openai-key/versions/latest"
     assert result["created_secret"] is True
     assert result["version_id"] == "3"
 
     # create_secret invoked once with correct labels
     create_req = client.create_secret.call_args.kwargs["request"]
     assert create_req["parent"] == "projects/p"
-    assert create_req["secret_id"] == "gclaw-openai-key"
+    assert create_req["secret_id"] == "watson-openai-key"
     assert create_req["secret"]["labels"] == {
-        "app": "gclaw",
+        "app": "watson",
         "kind": "api-key",
     }
     assert create_req["secret"]["replication"] == {"automatic": {}}
 
     # add_secret_version invoked with bytes payload
     ver_req = client.add_secret_version.call_args.kwargs["request"]
-    assert ver_req["parent"] == "projects/p/secrets/gclaw-openai-key"
+    assert ver_req["parent"] == "projects/p/secrets/watson-openai-key"
     assert ver_req["payload"]["data"] == b"sk-abc"
 
 
@@ -197,7 +197,7 @@ def test_rotate_adds_version_only():
         result = svc.rotate(name="openai-key", value="sk-new")
 
     client.create_secret.assert_not_called()
-    assert result["name"] == "gclaw-openai-key"
+    assert result["name"] == "watson-openai-key"
     assert result["version_id"] == "3"
 
 
@@ -213,14 +213,28 @@ def test_permission_denied_on_write_surfaces_helpful_message():
     assert "roles/secretmanager" in str(exc.value)
 
 
-def test_list_filters_by_label_and_returns_metadata():
+def test_list_returns_watson_prefixed_and_labeled_secrets():
+    """list_gclaw_secrets unions labelled secrets with anything
+    prefixed `watson-` — so shared watson secrets created outside
+    GClaw still show up in the admin list."""
     client = _fake_client()
 
-    sec = MagicMock()
-    sec.name = "projects/p/secrets/gclaw-openai-key"
-    other = MagicMock()
-    other.name = "projects/p/secrets/gclaw-anthropic-key"
-    client.list_secrets.return_value = [sec, other]
+    # matches via name prefix
+    prefixed = MagicMock()
+    prefixed.name = "projects/p/secrets/watson-openai-key"
+    prefixed.labels = {}
+
+    # matches via label
+    labelled = MagicMock()
+    labelled.name = "projects/p/secrets/some-random-name"
+    labelled.labels = {"app": "watson", "kind": "api-key"}
+
+    # excluded — neither prefix nor our label
+    unrelated = MagicMock()
+    unrelated.name = "projects/p/secrets/unrelated-thing"
+    unrelated.labels = {"app": "other-tool"}
+
+    client.list_secrets.return_value = [prefixed, labelled, unrelated]
 
     ts = datetime(2026, 4, 14, tzinfo=timezone.utc)
     ver = MagicMock()
@@ -231,16 +245,18 @@ def test_list_filters_by_label_and_returns_metadata():
     with _install_fake_gcloud(client):
         items = svc.list_gclaw_secrets()
 
+    # No server-side filter — we page all secrets and filter client-side.
     list_req = client.list_secrets.call_args.kwargs["request"]
-    assert list_req["filter"] == "labels.app=gclaw"
+    assert "filter" not in list_req
 
-    assert len(items) == 2
-    assert items[0]["name"] == "gclaw-openai-key"
+    names = {i["name"] for i in items}
+    assert names == {"watson-openai-key", "some-random-name"}
+    openai = next(i for i in items if i["name"] == "watson-openai-key")
     assert (
-        items[0]["path"]
-        == "projects/p/secrets/gclaw-openai-key/versions/latest"
+        openai["path"]
+        == "projects/p/secrets/watson-openai-key/versions/latest"
     )
-    assert items[0]["latest_version_created_at"] == ts.isoformat()
+    assert openai["latest_version_created_at"] == ts.isoformat()
 
 
 def test_project_required():

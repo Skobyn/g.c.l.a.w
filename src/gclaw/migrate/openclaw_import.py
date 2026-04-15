@@ -338,19 +338,24 @@ def _workspace_files_for(source: Path, agent_id: str) -> tuple[str | None, str |
     return (body, soul)
 
 
-#: Map env-var fallback → canonical Secret Manager secret name
+#: Map env-var fallback → canonical Secret Manager secret name.
+#: Watson secrets are the shared source of truth (OpenClaw + GClaw read them);
+#: OPENAI / OPENROUTER / GITHUB_COPILOT / GROQ / TOGETHER are GClaw-only but
+#: still use the watson- prefix for consistency (no watson-* vs gclaw-* split).
 _ENV_TO_SM: dict[str, str] = {
-    "ANTHROPIC_API_KEY": "gclaw-anthropic-api-key",
-    "OPENAI_API_KEY": "gclaw-openai-api-key",
-    "GOOGLE_API_KEY": "gclaw-google-api-key",
-    "OPENROUTER_API_KEY": "gclaw-openrouter-api-key",
-    "GROQ_API_KEY": "gclaw-groq-api-key",
-    "TOGETHER_API_KEY": "gclaw-together-api-key",
-    "GITHUB_COPILOT_TOKEN": "gclaw-github-copilot-token",
-    "PERPLEXITY_API_KEY": "gclaw-perplexity-api-key",
-    "SLACK_BOT_TOKEN": "gclaw-slack-bot-token",
-    "SLACK_APP_TOKEN": "gclaw-slack-app-token",
-    "DISCORD_BOT_TOKEN": "gclaw-discord-bot-token",
+    "ANTHROPIC_API_KEY": "watson-anthropic-api-key",
+    "OPENAI_API_KEY": "watson-openai-api-key",
+    "GOOGLE_API_KEY": "watson-gemini-api-key",   # OpenClaw calls it GEMINI_API_KEY
+    "GEMINI_API_KEY": "watson-gemini-api-key",
+    "OPENROUTER_API_KEY": "watson-openrouter-api-key",
+    "GROQ_API_KEY": "watson-groq-api-key",
+    "TOGETHER_API_KEY": "watson-together-api-key",
+    "GITHUB_COPILOT_TOKEN": "watson-github-copilot-token",
+    "PERPLEXITY_API_KEY": "watson-perplexity-api-key",
+    "SLACK_BOT_TOKEN": "watson-slack-bot-token",
+    "SLACK_APP_TOKEN": "watson-slack-app-token",
+    "DISCORD_TOKEN": "watson-discord-token",
+    "DISCORD_BOT_TOKEN": "watson-discord-token",
 }
 
 

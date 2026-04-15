@@ -60,7 +60,7 @@ const KINDS: ProviderKind[] = [
   "custom_openai",
 ];
 
-const SM_NAME_RE = /^gclaw-[a-z0-9-]+$/;
+const SM_NAME_RE = /^watson-[a-z0-9-]+$/;
 
 function slugifyProviderName(name: string): string {
   const base = name
@@ -73,7 +73,7 @@ function slugifyProviderName(name: string): string {
 
 function defaultSecretName(providerName: string): string {
   const slug = slugifyProviderName(providerName);
-  return `gclaw-${slug}-api-key`;
+  return `watson-${slug}-api-key`;
 }
 
 function extractSecretNameFromPath(path: string | null): string | null {
@@ -257,7 +257,7 @@ export function ProviderForm({
         }
         if (!SM_NAME_RE.test(smStoreName)) {
           setError(
-            "Secret name must match /^gclaw-[a-z0-9-]+$/ (lowercase, digits, hyphens; gclaw- prefix).",
+            "Secret name must match /^watson-[a-z0-9-]+$/ (lowercase, digits, hyphens; watson- prefix).",
           );
           return;
         }
@@ -509,12 +509,12 @@ export function ProviderForm({
                       setSmStoreName(e.target.value);
                       setSmStoreNameDirty(true);
                     }}
-                    pattern="^gclaw-[a-z0-9-]+$"
-                    title="Must match ^gclaw-[a-z0-9-]+$"
+                    pattern="^watson-[a-z0-9-]+$"
+                    title="Must match ^watson-[a-z0-9-]+$"
                   />
                   <p className="mt-1 text-xs text-slate-500">
                     Stored in Secret Manager with labels{" "}
-                    <span className="font-mono">app=gclaw, kind=api-key</span>.
+                    <span className="font-mono">app=watson, kind=api-key</span>.
                     The provider will be saved with the{" "}
                     <span className="font-mono">/versions/latest</span> path.
                   </p>

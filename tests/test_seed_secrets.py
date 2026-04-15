@@ -73,12 +73,12 @@ def test_seed_all_dry_run_no_placeholder_skips_versions():
 def test_seed_all_uses_values_file_by_canonical_name():
     results = seed_all(
         project="p",
-        values={"gclaw-openai-api-key": "sk-real"},
+        values={"watson-openai-api-key": "sk-real"},
         apply=False,
         use_env_fallback=False,
         placeholder_for_missing=True,
     )
-    openai = next(r for r in results if r["name"] == "gclaw-openai-api-key")
+    openai = next(r for r in results if r["name"] == "watson-openai-api-key")
     assert openai["value_source"] == "values-file"
 
 
@@ -90,7 +90,7 @@ def test_seed_all_uses_values_file_by_env_alias():
         use_env_fallback=False,
         placeholder_for_missing=True,
     )
-    anth = next(r for r in results if r["name"] == "gclaw-anthropic-api-key")
+    anth = next(r for r in results if r["name"] == "watson-anthropic-api-key")
     assert anth["value_source"] == "values-file"
 
 
@@ -103,7 +103,7 @@ def test_seed_all_env_fallback_when_enabled(monkeypatch):
         use_env_fallback=True,
         placeholder_for_missing=True,
     )
-    oai = next(r for r in results if r["name"] == "gclaw-openai-api-key")
+    oai = next(r for r in results if r["name"] == "watson-openai-api-key")
     assert oai["value_source"] == "env"
 
 
@@ -116,7 +116,7 @@ def test_seed_all_env_fallback_disabled(monkeypatch):
         use_env_fallback=False,
         placeholder_for_missing=True,
     )
-    oai = next(r for r in results if r["name"] == "gclaw-openai-api-key")
+    oai = next(r for r in results if r["name"] == "watson-openai-api-key")
     # With env-fallback disabled, value_source falls back to placeholder.
     assert oai["value_source"] == "placeholder"
 
@@ -156,7 +156,7 @@ def test_seed_all_apply_creates_and_versions(monkeypatch):
     # the openai one carries the real value
     calls_with_openai = [
         c for c in client.add_secret_version.call_args_list
-        if "gclaw-openai-api-key" in c.kwargs["request"]["parent"]
+        if "watson-openai-api-key" in c.kwargs["request"]["parent"]
     ]
     assert len(calls_with_openai) == 1
     assert calls_with_openai[0].kwargs["request"]["payload"]["data"] == b"sk-real"

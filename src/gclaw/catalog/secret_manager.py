@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 
 _NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
-_NAME_PREFIX = "gclaw-"
+_NAME_PREFIX = "watson-"
 _INVALID_CHARS = re.compile(r"[^a-z0-9-]")
 _MAX_NAME_LEN = 255
 
@@ -73,7 +73,7 @@ class SecretManagerService:
 
     @staticmethod
     def normalize_name(raw: str) -> str:
-        """Lowercase, strip invalid chars, ensure ``gclaw-`` prefix."""
+        """Lowercase, strip invalid chars, ensure ``watson-`` prefix."""
         if not raw:
             raise ValueError("secret name is required")
         s = raw.strip().lower()
@@ -147,7 +147,7 @@ class SecretManagerService:
                     "secret_id": name,
                     "secret": {
                         "replication": {"automatic": {}},
-                        "labels": {"app": "gclaw", "kind": "api-key"},
+                        "labels": {"app": "watson", "kind": "api-key"},
                     },
                 }
             )
@@ -215,24 +215,42 @@ class SecretManagerService:
         }
 
     def list_gclaw_secrets(self) -> list[dict]:
-        """List secrets labelled ``app=gclaw``. Names + metadata only."""
+        """List secrets GClaw has visibility into.
+
+        Union of:
+          - secrets labelled ``app=watson`` (canonical) or ``app=gclaw``
+            (legacy — newly created by older GClaw versions), and
+          - any secret whose name starts with ``watson-`` (picks up
+            secrets created outside GClaw that we share read access to).
+
+        Names + latest-version timestamps only.
+        """
         client = self._get_client()
+
+        # Page through all secrets once; filter in memory. A single-label
+        # server-side filter would miss unlabelled watson-* secrets, and
+        # a label=(watson OR gclaw) filter isn't expressible in the SM
+        # list filter syntax.
         try:
-            it = client.list_secrets(
-                request={
-                    "parent": self._parent(),
-                    "filter": "labels.app=gclaw",
-                }
-            )
+            it = client.list_secrets(request={"parent": self._parent()})
         except Exception as exc:
             raise self._map_exc(exc, op="list_secrets") from exc
 
+        seen: set[str] = set()
         results: list[dict] = []
         for sec in it:
             full = getattr(sec, "name", "") or ""
             short = full.rsplit("/", 1)[-1] if full else ""
-            if not short:
+            if not short or short in seen:
                 continue
+            labels = dict(getattr(sec, "labels", {}) or {})
+            included = (
+                labels.get("app") in ("watson", "gclaw")
+                or short.startswith(_NAME_PREFIX)
+            )
+            if not included:
+                continue
+            seen.add(short)
             latest_ts = self._latest_version_created_at(short)
             results.append(
                 {

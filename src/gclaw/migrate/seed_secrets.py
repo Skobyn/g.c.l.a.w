@@ -58,58 +58,58 @@ class SecretSpec:
 # the source of truth for what should exist.
 SECRETS: tuple[SecretSpec, ...] = (
     SecretSpec(
-        "gclaw-google-api-key",
+        "watson-gemini-api-key",
         "Gemini API direct (generativelanguage.googleapis.com).",
-        "GOOGLE_API_KEY",
+        "GEMINI_API_KEY",
     ),
     SecretSpec(
-        "gclaw-anthropic-api-key",
+        "watson-anthropic-api-key",
         "Anthropic API (Claude Opus/Sonnet/Haiku).",
         "ANTHROPIC_API_KEY",
     ),
     SecretSpec(
-        "gclaw-openai-api-key",
+        "watson-openai-api-key",
         "OpenAI API (GPT-4o, o1, etc).",
         "OPENAI_API_KEY",
     ),
     SecretSpec(
-        "gclaw-openrouter-api-key",
+        "watson-openrouter-api-key",
         "OpenRouter — gateway to many OSS + commercial models.",
         "OPENROUTER_API_KEY",
     ),
     SecretSpec(
-        "gclaw-github-copilot-token",
+        "watson-github-copilot-token",
         "GitHub Copilot subscription token for copilot-api models.",
         "GITHUB_COPILOT_TOKEN",
     ),
     SecretSpec(
-        "gclaw-perplexity-api-key",
+        "watson-perplexity-api-key",
         "Perplexity — web search + sourced research.",
         "PERPLEXITY_API_KEY",
     ),
     SecretSpec(
-        "gclaw-slack-bot-token",
+        "watson-slack-bot-token",
         "Slack bot token (xoxb-…) for comms delivery.",
         "SLACK_BOT_TOKEN",
     ),
     SecretSpec(
-        "gclaw-slack-app-token",
+        "watson-slack-app-token",
         "Slack app-level token (xapp-…) for socket-mode events.",
         "SLACK_APP_TOKEN",
     ),
     SecretSpec(
-        "gclaw-discord-bot-token",
+        "watson-discord-token",
         "Discord bot token for comms delivery.",
-        "DISCORD_BOT_TOKEN",
+        "DISCORD_TOKEN",
     ),
     SecretSpec(
-        "gclaw-gh-token",
+        "watson-gh-token",
         "GitHub Personal Access Token used by the gh CLI (dev-mgr agent).",
         "GH_TOKEN",
         bootstrap="env",
     ),
     SecretSpec(
-        "gclaw-gws-credentials",
+        "watson-gws-credentials",
         "Google Workspace credentials JSON for the gws CLI (comms + workspace-mgr).",
         "GOOGLE_WORKSPACE_CREDENTIALS_FILE",
         bootstrap="file",
