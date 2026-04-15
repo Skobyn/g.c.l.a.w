@@ -38,11 +38,20 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class SecretSpec:
-    """One canonical secret we manage."""
+    """One canonical secret we manage.
 
-    name: str           # short id, used as SM secret name
-    description: str    # human-readable purpose
-    env_alias: str      # env var name the codebase falls back to when the secret is absent
+    ``bootstrap`` controls how the runtime loads this secret:
+      - "env": set env_alias in the process env (for CLIs that read env vars)
+      - "file": write value to /tmp/<bootstrap_path> and set env_alias to that path
+                (for CLIs/libs that expect a credentials file)
+      - "none": not auto-loaded; consumed directly by CatalogService or similar
+    """
+
+    name: str
+    description: str
+    env_alias: str
+    bootstrap: str = "none"             # "env" | "file" | "none"
+    bootstrap_path: str = ""            # filename (without /tmp/) when bootstrap="file"
 
 
 # Canonical list. Add to this as new integrations land — the CLI uses it as
@@ -92,6 +101,19 @@ SECRETS: tuple[SecretSpec, ...] = (
         "gclaw-discord-bot-token",
         "Discord bot token for comms delivery.",
         "DISCORD_BOT_TOKEN",
+    ),
+    SecretSpec(
+        "gclaw-gh-token",
+        "GitHub Personal Access Token used by the gh CLI (dev-mgr agent).",
+        "GH_TOKEN",
+        bootstrap="env",
+    ),
+    SecretSpec(
+        "gclaw-gws-credentials",
+        "Google Workspace credentials JSON for the gws CLI (comms + workspace-mgr).",
+        "GOOGLE_WORKSPACE_CREDENTIALS_FILE",
+        bootstrap="file",
+        bootstrap_path="gws-credentials.json",
     ),
 )
 

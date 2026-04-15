@@ -318,6 +318,21 @@ def _build_heartbeat_registry(
 def build_app():
     settings = get_settings()
 
+    # Bootstrap Secret Manager-backed runtime credentials (GH_TOKEN,
+    # GOOGLE_WORKSPACE_CREDENTIALS_FILE, etc.) BEFORE we import anything
+    # that might read those env vars. Non-fatal — missing secrets just
+    # mean those integrations won't work until the user rotates.
+    if settings.secret_bootstrap_enabled:
+        try:
+            from gclaw.catalog.secret_bootstrap import bootstrap_secrets
+            bootstrap_secrets(project=settings.gcp_project_id)
+        except Exception:
+            logger.warning(
+                "secret-bootstrap: initialization failed — integrations "
+                "that rely on env/file creds may fall back to local auth.",
+                exc_info=True,
+            )
+
     # Firebase Auth
     if settings.firebase_auth_enabled:
         _init_firebase()

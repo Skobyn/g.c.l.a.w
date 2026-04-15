@@ -175,6 +175,14 @@ class Settings:
             "SHARED_CONTEXT_ENABLED", "true"
         ).lower() == "true"
     )
+    # Secret Manager bootstrap — loads GH_TOKEN, gws credentials file, etc.
+    # at startup from configured secrets. Defaults on; set to "false" only
+    # when running locally with the env vars already set another way.
+    secret_bootstrap_enabled: bool = field(
+        default_factory=lambda: os.environ.get(
+            "SECRET_BOOTSTRAP_ENABLED", "true"
+        ).lower() == "true"
+    )
 
 
 def get_settings() -> Settings:
