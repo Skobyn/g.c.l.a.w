@@ -203,6 +203,28 @@ class Settings:
             "SECRET_BOOTSTRAP_ENABLED", "true"
         ).lower() == "true"
     )
+    # Postiz social media scheduling
+    postiz_base_url: str = field(
+        default_factory=lambda: os.environ.get(
+            "POSTIZ_BASE_URL", "https://postiz.digitalbrainworks.com"
+        )
+    )
+    postiz_reviewer_url: str = field(
+        default_factory=lambda: os.environ.get(
+            "POSTIZ_REVIEWER_URL",
+            "https://postiz-reviewer-qkaevtm7wq-uc.a.run.app",
+        )
+    )
+    postiz_channel_scott: str = field(
+        default_factory=lambda: os.environ.get(
+            "POSTIZ_CHANNEL_SCOTT", "cmmh4zsgw0001pn7hcajjulhj"
+        )
+    )
+    postiz_channel_apex: str = field(
+        default_factory=lambda: os.environ.get(
+            "POSTIZ_CHANNEL_APEX", ""
+        )
+    )
 
 
 def get_settings() -> Settings:

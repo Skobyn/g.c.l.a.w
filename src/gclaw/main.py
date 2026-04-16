@@ -333,6 +333,21 @@ def build_app():
                 exc_info=True,
             )
 
+    # Postiz social media tools — API token arrives via secret bootstrap
+    # (watson-postiz-token → POSTIZ_API_TOKEN env var) or direct env.
+    postiz_token = os.environ.get("POSTIZ_API_TOKEN")
+    if postiz_token:
+        from gclaw.tools.postiz_tools import set_postiz_config
+
+        set_postiz_config(
+            base_url=settings.postiz_base_url,
+            reviewer_url=settings.postiz_reviewer_url,
+            api_token=postiz_token,
+            channel_scott=settings.postiz_channel_scott,
+            channel_apex=settings.postiz_channel_apex,
+        )
+        logger.info("postiz: tools configured (base=%s)", settings.postiz_base_url)
+
     # Firebase Auth
     if settings.firebase_auth_enabled:
         _init_firebase()

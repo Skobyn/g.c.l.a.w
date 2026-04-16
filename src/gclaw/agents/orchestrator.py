@@ -20,6 +20,7 @@ from gclaw.tools import (
     context_tools,
     dev_tools,
     home_tools,
+    postiz_tools,
     research_tools,
     workspace_tools,
 )
@@ -255,10 +256,18 @@ def build_managers(
         home_tools.set_device_state,
     ] + board_tools + ctx_tools
 
+    pz_tools = [
+        postiz_tools.postiz_upload_image,
+        postiz_tools.postiz_upload_image_b64,
+        postiz_tools.postiz_create_draft,
+        postiz_tools.postiz_register_images,
+        postiz_tools.postiz_list_channels,
+    ]
+
     cm_tools = [
         comms_tools.list_chat_spaces,
         comms_tools.post_chat_message,
-    ] + board_tools + ctx_tools
+    ] + pz_tools + board_tools + ctx_tools
 
     rs_tools = [
         research_tools.web_search,

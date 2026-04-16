@@ -103,6 +103,12 @@ SECRETS: tuple[SecretSpec, ...] = (
         "DISCORD_TOKEN",
     ),
     SecretSpec(
+        "watson-postiz-token",
+        "Postiz API token for scheduling LinkedIn / social media posts.",
+        "POSTIZ_API_TOKEN",
+        bootstrap="env",
+    ),
+    SecretSpec(
         "watson-gh-token",
         "GitHub Personal Access Token used by the gh CLI (dev-mgr agent).",
         "GH_TOKEN",
