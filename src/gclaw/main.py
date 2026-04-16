@@ -15,6 +15,7 @@ from gclaw.agents.factory import AgentFactory
 from gclaw.agents.orchestrator import build_orchestrator
 from gclaw.board.service import BoardService
 from gclaw.dispatch.runner import AgentRunner
+from gclaw.dispatch.runner_registry import AgentRunnerRegistry
 from gclaw.firestore.client import get_firestore_client
 from gclaw.firestore.board_repo import BoardRepo
 from gclaw.firestore.session_repo import SessionRepo
@@ -602,6 +603,34 @@ def build_app():
         model_chain_provider=factory.resolve_model_chain,
     )
 
+    # Multi-agent runner registry. The chat endpoint lets the user
+    # switch which agent they're talking to; each non-default agent
+    # gets its own AgentRunner wrapping an ADK LlmAgent built fresh
+    # from the factory (standard build path — no orchestrator
+    # sub-agent fan-out). Lazy: leaf runners aren't built until the
+    # user actually selects that agent in the chat switcher.
+    def _leaf_runner_builder(agent_name: str) -> AgentRunner:
+        agent = factory.build(agent_name=agent_name)
+        return AgentRunner(
+            agent=agent,
+            app_name="gclaw",
+            session_service=session_service,
+            memory_service=memory_service,
+            board_service=board_service,
+            session_store=session_store,
+            usage_recorder=usage_recorder,
+            model_chain_provider=factory.resolve_model_chain,
+        )
+
+    runner_registry = AgentRunnerRegistry(
+        default_agent="orchestrator",
+        builder=_leaf_runner_builder,
+    )
+    # Pre-seed the orchestrator so we reuse the already-wired runner
+    # instead of rebuilding it (the orchestrator has a special build
+    # path via build_orchestrator that wires managers as sub-agents).
+    runner_registry.register("orchestrator", runner)
+
     # Shared context (blackboard) — Firestore index + optional GCS blobs.
     shared_context_service = None
     if settings.shared_context_enabled:
@@ -665,6 +694,7 @@ def build_app():
     return create_app(
         board_service=board_service,
         agent_runner=runner,
+        agent_runner_registry=runner_registry,
         model_router=model_router,
         memory_service=memory_service,
         config_loader=loader,

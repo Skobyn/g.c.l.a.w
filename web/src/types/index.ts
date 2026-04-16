@@ -74,6 +74,8 @@ export interface ToolCall {
 export interface ChatRequest {
   session_id: string;
   message: string;
+  /** Optional — omit or null to hit the default (orchestrator). */
+  agent_name?: string | null;
 }
 
 /** Chat API response body. */

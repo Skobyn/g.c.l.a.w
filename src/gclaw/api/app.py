@@ -29,12 +29,14 @@ from gclaw.board.service import BoardService
 from gclaw.connection.service import ConnectionService
 from gclaw.cron.service import CronService
 from gclaw.dispatch.runner import AgentRunner
+from gclaw.dispatch.runner_registry import AgentRunnerRegistry
 from gclaw.onboarding.service import OnboardingService
 
 
 def create_app(
     board_service: BoardService,
     agent_runner: AgentRunner,
+    agent_runner_registry: AgentRunnerRegistry | None = None,
     cron_service: CronService | None = None,
     cron_delivery_service: object | None = None,
     heartbeat_service: object | None = None,
@@ -137,7 +139,11 @@ def create_app(
 
         app.add_middleware(DevUserMiddleware)
 
-    app.include_router(init_chat_router(agent_runner))
+    # Prefer the multi-agent registry when wired; fall back to the single
+    # runner for legacy callers (tests, eval harness).
+    app.include_router(
+        init_chat_router(agent_runner_registry or agent_runner)
+    )
     app.include_router(init_board_router(board_service))
 
     if cron_service is not None:

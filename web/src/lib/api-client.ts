@@ -110,13 +110,44 @@ export class ApiClient {
     });
   }
 
-  /** Send a chat message and get the agent response. */
-  async chat(sessionId: string, message: string): Promise<ChatResponse> {
+  /** Send a chat message and get the agent response.
+   *
+   * `agentName` is optional — omit it (or pass null) to hit the
+   * default orchestrator runner. Pass an agent name like "intel" or
+   * "content-scott" to talk directly to that agent.
+   */
+  async chat(
+    sessionId: string,
+    message: string,
+    agentName?: string | null,
+  ): Promise<ChatResponse> {
     const body: ChatRequest = {
       session_id: sessionId,
       message,
     };
+    if (agentName) {
+      body.agent_name = agentName;
+    }
     return this.request<ChatResponse>("/chat", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  }
+
+  /** End a chat session. `agentName` scopes which agent's session
+   *  to end — matches the scope used when messages were sent.
+   */
+  async endSession(
+    sessionId: string,
+    agentName?: string | null,
+  ): Promise<void> {
+    const body: { session_id: string; agent_name?: string } = {
+      session_id: sessionId,
+    };
+    if (agentName) {
+      body.agent_name = agentName;
+    }
+    await this.request<void>("/chat/end", {
       method: "POST",
       body: JSON.stringify(body),
     });

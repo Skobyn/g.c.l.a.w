@@ -7,7 +7,7 @@ import logging
 import os
 
 from gclaw.firestore.skill_repo import SkillRepo
-from gclaw.models.skill import Skill
+from gclaw.models.skill import Skill, SkillSource
 
 logger = logging.getLogger(__name__)
 
@@ -81,17 +81,32 @@ class SkillRegistry:
                 continue
 
             manifest_path = os.path.join(skill_path, "skill.json")
-            if not os.path.isfile(manifest_path):
-                logger.debug("No skill.json in %s, skipping", skill_path)
-                continue
+            skill_md_path = os.path.join(skill_path, "SKILL.md")
 
             try:
-                with open(manifest_path) as f:
-                    data = json.load(f)
-                skill = Skill.from_firestore_dict(data)
-                # Set paths relative to the skill directory
+                if os.path.isfile(manifest_path):
+                    # Native GClaw skill with a skill.json manifest.
+                    with open(manifest_path) as f:
+                        data = json.load(f)
+                    skill = Skill.from_firestore_dict(data)
+                elif os.path.isfile(skill_md_path):
+                    # OpenClaw-style skill with SKILL.md only — synthesize
+                    # a minimal Skill record. Name from dir; description
+                    # from the first non-heading paragraph; the SKILL.md
+                    # itself becomes the instructions.
+                    skill = _skill_from_markdown(entry, skill_md_path)
+                else:
+                    logger.debug(
+                        "No skill.json or SKILL.md in %s, skipping", skill_path
+                    )
+                    continue
+
+                # Set paths relative to the skill directory when not already set.
                 if skill.instructions_path is None:
+                    # Prefer instructions.md; else fall back to SKILL.md.
                     instructions = os.path.join(skill_path, "instructions.md")
+                    if not os.path.isfile(instructions):
+                        instructions = skill_md_path
                     if os.path.isfile(instructions):
                         skill = skill.model_copy(
                             update={"instructions_path": instructions}
@@ -109,8 +124,56 @@ class SkillRegistry:
             except Exception:
                 logger.warning(
                     "Failed to load skill from %s",
-                    manifest_path,
+                    skill_path,
                     exc_info=True,
                 )
 
         return loaded
+
+
+def _skill_from_markdown(dir_name: str, skill_md_path: str) -> Skill:
+    """Build a Skill record from an OpenClaw-style SKILL.md file.
+
+    Derives the description from either the first paragraph after the
+    top-level heading, or a ``## Purpose`` / ``## Description`` section
+    when present. Falls back to the dir name if the file has no text.
+    """
+    with open(skill_md_path, encoding="utf-8") as f:
+        body = f.read()
+
+    description = ""
+    lines = body.splitlines()
+    # Look for a "## Purpose" or "## Description" section first.
+    for marker in ("## Purpose", "## Description", "## Overview"):
+        for i, line in enumerate(lines):
+            if line.strip().lower() == marker.lower():
+                # Grab the following non-blank lines until the next heading.
+                for j in range(i + 1, len(lines)):
+                    s = lines[j].strip()
+                    if s.startswith("#"):
+                        break
+                    if s:
+                        description = s
+                        break
+                if description:
+                    break
+        if description:
+            break
+    # Fall back to the first non-heading, non-blank line.
+    if not description:
+        for line in lines:
+            s = line.strip()
+            if s and not s.startswith("#"):
+                description = s
+                break
+    if not description:
+        description = f"Skill imported from {dir_name}."
+    # Trim long paragraphs.
+    if len(description) > 300:
+        description = description[:297].rstrip() + "…"
+
+    return Skill(
+        name=dir_name,
+        description=description,
+        source=SkillSource.BUILTIN,
+    )

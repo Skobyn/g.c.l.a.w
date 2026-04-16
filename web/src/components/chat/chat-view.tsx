@@ -3,16 +3,18 @@
 /**
  * Main chat interface component.
  *
- * Manages conversation state, calls the API client for each message,
- * and renders the message list with input.
+ * Manages conversation state per-agent so switching between agents
+ * keeps each conversation intact. Calls the API client for each
+ * message, scoping the session_id per-agent on the backend.
  */
 
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { useAuth } from "@/contexts/auth-context";
 import { createApiClient } from "@/lib/api-client";
 import { MessageList } from "./message-list";
 import { MessageInput } from "./message-input";
 import { VoiceControls } from "./voice-controls";
+import { AgentSelector, DEFAULT_AGENT } from "./agent-selector";
 import type { ChatMessage } from "@/types";
 
 /** Generate a simple unique ID for messages. */
@@ -20,8 +22,11 @@ function msgId(): string {
   return `msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
-/** Generate a session ID (persisted for the browser session). */
-function getSessionId(): string {
+/** Per-browser-session base session ID. Individual agents derive
+ *  their scoped id from this. Backend further suffixes non-default
+ *  agents with "::<agent>" — this base is shared across all agents
+ *  so the user can see them as one coherent conversation scope. */
+function getBaseSessionId(): string {
   const key = "gclaw_session_id";
   let sessionId = sessionStorage.getItem(key);
   if (!sessionId) {
@@ -33,7 +38,11 @@ function getSessionId(): string {
 
 export function ChatView() {
   const { getIdToken } = useAuth();
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  // Per-agent message history — switching agents swaps the message list.
+  const [messagesByAgent, setMessagesByAgent] = useState<
+    Record<string, ChatMessage[]>
+  >({});
+  const [activeAgent, setActiveAgent] = useState<string>(DEFAULT_AGENT);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const clientRef = useRef(createApiClient(getIdToken));
@@ -43,22 +52,41 @@ export function ChatView() {
     clientRef.current = createApiClient(getIdToken);
   }, [getIdToken]);
 
+  const messages = useMemo(
+    () => messagesByAgent[activeAgent] || [],
+    [messagesByAgent, activeAgent],
+  );
+
+  const handleAgentChange = useCallback((name: string) => {
+    setActiveAgent(name);
+    setError(null);
+  }, []);
+
   const handleSend = useCallback(
     async (content: string) => {
-      // Add user message immediately
+      const agent = activeAgent;
+
+      // Add user message immediately to this agent's history.
       const userMsg: ChatMessage = {
         id: msgId(),
         role: "user",
         content,
         timestamp: new Date(),
       };
-      setMessages((prev) => [...prev, userMsg]);
+      setMessagesByAgent((prev) => ({
+        ...prev,
+        [agent]: [...(prev[agent] || []), userMsg],
+      }));
       setIsLoading(true);
       setError(null);
 
       try {
-        const sessionId = getSessionId();
-        const response = await clientRef.current.chat(sessionId, content);
+        const sessionId = getBaseSessionId();
+        const response = await clientRef.current.chat(
+          sessionId,
+          content,
+          agent === DEFAULT_AGENT ? null : agent,
+        );
 
         const assistantMsg: ChatMessage = {
           id: msgId(),
@@ -67,7 +95,10 @@ export function ChatView() {
           timestamp: new Date(),
           tool_calls: response.tool_calls,
         };
-        setMessages((prev) => [...prev, assistantMsg]);
+        setMessagesByAgent((prev) => ({
+          ...prev,
+          [agent]: [...(prev[agent] || []), assistantMsg],
+        }));
       } catch (err) {
         const message =
           err instanceof Error ? err.message : "Failed to send message";
@@ -76,11 +107,23 @@ export function ChatView() {
         setIsLoading(false);
       }
     },
-    [getIdToken]
+    [activeAgent],
   );
 
   return (
     <div className="flex h-full flex-col">
+      <div className="flex items-center justify-between border-b border-slate-700 px-4 py-2">
+        <div className="text-sm text-slate-300">
+          Chatting with:{" "}
+          <span className="font-medium text-slate-100">{activeAgent}</span>
+        </div>
+        <AgentSelector
+          value={activeAgent}
+          onChange={handleAgentChange}
+          disabled={isLoading}
+        />
+      </div>
+
       <MessageList messages={messages} />
 
       {error && (
