@@ -41,6 +41,7 @@ def create_app(
     cron_delivery_service: object | None = None,
     heartbeat_service: object | None = None,
     session_service: object | None = None,
+    session_store: object | None = None,
     memory_service: object | None = None,
     skill_registry: object | None = None,
     config_loader: object | None = None,
@@ -142,7 +143,10 @@ def create_app(
     # Prefer the multi-agent registry when wired; fall back to the single
     # runner for legacy callers (tests, eval harness).
     app.include_router(
-        init_chat_router(agent_runner_registry or agent_runner)
+        init_chat_router(
+            agent_runner_registry or agent_runner,
+            session_store=session_store,
+        )
     )
     app.include_router(init_board_router(board_service))
 

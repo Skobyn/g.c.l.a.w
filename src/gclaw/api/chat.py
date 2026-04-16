@@ -15,21 +15,24 @@ working unchanged.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from gclaw.auth.dependencies import get_current_user_id
 from gclaw.dispatch.runner import AgentRunner
 from gclaw.dispatch.runner_registry import AgentRunnerRegistry
+from gclaw.session.service import SessionService
 
 router = APIRouter()
 
 _runner: AgentRunner | None = None
 _registry: AgentRunnerRegistry | None = None
+_session_store: SessionService | None = None
 
 
 def init_chat_router(
     runner_or_registry: AgentRunner | AgentRunnerRegistry,
+    session_store: SessionService | None = None,
 ) -> APIRouter:
     """Initialise the chat router.
 
@@ -38,7 +41,8 @@ def init_chat_router(
     passed we wrap it in a single-entry registry so handlers uniformly
     read from ``_registry.get(...)``.
     """
-    global _runner, _registry
+    global _runner, _registry, _session_store
+    _session_store = session_store
     if isinstance(runner_or_registry, AgentRunnerRegistry):
         _registry = runner_or_registry
         _runner = _registry.get(None)
@@ -143,3 +147,76 @@ async def end_session(
         req.session_id, effective_agent, _registry.default_agent()
     )
     await runner.end_session(user_id=user_id, session_id=sid)
+
+
+class ChatHistoryMessage(BaseModel):
+    role: str
+    content: str
+    timestamp: str
+
+
+class ChatHistoryResponse(BaseModel):
+    session_id: str
+    agent_name: str
+    messages: list[ChatHistoryMessage] = []
+
+
+@router.get("/chat/history", response_model=ChatHistoryResponse)
+async def chat_history(
+    session_id: str = Query(..., description="Base session id from the client"),
+    agent_name: str | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=500),
+    user_id: str = Depends(get_current_user_id),
+) -> ChatHistoryResponse:
+    """Return persisted turns for the given (session_id, agent_name).
+
+    Reads from the Firestore-backed SessionService, scoped to the same
+    per-agent namespace used by POST /chat. Empty list (not 404) when
+    no session exists yet — the UI can render an empty conversation
+    without special-casing the first turn.
+    """
+    assert _registry is not None
+    effective_agent = agent_name or _registry.default_agent()
+    sid = _scoped_session_id(
+        session_id, effective_agent, _registry.default_agent()
+    )
+    if _session_store is None:
+        return ChatHistoryResponse(
+            session_id=sid, agent_name=effective_agent, messages=[]
+        )
+
+    try:
+        msgs = _session_store.get_history(
+            session_id=sid, limit=limit, user_id=user_id
+        )
+    except ValueError:
+        # Session doesn't exist yet — return empty rather than 404.
+        return ChatHistoryResponse(
+            session_id=sid, agent_name=effective_agent, messages=[]
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=500, detail=f"failed to load history: {exc}"
+        ) from exc
+
+    def _role(m) -> str:
+        raw = m.role.value if hasattr(m.role, "value") else str(m.role)
+        # SessionMessage uses "agent"; the UI canonicalizes on "assistant".
+        return "assistant" if raw == "agent" else raw
+
+    return ChatHistoryResponse(
+        session_id=sid,
+        agent_name=effective_agent,
+        messages=[
+            ChatHistoryMessage(
+                role=_role(m),
+                content=m.content,
+                timestamp=(
+                    m.timestamp.isoformat()
+                    if hasattr(m, "timestamp") and m.timestamp is not None
+                    else ""
+                ),
+            )
+            for m in msgs
+        ],
+    )

@@ -153,6 +153,25 @@ export class ApiClient {
     });
   }
 
+  /** Load persisted chat history for a session + agent. Returns empty
+   *  array when no session exists yet rather than erroring. */
+  async getChatHistory(
+    sessionId: string,
+    agentName?: string | null,
+    limit: number = 100,
+  ): Promise<{
+    session_id: string;
+    agent_name: string;
+    messages: Array<{ role: string; content: string; timestamp: string }>;
+  }> {
+    const params = new URLSearchParams({
+      session_id: sessionId,
+      limit: String(limit),
+    });
+    if (agentName) params.set("agent_name", agentName);
+    return this.request("/chat/history?" + params.toString());
+  }
+
   /** Fetch all board tasks for the authenticated user. */
   async getBoardTasks(): Promise<BoardTask[]> {
     return this.request<BoardTask[]>("/board/tasks");

@@ -695,6 +695,7 @@ def build_app():
         board_service=board_service,
         agent_runner=runner,
         agent_runner_registry=runner_registry,
+        session_store=session_store,
         model_router=model_router,
         memory_service=memory_service,
         config_loader=loader,

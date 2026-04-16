@@ -22,18 +22,33 @@ function msgId(): string {
   return `msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
-/** Per-browser-session base session ID. Individual agents derive
- *  their scoped id from this. Backend further suffixes non-default
- *  agents with "::<agent>" — this base is shared across all agents
- *  so the user can see them as one coherent conversation scope. */
+/** Per-user base session ID. Individual agents derive their scoped
+ *  id from this. Backend further suffixes non-default agents with
+ *  "::<agent>" — this base is shared across all agents so the user
+ *  can see them as one coherent conversation scope.
+ *
+ *  Stored in localStorage so it survives browser restart (persisting
+ *  the server-side transcript reference across days). Use
+ *  resetBaseSessionId() to explicitly start a new conversation. */
+const SESSION_KEY = "gclaw_session_id";
+
+function newSessionId(): string {
+  return `sess_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
 function getBaseSessionId(): string {
-  const key = "gclaw_session_id";
-  let sessionId = sessionStorage.getItem(key);
+  let sessionId = localStorage.getItem(SESSION_KEY);
   if (!sessionId) {
-    sessionId = `sess_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    sessionStorage.setItem(key, sessionId);
+    sessionId = newSessionId();
+    localStorage.setItem(SESSION_KEY, sessionId);
   }
   return sessionId;
+}
+
+function resetBaseSessionId(): string {
+  const sid = newSessionId();
+  localStorage.setItem(SESSION_KEY, sid);
+  return sid;
 }
 
 export function ChatView() {
@@ -57,10 +72,58 @@ export function ChatView() {
     [messagesByAgent, activeAgent],
   );
 
-  const handleAgentChange = useCallback((name: string) => {
-    setActiveAgent(name);
+  /** Lazily fetch persisted history for an agent on first activation. */
+  const loadHistory = useCallback(
+    async (agent: string) => {
+      if (messagesByAgent[agent] !== undefined) return; // already loaded
+      try {
+        const sessionId = getBaseSessionId();
+        const resp = await clientRef.current.getChatHistory(
+          sessionId,
+          agent === DEFAULT_AGENT ? null : agent,
+        );
+        const loaded: ChatMessage[] = resp.messages.map((m) => ({
+          id: msgId(),
+          role: m.role === "assistant" ? "assistant" : "user",
+          content: m.content,
+          timestamp: m.timestamp ? new Date(m.timestamp) : new Date(),
+        }));
+        setMessagesByAgent((prev) =>
+          prev[agent] !== undefined ? prev : { ...prev, [agent]: loaded },
+        );
+      } catch (err) {
+        // History is best-effort — absent history shouldn't block chatting.
+        // eslint-disable-next-line no-console
+        console.warn("failed to load chat history for", agent, err);
+        setMessagesByAgent((prev) =>
+          prev[agent] !== undefined ? prev : { ...prev, [agent]: [] },
+        );
+      }
+    },
+    [messagesByAgent],
+  );
+
+  // Load history for the default agent on mount.
+  useEffect(() => {
+    void loadHistory(DEFAULT_AGENT);
+  }, [loadHistory]);
+
+  const handleAgentChange = useCallback(
+    (name: string) => {
+      setActiveAgent(name);
+      setError(null);
+      void loadHistory(name);
+    },
+    [loadHistory],
+  );
+
+  const handleNewConversation = useCallback(() => {
+    resetBaseSessionId();
+    setMessagesByAgent({});
     setError(null);
-  }, []);
+    // Force re-fetch (which for a fresh session_id returns [] → empty UI).
+    void loadHistory(activeAgent);
+  }, [activeAgent, loadHistory]);
 
   const handleSend = useCallback(
     async (content: string) => {
@@ -117,11 +180,22 @@ export function ChatView() {
           Chatting with:{" "}
           <span className="font-medium text-slate-100">{activeAgent}</span>
         </div>
-        <AgentSelector
-          value={activeAgent}
-          onChange={handleAgentChange}
-          disabled={isLoading}
-        />
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handleNewConversation}
+            disabled={isLoading}
+            className="rounded-md border border-slate-600 px-2 py-1 text-xs text-slate-300 hover:bg-slate-800 transition-colors disabled:opacity-50"
+            title="Start a fresh conversation (new session id, preserves previous server-side transcript)"
+          >
+            New conversation
+          </button>
+          <AgentSelector
+            value={activeAgent}
+            onChange={handleAgentChange}
+            disabled={isLoading}
+          />
+        </div>
       </div>
 
       <MessageList messages={messages} />
