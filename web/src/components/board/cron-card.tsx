@@ -1,10 +1,11 @@
 "use client";
 
 /**
- * CronCard — renders a scheduled cron on the unified board.
+ * CronCard — typeset scheduled entry with a phosphor glyph.
  *
- * Shows schedule, next_run countdown, assignee and wake_mode. Clicking the
- * card invokes `onClick` which the parent uses to open the edit drawer.
+ *   ◎ Title in paper, semibold
+ *     cron expr · next run · assignee
+ *     paused overlay when disabled
  */
 
 import type { CronInfo, ScheduleSpec } from "@/types";
@@ -22,7 +23,9 @@ function formatDurationMs(ms: number): string {
   return `${ms}ms`;
 }
 
-export function formatSchedule(schedule: ScheduleSpec | string | null | undefined): string {
+export function formatSchedule(
+  schedule: ScheduleSpec | string | null | undefined,
+): string {
   if (!schedule) return "—";
   if (typeof schedule === "string") return schedule;
   switch (schedule.kind) {
@@ -41,11 +44,6 @@ export function formatSchedule(schedule: ScheduleSpec | string | null | undefine
   }
 }
 
-/**
- * Human-readable countdown relative to now.
- *   future → "in 3h 12m"
- *   past   → "overdue 5m"
- */
 export function formatCountdown(iso: string | null | undefined): string {
   if (!iso) return "—";
   const t = new Date(iso).getTime();
@@ -72,69 +70,49 @@ export function formatCountdown(iso: string | null | undefined): string {
 
 export function CronCard({ cron, onClick }: CronCardProps) {
   const paused = cron.status === "paused" || !cron.enabled;
+  const overdue =
+    !!cron.next_run && new Date(cron.next_run).getTime() < Date.now();
 
   return (
     <button
       type="button"
       onClick={() => onClick(cron)}
-      className={`w-full text-left rounded-lg border bg-slate-800 p-3 shadow-sm transition-colors ${
-        paused
-          ? "border-slate-700 opacity-60 hover:border-slate-500"
-          : "border-slate-700 hover:border-indigo-500"
-      }`}
+      className={`w-full text-left py-3 px-3 -mx-1 hairline-b transition-colors ${
+        paused ? "opacity-55" : ""
+      } hover:bg-ink-800`}
     >
-      {/* Top row: cron badge + title */}
-      <div className="flex items-start justify-between gap-2">
-        <p className="text-sm font-medium text-slate-100 leading-snug line-clamp-2">
-          {cron.title}
-        </p>
-        <span className="shrink-0 rounded bg-purple-900/60 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-purple-200 border border-purple-700">
-          cron
-        </span>
-      </div>
-
-      {/* Schedule */}
-      <div className="mt-2">
-        <code className="text-xs text-indigo-300 bg-slate-900 rounded px-1.5 py-0.5 break-all">
-          {formatSchedule(cron.schedule)}
-        </code>
-      </div>
-
-      {/* Countdown */}
-      <div className="mt-2 flex items-center gap-2 text-xs">
-        <span className="text-slate-400">next:</span>
+      <div className="flex items-start gap-2">
         <span
-          className={`font-medium ${
-            cron.next_run && new Date(cron.next_run).getTime() < Date.now()
-              ? "text-amber-300"
-              : "text-slate-200"
+          className={`mt-0.5 text-[14px] leading-none ${
+            paused ? "text-paper-40" : "text-signal"
           }`}
         >
-          {paused ? "paused" : formatCountdown(cron.next_run)}
+          ◎
         </span>
-      </div>
-
-      {/* Footer row */}
-      <div className="mt-2 flex items-center justify-between gap-2">
-        <span className="text-xs text-slate-400 truncate max-w-[120px]">
-          {cron.assignee || "unassigned"}
-        </span>
-        <div className="flex items-center gap-1">
-          <span
-            className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
-              cron.wake_mode === "now"
-                ? "bg-indigo-900/60 text-indigo-300"
-                : "bg-purple-900/60 text-purple-300"
-            }`}
-            title={`wake_mode: ${cron.wake_mode}`}
-          >
-            {cron.wake_mode}
-          </span>
-          {paused && (
-            <span className="inline-flex items-center rounded-full bg-slate-700 px-1.5 py-0.5 text-[10px] font-medium text-slate-300">
-              paused
+        <div className="min-w-0 flex-1">
+          <p className="font-body text-[13.5px] font-medium text-paper leading-snug line-clamp-2">
+            {cron.title}
+          </p>
+          <p className="mt-1.5 font-mono text-[10px] uppercase tracking-[0.1em] text-paper-60 truncate">
+            {formatSchedule(cron.schedule)}
+          </p>
+          <p className="mt-0.5 font-mono text-[10px] uppercase tracking-[0.1em] text-paper-40">
+            <span
+              className={
+                overdue && !paused
+                  ? "text-alert"
+                  : paused
+                    ? "text-paper-40"
+                    : "text-paper-60"
+              }
+            >
+              {paused ? "PAUSED" : formatCountdown(cron.next_run)}
             </span>
-          )}
+            <span className="mx-1">·</span>
+            <span className="text-paper-60 truncate">
+              {cron.assignee || "unassigned"}
+            </span>
+          </p>
         </div>
       </div>
     </button>

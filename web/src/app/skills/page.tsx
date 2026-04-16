@@ -41,62 +41,51 @@ function SkillsContent() {
     : skills;
 
   return (
-    <div className="flex h-screen flex-col bg-slate-900 text-slate-100">
-      {/* Header */}
-      <header className="flex items-center justify-between border-b border-slate-700 px-6 py-4">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-100">Skills</h1>
-          <p className="text-sm text-slate-400 mt-0.5">
-            {skills.length} skill{skills.length !== 1 ? "s" : ""} installed
-          </p>
-        </div>
-        <button
-          onClick={fetchSkills}
-          disabled={loading}
-          className="flex items-center gap-2 rounded-md border border-slate-600 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800 disabled:opacity-50 transition-colors"
-        >
-          <svg
-            className={`h-4 w-4 ${loading ? "animate-spin" : ""}`}
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={2}
+    <div className="flex h-full flex-col bg-ink-900 text-paper">
+      <header className="hairline-b px-8 pt-6 pb-5">
+        <div className="flex items-end justify-between">
+          <div>
+            <div className="label-caps mb-1.5">§ 06 · PLAYBOOKS</div>
+            <h1 className="font-display text-[30px] italic leading-none">Skills</h1>
+            <p className="mt-2 font-body text-[13px] text-paper-60">
+              {skills.length} skill{skills.length !== 1 ? "s" : ""} installed · agent-runnable playbooks
+            </p>
+          </div>
+          <button
+            onClick={fetchSkills}
+            disabled={loading}
+            className="btn-hair"
           >
-            <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-          </svg>
-          Refresh
-        </button>
+            {loading ? "REFRESHING…" : "REFRESH"}
+          </button>
+        </div>
+        <div className="mt-4 max-w-md">
+          <input
+            type="text"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            placeholder="Filter skills…"
+            className="input-hair"
+          />
+        </div>
       </header>
 
-      {/* Search bar */}
-      <div className="border-b border-slate-700 px-6 py-3">
-        <input
-          type="text"
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-          placeholder="Filter skills by name or description..."
-          className="w-full max-w-md rounded-md border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-        />
-      </div>
-
-      {/* Content */}
-      <main className="flex-1 overflow-y-auto p-6">
+      <main className="flex-1 overflow-y-auto px-8 py-6">
         {error && (
-          <div className="mb-4 rounded-md border border-red-700 bg-red-900/30 px-4 py-3 text-sm text-red-400">
+          <div className="mb-4 border border-alert-dim bg-alert/5 px-4 py-2.5 font-mono text-[11px] uppercase tracking-wider text-alert">
             {error}
           </div>
         )}
 
         {loading && skills.length === 0 ? (
-          <div className="flex items-center justify-center py-16">
-            <div className="h-8 w-8 animate-spin rounded-full border-4 border-indigo-400 border-t-transparent" />
+          <div className="flex items-center justify-center py-24">
+            <p className="font-mono text-[11px] uppercase tracking-widest text-paper-40">
+              LOADING<span className="signal-cursor" />
+            </p>
           </div>
         ) : filtered.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 text-slate-500">
-            <svg className="h-12 w-12 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
-            </svg>
-            <p className="text-sm">{filter ? "No skills match your filter" : "No skills found"}</p>
+          <div className="py-16 text-center font-mono text-[11px] uppercase tracking-widest text-paper-40">
+            {filter ? "— NO MATCH —" : "— NO SKILLS REGISTERED —"}
           </div>
         ) : (
           <div className="space-y-3">

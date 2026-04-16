@@ -1,11 +1,15 @@
 "use client";
 
 /**
- * Main chat interface component.
+ * Chat — editorial two-column transcript.
  *
- * Manages conversation state per-agent so switching between agents
- * keeps each conversation intact. Calls the API client for each
- * message, scoping the session_id per-agent on the backend.
+ *   ┌────────────────────────────┬───────────────┐
+ *   │ TRANSCRIPT (2/3)           │ METADATA RAIL │
+ *   │                            │ session stats │
+ *   │ dateline · agent           │ agent brief   │
+ *   │ ─── body ─────             │ tools invoked │
+ *   │                            │ agent roster  │
+ *   └────────────────────────────┴───────────────┘
  */
 
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
@@ -15,21 +19,13 @@ import { MessageList } from "./message-list";
 import { MessageInput } from "./message-input";
 import { VoiceControls } from "./voice-controls";
 import { AgentSelector, DEFAULT_AGENT } from "./agent-selector";
-import type { ChatMessage } from "@/types";
+import type { AgentListEntry, ChatMessage } from "@/types";
+import { formatDatestamp } from "@/lib/format";
 
-/** Generate a simple unique ID for messages. */
 function msgId(): string {
   return `msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
-/** Per-user base session ID. Individual agents derive their scoped
- *  id from this. Backend further suffixes non-default agents with
- *  "::<agent>" — this base is shared across all agents so the user
- *  can see them as one coherent conversation scope.
- *
- *  Stored in localStorage so it survives browser restart (persisting
- *  the server-side transcript reference across days). Use
- *  resetBaseSessionId() to explicitly start a new conversation. */
 const SESSION_KEY = "gclaw_session_id";
 
 function newSessionId(): string {
@@ -53,33 +49,36 @@ function resetBaseSessionId(): string {
 
 export function ChatView() {
   const { getIdToken } = useAuth();
-  // Per-agent message history — switching agents swaps the message list.
   const [messagesByAgent, setMessagesByAgent] = useState<
     Record<string, ChatMessage[]>
   >({});
   const [activeAgent, setActiveAgent] = useState<string>(DEFAULT_AGENT);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [activeEntry, setActiveEntry] = useState<AgentListEntry | null>(null);
+  const [sessionId, setSessionId] = useState<string>("");
   const clientRef = useRef(createApiClient(getIdToken));
 
-  // Keep client in sync with getIdToken
   useEffect(() => {
     clientRef.current = createApiClient(getIdToken);
   }, [getIdToken]);
+
+  useEffect(() => {
+    setSessionId(getBaseSessionId());
+  }, []);
 
   const messages = useMemo(
     () => messagesByAgent[activeAgent] || [],
     [messagesByAgent, activeAgent],
   );
 
-  /** Lazily fetch persisted history for an agent on first activation. */
   const loadHistory = useCallback(
     async (agent: string) => {
-      if (messagesByAgent[agent] !== undefined) return; // already loaded
+      if (messagesByAgent[agent] !== undefined) return;
       try {
-        const sessionId = getBaseSessionId();
+        const sid = getBaseSessionId();
         const resp = await clientRef.current.getChatHistory(
-          sessionId,
+          sid,
           agent === DEFAULT_AGENT ? null : agent,
         );
         const loaded: ChatMessage[] = resp.messages.map((m) => ({
@@ -92,7 +91,6 @@ export function ChatView() {
           prev[agent] !== undefined ? prev : { ...prev, [agent]: loaded },
         );
       } catch (err) {
-        // History is best-effort — absent history shouldn't block chatting.
         // eslint-disable-next-line no-console
         console.warn("failed to load chat history for", agent, err);
         setMessagesByAgent((prev) =>
@@ -103,7 +101,6 @@ export function ChatView() {
     [messagesByAgent],
   );
 
-  // Load history for the default agent on mount.
   useEffect(() => {
     void loadHistory(DEFAULT_AGENT);
   }, [loadHistory]);
@@ -118,18 +115,16 @@ export function ChatView() {
   );
 
   const handleNewConversation = useCallback(() => {
-    resetBaseSessionId();
+    const sid = resetBaseSessionId();
+    setSessionId(sid);
     setMessagesByAgent({});
     setError(null);
-    // Force re-fetch (which for a fresh session_id returns [] → empty UI).
     void loadHistory(activeAgent);
   }, [activeAgent, loadHistory]);
 
   const handleSend = useCallback(
     async (content: string) => {
       const agent = activeAgent;
-
-      // Add user message immediately to this agent's history.
       const userMsg: ChatMessage = {
         id: msgId(),
         role: "user",
@@ -144,9 +139,9 @@ export function ChatView() {
       setError(null);
 
       try {
-        const sessionId = getBaseSessionId();
+        const sid = getBaseSessionId();
         const response = await clientRef.current.chat(
-          sessionId,
+          sid,
           content,
           agent === DEFAULT_AGENT ? null : agent,
         );
@@ -173,45 +168,157 @@ export function ChatView() {
     [activeAgent],
   );
 
+  // Derived stats
+  const turnCount = messages.filter((m) => m.role === "user").length;
+  const lastToolCalls = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === "assistant" && messages[i].tool_calls) {
+        return messages[i].tool_calls ?? [];
+      }
+    }
+    return [];
+  }, [messages]);
+
+  const brief = activeEntry?.description?.slice(0, 160) ?? null;
+
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b border-slate-700 px-4 py-2">
-        <div className="text-sm text-slate-300">
-          Chatting with:{" "}
-          <span className="font-medium text-slate-100">{activeAgent}</span>
-        </div>
-        <div className="flex items-center gap-2">
+    <div className="flex h-full min-h-0 bg-ink-900">
+      {/* ── Main transcript column ───────────────────────────────── */}
+      <section className="flex flex-1 min-w-0 flex-col">
+        {/* Page header */}
+        <header className="hairline-b px-6 pt-6 pb-4 flex items-end justify-between gap-4">
+          <div>
+            <div className="label-caps mb-1.5">§ 01 · CHANNEL</div>
+            <h1 className="font-display text-[28px] leading-none italic">
+              A conversation with{" "}
+              <span className="not-italic text-signal">{activeAgent}</span>
+            </h1>
+            <p className="mt-2 font-mono text-[10px] uppercase tracking-[0.16em] text-paper-40">
+              {formatDatestamp(new Date(), { withTime: true, withDay: true })}
+            </p>
+          </div>
           <button
             type="button"
             onClick={handleNewConversation}
             disabled={isLoading}
-            className="rounded-md border border-slate-600 px-2 py-1 text-xs text-slate-300 hover:bg-slate-800 transition-colors disabled:opacity-50"
-            title="Start a fresh conversation (new session id, preserves previous server-side transcript)"
+            className="btn-hair"
+            title="Start a fresh session (preserves prior transcripts on the server)"
           >
-            New conversation
+            + New Channel
           </button>
-          <AgentSelector
-            value={activeAgent}
-            onChange={handleAgentChange}
-            disabled={isLoading}
-          />
-        </div>
-      </div>
+        </header>
 
-      <MessageList messages={messages} />
+        {/* Transcript */}
+        <MessageList
+          messages={messages}
+          activeAgent={activeAgent}
+          loading={isLoading}
+        />
 
-      {error && (
-        <div className="mx-4 rounded-lg bg-red-900/50 px-4 py-2 text-sm text-red-300">
-          {error}
-        </div>
-      )}
+        {error && (
+          <div className="mx-6 mb-3 border border-alert-dim bg-alert/5 px-3 py-2">
+            <p className="font-mono text-[11px] uppercase tracking-wider text-alert">
+              ERROR ·{" "}
+              <span className="normal-case tracking-normal">{error}</span>
+            </p>
+          </div>
+        )}
 
-      <div className="flex items-center gap-2 px-4 pb-2">
-        <VoiceControls />
-        <div className="flex-1">
+        {/* Input bar */}
+        <div className="hairline-t">
+          <div className="mx-auto max-w-[760px] flex items-center gap-3 px-6 pt-3">
+            <VoiceControls />
+            <span className="font-mono text-[10px] uppercase tracking-widest text-paper-40 ml-auto">
+              {isLoading ? "AWAITING REPLY" : "READY"}
+            </span>
+          </div>
           <MessageInput onSend={handleSend} disabled={isLoading} />
         </div>
-      </div>
+      </section>
+
+      {/* ── Metadata rail ────────────────────────────────────────── */}
+      <aside className="hidden lg:flex w-[320px] shrink-0 flex-col hairline-l overflow-y-auto bg-ink-900">
+        <div className="px-5 py-6 space-y-6">
+          {/* SESSION */}
+          <section>
+            <div className="label-caps mb-2">§ SESSION</div>
+            <dl className="space-y-1 font-mono text-[11px]">
+              <div className="flex justify-between gap-3">
+                <dt className="text-paper-40 uppercase">ID</dt>
+                <dd className="text-paper-60 truncate" title={sessionId}>
+                  {sessionId.slice(-12) || "—"}
+                </dd>
+              </div>
+              <div className="flex justify-between gap-3">
+                <dt className="text-paper-40 uppercase">AGENT</dt>
+                <dd className="text-paper">{activeAgent}</dd>
+              </div>
+              <div className="flex justify-between gap-3">
+                <dt className="text-paper-40 uppercase">TURNS</dt>
+                <dd className="text-paper">
+                  {turnCount.toString().padStart(3, "0")}
+                </dd>
+              </div>
+              <div className="flex justify-between gap-3">
+                <dt className="text-paper-40 uppercase">STATE</dt>
+                <dd className={isLoading ? "text-signal" : "text-paper-60"}>
+                  {isLoading ? "LIVE" : "STANDBY"}
+                </dd>
+              </div>
+            </dl>
+          </section>
+
+          {/* BRIEF */}
+          {brief && (
+            <section>
+              <div className="label-caps mb-2">§ AGENT BRIEF</div>
+              <p className="font-body text-[12.5px] text-paper-60 leading-relaxed">
+                {brief}
+                {activeEntry?.description &&
+                  activeEntry.description.length > 160 &&
+                  "…"}
+              </p>
+              {activeEntry?.model_ref && (
+                <p className="mt-2 font-mono text-[10px] uppercase tracking-[0.14em] text-paper-40">
+                  MODEL · {activeEntry.model_ref}
+                </p>
+              )}
+            </section>
+          )}
+
+          {/* TOOLS */}
+          <section>
+            <div className="label-caps mb-2">§ TOOLS INVOKED · LAST TURN</div>
+            {lastToolCalls.length === 0 ? (
+              <p className="font-mono text-[11px] text-paper-40">— none —</p>
+            ) : (
+              <ul className="space-y-1">
+                {lastToolCalls.map((tc, i) => (
+                  <li
+                    key={`${tc.name}-${i}`}
+                    className="font-mono text-[11px] text-paper-60"
+                  >
+                    <span className="text-signal mr-1">◦</span>
+                    {tc.name}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+          <div className="hairline-t" />
+
+          {/* AGENT ROSTER */}
+          <section>
+            <AgentSelector
+              value={activeAgent}
+              onChange={handleAgentChange}
+              disabled={isLoading}
+              onActiveEntry={setActiveEntry}
+            />
+          </section>
+        </div>
+      </aside>
     </div>
   );
 }

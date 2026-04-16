@@ -578,21 +578,23 @@ function ContextContent() {
   }
 
   return (
-    <div className="flex h-screen flex-col bg-slate-900 text-slate-100">
-      <header className="flex items-center justify-between border-b border-slate-700 px-6 py-4">
+    <div className="flex h-full flex-col bg-ink-900 text-paper">
+      <header className="hairline-b px-8 pt-6 pb-5 flex items-end justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Shared Context</h1>
-          <p className="mt-0.5 text-sm text-slate-400">
-            Browse and manage the Firestore + GCS shared-context store used for
-            agent-to-agent data exchange.
+          <div className="label-caps mb-1.5">§ 05 · CONTEXT</div>
+          <h1 className="font-display text-[30px] italic leading-none">
+            Shared Context
+          </h1>
+          <p className="mt-2 font-body text-[13px] text-paper-60">
+            Firestore + GCS store for agent-to-agent data exchange.
           </p>
         </div>
         <button
           type="button"
           onClick={() => setShowNewForm(true)}
-          className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500"
+          className="btn-hair-signal"
         >
-          + New entry
+          + New Entry
         </button>
       </header>
 

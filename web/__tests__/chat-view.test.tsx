@@ -53,16 +53,16 @@ describe("MessageList", () => {
       },
     ];
 
-    render(<MessageList messages={messages} />);
+    render(<MessageList messages={messages} activeAgent="orchestrator" />);
 
     expect(screen.getByText("Hello there")).toBeInTheDocument();
     expect(screen.getByText(/How can I help/)).toBeInTheDocument();
   });
 
   it("renders empty state when no messages", () => {
-    render(<MessageList messages={[]} />);
+    render(<MessageList messages={[]} activeAgent="orchestrator" />);
     expect(
-      screen.getByText(/start a conversation/i)
+      screen.getByText(/the line is open/i)
     ).toBeInTheDocument();
   });
 });
@@ -74,7 +74,7 @@ describe("MessageInput", () => {
 
     render(<MessageInput onSend={onSend} disabled={false} />);
 
-    const input = screen.getByPlaceholderText(/message/i);
+    const input = screen.getByPlaceholderText(/channel/i);
     await user.type(input, "Hello GClaw");
     await user.keyboard("{Enter}");
 
@@ -87,7 +87,7 @@ describe("MessageInput", () => {
 
     render(<MessageInput onSend={onSend} disabled={false} />);
 
-    const input = screen.getByPlaceholderText(/message/i);
+    const input = screen.getByPlaceholderText(/channel/i);
     await user.keyboard("{Enter}");
 
     expect(onSend).not.toHaveBeenCalled();
@@ -96,7 +96,7 @@ describe("MessageInput", () => {
   it("disables input when disabled prop is true", () => {
     render(<MessageInput onSend={vi.fn()} disabled={true} />);
 
-    const input = screen.getByPlaceholderText(/message/i);
+    const input = screen.getByPlaceholderText(/channel/i);
     expect(input).toBeDisabled();
   });
 });

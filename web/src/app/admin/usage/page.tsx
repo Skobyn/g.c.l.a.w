@@ -213,30 +213,31 @@ function UsageContent() {
   const hasMoreEvents = events.length >= eventsLimit;
 
   return (
-    <div className="flex h-screen flex-col bg-slate-900 text-slate-100">
-      <header className="flex items-center justify-between border-b border-slate-700 px-6 py-4">
+    <div className="flex h-full flex-col bg-ink-900 text-paper">
+      <header className="hairline-b px-8 pt-6 pb-5 flex items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-100">Usage &amp; Cost</h1>
-          <p className="mt-0.5 text-sm text-slate-400">
-            Model, agent, skill, and tool telemetry across the GClaw platform.
+          <div className="label-caps mb-1.5">§ 10 · TELEMETRY</div>
+          <h1 className="font-display text-[30px] italic leading-none">
+            Usage &amp; Cost
+          </h1>
+          <p className="mt-2 font-body text-[13px] text-paper-60">
+            Model, agent, skill, and tool telemetry across the platform.
             {lastRefresh && (
               <>
                 {" · "}
-                <span className="text-slate-500">
-                  updated {lastRefresh.toLocaleTimeString()}
+                <span className="font-mono text-[11px] uppercase tracking-widest text-paper-40">
+                  UPDATED {lastRefresh.toLocaleTimeString()}
                 </span>
               </>
             )}
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <label className="text-xs uppercase tracking-wide text-slate-500">
-            Window
-          </label>
+          <span className="label-caps">WINDOW</span>
           <select
             value={windowKey}
             onChange={(e) => setWindowKey(e.target.value as WindowKey)}
-            className="rounded-md border border-slate-600 bg-slate-800 px-2 py-1.5 text-sm text-slate-200 focus:border-indigo-500 focus:outline-none"
+            className="bg-ink-800 border border-paper-08 px-2 py-1 text-[12px] text-paper focus:border-signal focus:outline-none rounded-[3px]"
           >
             {WINDOW_OPTIONS.map((w) => (
               <option key={w.key} value={w.key}>
@@ -247,24 +248,9 @@ function UsageContent() {
           <button
             onClick={() => refreshAll()}
             disabled={summaryLoading || eventsLoading}
-            className="flex items-center gap-2 rounded-md border border-slate-600 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800 disabled:opacity-50 transition-colors"
+            className="btn-hair"
           >
-            <svg
-              className={`h-4 w-4 ${
-                summaryLoading || eventsLoading ? "animate-spin" : ""
-              }`}
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-              />
-            </svg>
-            Refresh
+            {summaryLoading || eventsLoading ? "REFRESHING…" : "REFRESH"}
           </button>
         </div>
       </header>

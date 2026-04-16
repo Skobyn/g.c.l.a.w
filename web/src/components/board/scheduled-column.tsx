@@ -1,9 +1,7 @@
 "use client";
 
 /**
- * ScheduledColumn — the leftmost column of the unified board, rendering
- * cron jobs sorted by next_run ascending. Active crons render first;
- * paused crons drop to the bottom, visually muted.
+ * ScheduledColumn — leftmost "Scheduled" newspaper column of the board.
  */
 
 import type { CronInfo } from "@/types";
@@ -17,7 +15,6 @@ interface ScheduledColumnProps {
 }
 
 function sortCrons(crons: CronInfo[]): CronInfo[] {
-  // Active first (sorted by next_run asc, nulls last), then paused.
   const active: CronInfo[] = [];
   const paused: CronInfo[] = [];
   for (const c of crons) {
@@ -43,21 +40,31 @@ export function ScheduledColumn({
   const sorted = sortCrons(crons);
 
   return (
-    <div className="flex w-64 shrink-0 flex-col rounded-xl border border-slate-700 bg-slate-900">
-      <div className="sticky top-0 z-10 flex items-center justify-between rounded-t-xl border-b-2 border-purple-500 bg-slate-800 px-3 py-2">
-        <span className="text-sm font-semibold text-slate-200">Scheduled</span>
-        <span className="rounded-full bg-slate-700 px-2 py-0.5 text-xs font-medium text-slate-300">
-          {crons.length}
-        </span>
+    <div className="flex w-[260px] shrink-0 flex-col">
+      <div className="pb-2 border-b-2 border-hair">
+        <div className="flex items-baseline justify-between">
+          <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-gold">
+            SCHEDULED
+          </span>
+          <span className="font-mono text-[10px] text-paper-40">
+            ({crons.length.toString().padStart(2, "0")})
+          </span>
+        </div>
       </div>
 
-      <div className="flex flex-1 flex-col gap-2 overflow-y-auto p-2">
+      <div className="flex flex-1 flex-col overflow-y-auto px-1">
         {loading && crons.length === 0 ? (
-          <p className="py-4 text-center text-xs text-slate-500">Loading…</p>
+          <p className="py-6 text-center font-mono text-[10px] uppercase tracking-widest text-paper-40">
+            LOADING…
+          </p>
         ) : error ? (
-          <p className="py-4 text-center text-xs text-red-400">{error}</p>
+          <p className="py-6 text-center font-mono text-[10px] uppercase tracking-widest text-alert">
+            {error}
+          </p>
         ) : sorted.length === 0 ? (
-          <p className="py-4 text-center text-xs text-slate-500">No crons</p>
+          <p className="py-6 text-center font-mono text-[10px] uppercase tracking-widest text-paper-40">
+            — no crons —
+          </p>
         ) : (
           sorted.map((c) => (
             <CronCard key={c.id} cron={c} onClick={onCronClick} />

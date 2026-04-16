@@ -159,30 +159,28 @@ function AgentDetailContent({ name }: { name: string }) {
 
   if (loading) {
     return (
-      <div className="flex h-screen items-center justify-center bg-slate-900 text-slate-100">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-indigo-400 border-t-transparent" />
+      <div className="flex h-full items-center justify-center bg-ink-900 text-paper">
+        <p className="font-mono text-[11px] uppercase tracking-widest text-paper-40">
+          LOADING AGENT<span className="signal-cursor" />
+        </p>
       </div>
     );
   }
 
   if (loadError || !config) {
     return (
-      <div className="flex h-screen flex-col bg-slate-900 text-slate-100">
-        <header className="flex items-center justify-between border-b border-slate-700 px-6 py-4">
-          <div>
-            <Link
-              href="/admin/agents"
-              className="text-xs text-indigo-400 hover:text-indigo-300"
-            >
-              ← Back to agents
-            </Link>
-            <h1 className="text-2xl font-bold">{name}</h1>
-          </div>
+      <div className="flex h-full flex-col bg-ink-900 text-paper">
+        <header className="hairline-b px-8 pt-6 pb-5">
+          <Link
+            href="/admin/agents"
+            className="font-mono text-[10px] uppercase tracking-widest text-paper-40 hover:text-signal"
+          >
+            ← BACK TO REGISTER
+          </Link>
+          <h1 className="mt-2 font-display text-[28px] italic">{name}</h1>
         </header>
-        <main className="flex-1 p-6">
-          <Banner tone="red">
-            {loadError || "Agent not found"}
-          </Banner>
+        <main className="flex-1 p-8">
+          <Banner tone="red">{loadError || "Agent not found"}</Banner>
         </main>
       </div>
     );
@@ -204,29 +202,34 @@ function AgentDetailContent({ name }: { name: string }) {
   const enabled = override?.enabled ?? true;
 
   return (
-    <div className="flex h-screen flex-col bg-slate-900 text-slate-100">
-      <header className="border-b border-slate-700 px-6 py-4">
+    <div className="flex h-full flex-col bg-ink-900 text-paper">
+      <header className="hairline-b px-8 pt-6 pb-5">
         <Link
           href="/admin/agents"
-          className="text-xs text-indigo-400 hover:text-indigo-300"
+          className="font-mono text-[10px] uppercase tracking-widest text-paper-40 hover:text-signal transition-colors"
         >
-          ← Back to agents
+          ← BACK TO REGISTER
         </Link>
-        <div className="mt-1 flex items-center gap-3">
+        <div className="mt-2 flex items-baseline gap-3">
           {identity.emoji && (
-            <span className="text-2xl">{identity.emoji}</span>
+            <span className="text-xl">{identity.emoji}</span>
           )}
-          <h1 className="text-2xl font-bold">
+          <h1 className="font-display text-[30px] italic leading-none">
             {identity.display_name || config.name}
           </h1>
-          <span className="font-mono text-xs text-slate-500">
+          <span className="font-mono text-[11px] uppercase tracking-[0.14em] text-paper-40">
             {config.name}
           </span>
+          {!enabled && (
+            <span className="label-caps" style={{ color: "var(--alert)" }}>
+              · DISABLED
+            </span>
+          )}
         </div>
       </header>
 
       <div className="flex flex-1 overflow-hidden">
-        <aside className="w-56 shrink-0 overflow-y-auto border-r border-slate-700 bg-slate-900/60">
+        <aside className="w-[220px] shrink-0 overflow-y-auto hairline-r bg-ink-900">
           <AgentTabsNav
             active={activeTab}
             onChange={setActiveTab}
@@ -234,7 +237,7 @@ function AgentDetailContent({ name }: { name: string }) {
           />
         </aside>
 
-        <main className="flex-1 overflow-y-auto p-6">
+        <main className="flex-1 overflow-y-auto px-8 py-6">
           {actionError && (
             <div className="mb-4">
               <Banner tone="red">{actionError}</Banner>

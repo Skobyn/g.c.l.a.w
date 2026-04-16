@@ -1,16 +1,11 @@
 "use client";
 
 /**
- * BoardColumn component.
+ * BoardColumn — newspaper column.
  *
- * Renders a kanban column with:
- *   - sticky header (label + count)
- *   - draggable TaskCards
- *   - HTML5 drop target that signals validity based on the currently
- *     dragged task's `fromStatus` and USER_ALLOWED_TRANSITIONS.
- *
- * Valid drop targets pulse a green ring; invalid ones flash a faint red
- * outline + cursor:not-allowed and reject the drop.
+ * No border around the column; vertical hairline separators do the work.
+ * Header is small-caps mono with a count in parens. Drop-target state
+ * toggles the header rule color (signal green valid, alert invalid).
  */
 
 import { useState } from "react";
@@ -61,7 +56,6 @@ export function BoardColumn({
       if (!hovering) setHovering(true);
     } else if (dragValidity === "invalid") {
       e.dataTransfer.dropEffect = "none";
-      // Don't preventDefault → drop disallowed
     }
   };
 
@@ -81,7 +75,6 @@ export function BoardColumn({
     onDrop(draggedTask, column.status);
   };
 
-  // Provide an "invalid" hint when hovering an invalid target.
   const handleDragEnter = (e: React.DragEvent) => {
     if (dragValidity === "invalid") {
       e.dataTransfer.dropEffect = "none";
@@ -89,37 +82,39 @@ export function BoardColumn({
     }
   };
 
-  const ringClass =
+  const ruleColor =
     dragValidity === "valid" && hovering
-      ? "ring-2 ring-green-500"
+      ? "border-signal"
       : dragValidity === "invalid" && invalidPulse
-        ? "ring-2 ring-red-500/60"
-        : "";
+        ? "border-alert"
+        : "border-hair";
 
   const cursorClass = dragValidity === "invalid" ? "cursor-not-allowed" : "";
 
   return (
     <div
-      className={`flex w-64 shrink-0 flex-col rounded-xl border border-slate-700 bg-slate-900 transition-shadow ${ringClass} ${cursorClass}`}
+      className={`flex w-[260px] shrink-0 flex-col ${cursorClass}`}
       onDragOver={handleDragOver}
       onDragEnter={handleDragEnter}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      <div
-        className={`sticky top-0 z-10 flex items-center justify-between rounded-t-xl border-b-2 ${column.color} bg-slate-800 px-3 py-2`}
-      >
-        <span className="text-sm font-semibold text-slate-200">
-          {column.label}
-        </span>
-        <span className="rounded-full bg-slate-700 px-2 py-0.5 text-xs font-medium text-slate-300">
-          {tasks.length}
-        </span>
+      <div className={`pb-2 border-b-2 transition-colors ${ruleColor}`}>
+        <div className="flex items-baseline justify-between">
+          <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-paper">
+            {column.label}
+          </span>
+          <span className="font-mono text-[10px] text-paper-40">
+            ({tasks.length.toString().padStart(2, "0")})
+          </span>
+        </div>
       </div>
 
-      <div className="flex flex-1 flex-col gap-2 overflow-y-auto p-2">
+      <div className="flex flex-1 flex-col overflow-y-auto px-1">
         {tasks.length === 0 ? (
-          <p className="py-4 text-center text-xs text-slate-500">No tasks</p>
+          <p className="py-6 text-center font-mono text-[10px] uppercase tracking-widest text-paper-40">
+            — empty —
+          </p>
         ) : (
           tasks.map((task) => (
             <TaskCard

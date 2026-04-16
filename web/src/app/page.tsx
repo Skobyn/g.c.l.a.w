@@ -33,8 +33,10 @@ export default function Home() {
   }, [loading, user, router, getIdToken]);
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-900">
-      <p className="text-slate-400">Loading GClaw...</p>
+    <div className="flex min-h-screen items-center justify-center bg-ink-900">
+      <p className="font-mono text-[11px] uppercase tracking-widest text-paper-40">
+        BOOTING GCLAW<span className="signal-cursor" />
+      </p>
     </div>
   );
 }

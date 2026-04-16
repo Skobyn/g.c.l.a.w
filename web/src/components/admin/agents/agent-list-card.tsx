@@ -2,70 +2,79 @@
 
 import Link from "next/link";
 import type { AgentListEntry } from "@/types";
+import { callNumber } from "@/lib/format";
 
-export function AgentListCard({ entry }: { entry: AgentListEntry }) {
+interface AgentListCardProps {
+  entry: AgentListEntry;
+  index: number;
+}
+
+export function AgentListCard({ entry, index }: AgentListCardProps) {
   const name = entry.display_name || entry.name;
   const isOverridden = entry.has_override && !entry.is_standalone;
 
   return (
     <Link
       href={`/admin/agents/${encodeURIComponent(entry.name)}`}
-      className="group flex flex-col gap-3 rounded-lg border border-slate-700 bg-slate-900/60 p-4 transition-colors hover:border-indigo-500 hover:bg-slate-900"
+      className="group relative grid grid-cols-[60px_1fr] gap-5 py-5 px-3 -mx-3 hairline-b transition-colors hover:bg-ink-800"
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h3 className="truncate text-sm font-semibold text-slate-100">
-            {name}
-          </h3>
-          <p className="mt-0.5 truncate font-mono text-[11px] text-slate-500">
-            {entry.name}
-          </p>
-        </div>
-        <div className="flex shrink-0 flex-wrap items-center gap-1">
-          {entry.is_standalone && (
-            <span className="rounded border border-teal-700 bg-teal-600/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-teal-300">
-              custom
-            </span>
-          )}
-          {isOverridden && (
-            <span className="rounded border border-indigo-700 bg-indigo-600/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-indigo-300">
-              overridden
-            </span>
-          )}
-          {!entry.enabled && (
-            <span className="rounded border border-slate-600 bg-slate-800 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-slate-400">
-              off
-            </span>
-          )}
-        </div>
+      {/* Call number */}
+      <div className="flex flex-col items-start">
+        <span className="font-mono text-[22px] font-medium text-signal group-hover:text-signal transition-colors leading-none">
+          {callNumber(index + 1)}
+        </span>
+        <span className="mt-1 font-mono text-[9px] uppercase tracking-[0.18em] text-paper-40">
+          {entry.is_standalone ? "STANDALONE" : "BASELINE"}
+        </span>
       </div>
 
-      {entry.description && (
-        <p className="line-clamp-2 text-xs text-slate-400">
-          {entry.description}
-        </p>
-      )}
+      {/* Body */}
+      <div className="min-w-0">
+        <div className="flex items-baseline gap-3">
+          <h3 className="font-display text-[18px] italic font-medium text-paper leading-none truncate">
+            {name}
+          </h3>
+          <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-paper-40 truncate">
+            {entry.name}
+          </span>
+        </div>
 
-      <div className="mt-auto flex flex-wrap items-center gap-1.5 text-[10px]">
-        {entry.model_ref && (
-          <span className="rounded border border-slate-600 bg-slate-800 px-1.5 py-0.5 font-mono text-slate-300">
-            {entry.model_ref}
-          </span>
+        {entry.description && (
+          <p className="mt-2 font-body text-[13px] text-paper-60 line-clamp-2 leading-relaxed">
+            {entry.description}
+          </p>
         )}
-        {entry.tools_profile && (
-          <span className="rounded border border-purple-700 bg-purple-900/30 px-1.5 py-0.5 text-purple-300">
-            tools: {entry.tools_profile}
+
+        <div className="mt-3 flex flex-wrap items-center gap-3 font-mono text-[10px] uppercase tracking-[0.12em]">
+          {entry.model_ref && (
+            <span className="text-paper-60">
+              <span className="text-paper-40">MODEL · </span>
+              {entry.model_ref}
+            </span>
+          )}
+          {entry.tools_profile && (
+            <span className="text-paper-60">
+              <span className="text-paper-40">TOOLS · </span>
+              {entry.tools_profile}
+            </span>
+          )}
+          <span className="flex items-center gap-1.5">
+            {entry.heartbeat_enabled ? (
+              <>
+                <span className="phosphor-dot" />
+                <span className="text-signal">HEARTBEAT LIVE</span>
+              </>
+            ) : (
+              <span className="text-paper-40">HEARTBEAT · OFF</span>
+            )}
           </span>
-        )}
-        <span
-          className={`rounded border px-1.5 py-0.5 ${
-            entry.heartbeat_enabled
-              ? "border-green-700 bg-green-900/30 text-green-300"
-              : "border-slate-600 bg-slate-800 text-slate-400"
-          }`}
-        >
-          {entry.heartbeat_enabled ? "heartbeat on" : "heartbeat off"}
-        </span>
+          {!entry.enabled && (
+            <span className="text-alert">· DISABLED</span>
+          )}
+          {isOverridden && (
+            <span className="text-gold">· OVERRIDDEN</span>
+          )}
+        </div>
       </div>
     </Link>
   );

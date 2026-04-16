@@ -1,16 +1,17 @@
 "use client";
 
 /**
- * Shared UI for /admin/agents.
+ * Shared UI for /admin/agents, phosphor-tuned.
  */
 
 import type { AgentOverride } from "@/types";
 
 export const INPUT_CLS =
-  "w-full rounded-md border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500";
-export const LABEL_CLS = "block text-xs font-medium text-slate-400 mb-1";
+  "w-full rounded-[3px] border border-paper-08 bg-ink-800 px-3 py-2 text-sm text-paper placeholder:text-paper-40 focus:border-signal focus:outline-none transition-colors";
+export const LABEL_CLS =
+  "block font-mono text-[10px] uppercase tracking-[0.14em] text-paper-40 mb-1.5";
 export const SECTION_CLS =
-  "rounded-lg border border-slate-700 bg-slate-900/60 p-5 space-y-4";
+  "rounded-[4px] border border-paper-08 bg-ink-800 p-5 space-y-4";
 
 export function SaveBar({
   dirty,
@@ -26,29 +27,35 @@ export function SaveBar({
   error?: string | null;
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-3 border-t border-slate-700 pt-4">
+    <div className="flex flex-wrap items-center gap-3 hairline-t pt-4">
       <button
         type="button"
         onClick={onSave}
         disabled={!dirty || saving}
-        className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-40"
+        className="btn-hair-signal"
       >
-        {saving ? "Saving..." : "Save"}
+        {saving ? "Saving…" : "Save"}
       </button>
       {onReset && (
         <button
           type="button"
           onClick={onReset}
           disabled={!dirty || saving}
-          className="rounded-md border border-slate-600 px-3 py-2 text-sm text-slate-300 hover:bg-slate-800 disabled:opacity-40"
+          className="btn-hair"
         >
           Discard
         </button>
       )}
       {dirty && !saving && (
-        <span className="text-xs text-amber-400">Unsaved changes</span>
+        <span className="font-mono text-[10px] uppercase tracking-widest text-gold">
+          UNSAVED CHANGES
+        </span>
       )}
-      {error && <span className="text-xs text-red-400">{error}</span>}
+      {error && (
+        <span className="font-mono text-[10px] uppercase tracking-widest text-alert">
+          {error}
+        </span>
+      )}
     </div>
   );
 }
@@ -66,17 +73,31 @@ export function Toggle({
 }) {
   return (
     <label
-      className={`flex items-center gap-2 text-sm text-slate-300 ${
+      className={`inline-flex items-center gap-2 text-sm text-paper ${
         disabled ? "opacity-50" : "cursor-pointer"
       }`}
     >
-      <input
-        type="checkbox"
-        checked={checked}
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
         disabled={disabled}
-        onChange={(e) => onChange(e.target.checked)}
-        className="h-4 w-4 rounded border-slate-600 bg-slate-900 text-indigo-500 focus:ring-indigo-500"
-      />
+        onClick={() => onChange(!checked)}
+        className={`relative h-5 w-9 rounded-full border transition-colors ${
+          checked
+            ? "bg-signal-tint border-signal-dim"
+            : "bg-ink-700 border-paper-15"
+        }`}
+      >
+        <span
+          className={`absolute top-0.5 h-3.5 w-3.5 rounded-full transition-[left,background] ${
+            checked ? "left-[18px] bg-signal" : "left-0.5 bg-paper-40"
+          }`}
+          style={
+            checked ? { boxShadow: "0 0 6px var(--signal)" } : undefined
+          }
+        />
+      </button>
       <span>{label}</span>
     </label>
   );
@@ -89,15 +110,24 @@ export function Banner({
   tone: "yellow" | "red" | "blue" | "green" | "slate";
   children: React.ReactNode;
 }) {
-  const tones = {
-    yellow: "border-amber-700 bg-amber-900/30 text-amber-200",
-    red: "border-red-700 bg-red-900/30 text-red-300",
-    blue: "border-blue-700 bg-blue-900/30 text-blue-200",
-    green: "border-green-700 bg-green-900/30 text-green-200",
-    slate: "border-slate-700 bg-slate-800/40 text-slate-300",
+  const tones: Record<typeof tone, string> = {
+    yellow: "border-gold/60 text-gold",
+    red: "border-alert-dim text-alert",
+    blue: "border-paper-15 text-paper-60",
+    green: "border-signal-dim text-signal",
+    slate: "border-paper-08 text-paper-60",
+  };
+  const bg: Record<typeof tone, string> = {
+    yellow: "bg-gold/5",
+    red: "bg-alert/5",
+    blue: "bg-ink-800",
+    green: "bg-signal-tint",
+    slate: "bg-ink-800",
   };
   return (
-    <div className={`rounded-md border px-4 py-2 text-sm ${tones[tone]}`}>
+    <div
+      className={`rounded-[3px] border px-4 py-2.5 text-[13px] ${tones[tone]} ${bg[tone]}`}
+    >
       {children}
     </div>
   );

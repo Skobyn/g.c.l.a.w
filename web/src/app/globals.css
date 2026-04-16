@@ -2,8 +2,558 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ──────────────────────────────────────────────────────────────────────
+   PHOSPHOR OBSERVATORY — GClaw design tokens
+   Editorial dark, serif-forward, radar-screen signal green. Hairline
+   precision. 1970s mission control meets New Yorker.
+   ────────────────────────────────────────────────────────────────────── */
+
+:root {
+  /* Palette */
+  --ink-900: #0b0d0f;            /* primary background, warm near-black */
+  --ink-800: #12161a;            /* surface / elevated card */
+  --ink-700: #1a1f24;            /* surface-2 / hover */
+  --ink-600: #262c32;            /* deep border / recess */
+
+  --paper: #e8e4da;              /* primary foreground, warm off-white */
+  --paper-60: rgba(232, 228, 218, 0.60);
+  --paper-40: rgba(232, 228, 218, 0.38);
+  --paper-15: rgba(232, 228, 218, 0.15);
+  --paper-08: rgba(232, 228, 218, 0.08);
+
+  --signal: #9fff6e;             /* phosphor green, used sparingly */
+  --signal-dim: #5da03e;
+  --signal-bg: rgba(159, 255, 110, 0.08);
+
+  --alert: #ff7b5c;              /* warm signal orange */
+  --alert-dim: #a34a32;
+
+  --gold: #d4a55e;               /* secondary accent */
+
+  /* Type stacks */
+  --font-display: var(--font-fraunces, "Fraunces"), "Times New Roman", ui-serif, Georgia, serif;
+  --font-body: var(--font-instrument-sans, "Instrument Sans"), system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: var(--font-jetbrains-mono, "JetBrains Mono"), ui-monospace, "SF Mono", Consolas, monospace;
+
+  --easing: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* ─── Base ─────────────────────────────────────────────────────────── */
+
 @layer base {
-  body {
-    @apply bg-gclaw-bg text-gclaw-text;
+  html, body {
+    background: var(--ink-900);
+    color: var(--paper);
   }
+
+  body {
+    font-family: var(--font-body);
+    font-feature-settings: "ss01", "ss02", "cv01", "cv11";
+    font-size: 14px;
+    line-height: 1.55;
+    letter-spacing: 0.01em;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  h1, h2, h3, h4 {
+    font-family: var(--font-display);
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    color: var(--paper);
+  }
+
+  h1 { font-size: 2.25rem; line-height: 1.1; }
+  h2 { font-size: 1.6rem; line-height: 1.15; }
+  h3 { font-size: 1.2rem; line-height: 1.2; }
+
+  ::selection {
+    background: var(--signal);
+    color: var(--ink-900);
+  }
+
+  a { color: inherit; text-decoration: none; }
+
+  /* Firefox / Chromium scrollbars, restrained */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--paper-15) transparent;
+  }
+  *::-webkit-scrollbar { width: 10px; height: 10px; }
+  *::-webkit-scrollbar-track { background: transparent; }
+  *::-webkit-scrollbar-thumb {
+    background: var(--paper-08);
+    border: 3px solid var(--ink-900);
+    border-radius: 6px;
+  }
+  *::-webkit-scrollbar-thumb:hover { background: var(--paper-15); }
+}
+
+/* ─── Global phosphor-tube grain overlay ──────────────────────────── */
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+  opacity: 0.035;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAGQAAABkCAMAAABHPGVmAAAAM1BMVEUAAAD///+fn58kJCTf39+/v79fX1//AAAQEBD//////wB/f38AAP8AAAAAf38AAP+fAAA5fb6nAAABC0lEQVR4nO2Z2Q6DIBBFQeoCLqD//7PFjUK1rbHJJBnO8w2XQ+AuRARBEARBEAThbzSdbdu2tm2X8/u0WFaL3t7aKsvybdsa/a1Vp9AU2r7uS/1+bWur3Ff6LavdSu0Ygtbftq3uq/Zl1fbWd3/cDuH8Zf+Q1S9trfVD1T5W2y+rjfW2Wq31c9UedvzxSn+p1Uo/mVqTQlNrkkJTapJCU2uSQlNrkkJTa5JCU2uSQlNrkkJTa5JCU2uSQlNrkkJTa5JCU2uSQlNrkkJTa5JCU2uSQlNrkkJTa5JCU2uSQlNrkkJTa5JCU2uSQlNrkkJTa5JCU2uSQlNrkkJTa5JCU2uSQlNrkkLzA0S2L7x1m0eDAAAAAElFTkSuQmCC");
+  background-size: 180px 180px;
+}
+
+/* ─── Motion primitives ───────────────────────────────────────────── */
+
+@keyframes stagger-fade-up {
+  0%   { opacity: 0; transform: translateY(6px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes phosphor-pulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 6px var(--signal), 0 0 12px rgba(159, 255, 110, 0.35); }
+  50%      { opacity: 0.55; box-shadow: 0 0 3px var(--signal), 0 0 6px rgba(159, 255, 110, 0.2); }
+}
+
+@keyframes cursor-blink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+
+@keyframes ticker-dash {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-12px); }
+}
+
+.motion-stagger > * {
+  animation: stagger-fade-up 300ms var(--easing) both;
+}
+.motion-stagger > *:nth-child(1) { animation-delay: 0ms; }
+.motion-stagger > *:nth-child(2) { animation-delay: 80ms; }
+.motion-stagger > *:nth-child(3) { animation-delay: 160ms; }
+.motion-stagger > *:nth-child(4) { animation-delay: 240ms; }
+.motion-stagger > *:nth-child(5) { animation-delay: 320ms; }
+.motion-stagger > *:nth-child(6) { animation-delay: 400ms; }
+
+/* ─── Utilities ───────────────────────────────────────────────────── */
+
+@layer utilities {
+  .font-display { font-family: var(--font-display); }
+  .font-body    { font-family: var(--font-body); }
+  .font-mono    { font-family: var(--font-mono); }
+
+  /* Small-caps editorial label */
+  .label-caps {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--paper-40);
+    font-weight: 500;
+  }
+  .label-caps-bright {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--paper);
+    font-weight: 500;
+  }
+  .label-caps-signal {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--signal);
+    font-weight: 600;
+  }
+
+  .hairline-t { border-top: 1px solid var(--paper-08); }
+  .hairline-b { border-bottom: 1px solid var(--paper-08); }
+  .hairline-l { border-left: 1px solid var(--paper-08); }
+  .hairline-r { border-right: 1px solid var(--paper-08); }
+  .hairline   { border: 1px solid var(--paper-08); }
+
+  .surface    { background: var(--ink-800); }
+  .surface-2  { background: var(--ink-700); }
+
+  .ink-bg       { background: var(--ink-900); }
+  .ink-bg-card  { background: var(--ink-800); }
+
+  .text-paper   { color: var(--paper); }
+  .text-paper-60{ color: var(--paper-60); }
+  .text-paper-40{ color: var(--paper-40); }
+  .text-signal  { color: var(--signal); }
+  .text-alert   { color: var(--alert); }
+  .text-gold    { color: var(--gold); }
+
+  .bg-ink-900 { background: var(--ink-900); }
+  .bg-ink-800 { background: var(--ink-800); }
+  .bg-ink-700 { background: var(--ink-700); }
+  .bg-signal-tint { background: var(--signal-bg); }
+
+  .border-hair { border-color: var(--paper-08); }
+  .border-hair-bright { border-color: var(--paper-15); }
+  .border-signal { border-color: var(--signal); }
+  .border-alert  { border-color: var(--alert); }
+
+  .ring-signal { box-shadow: inset 0 0 0 1px var(--signal); }
+
+  .phosphor-dot {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--signal);
+    box-shadow: 0 0 6px var(--signal), 0 0 12px rgba(159, 255, 110, 0.35);
+    animation: phosphor-pulse 2s ease-in-out infinite;
+  }
+
+  .phosphor-dot-amber {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--gold);
+    box-shadow: 0 0 6px var(--gold);
+    animation: phosphor-pulse 2s ease-in-out infinite;
+  }
+
+  .phosphor-dot-alert {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--alert);
+    box-shadow: 0 0 6px var(--alert);
+    animation: phosphor-pulse 2s ease-in-out infinite;
+  }
+
+  .signal-cursor::after {
+    content: "▌";
+    color: var(--signal);
+    margin-left: 2px;
+    animation: cursor-blink 1.05s steps(2) infinite;
+  }
+
+  /* Hairline button / input defaults for the new aesthetic */
+  .btn-hair {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--paper);
+    background: transparent;
+    border: 1px solid var(--paper-15);
+    padding: 0.45rem 0.85rem;
+    border-radius: 3px;
+    transition: all 120ms var(--easing);
+    cursor: pointer;
+  }
+  .btn-hair:hover:not(:disabled) {
+    border-color: var(--signal);
+    color: var(--signal);
+  }
+  .btn-hair:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  .btn-hair-signal {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--signal);
+    background: var(--signal-bg);
+    border: 1px solid var(--signal-dim);
+    padding: 0.45rem 0.85rem;
+    border-radius: 3px;
+    transition: all 120ms var(--easing);
+    cursor: pointer;
+  }
+  .btn-hair-signal:hover:not(:disabled) {
+    background: rgba(159, 255, 110, 0.16);
+    border-color: var(--signal);
+  }
+  .btn-hair-signal:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .btn-hair-alert {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--alert);
+    background: rgba(255, 123, 92, 0.08);
+    border: 1px solid var(--alert-dim);
+    padding: 0.45rem 0.85rem;
+    border-radius: 3px;
+    transition: all 120ms var(--easing);
+    cursor: pointer;
+  }
+  .btn-hair-alert:hover:not(:disabled) {
+    background: rgba(255, 123, 92, 0.16);
+    border-color: var(--alert);
+  }
+  .btn-hair-alert:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .input-hair {
+    font-family: var(--font-body);
+    font-size: 14px;
+    color: var(--paper);
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid var(--paper-15);
+    padding: 0.4rem 0;
+    transition: border-color 120ms var(--easing);
+    outline: none;
+    width: 100%;
+  }
+  .input-hair:focus { border-bottom-color: var(--signal); }
+  .input-hair::placeholder { color: var(--paper-40); }
+
+  .input-box {
+    font-family: var(--font-body);
+    font-size: 14px;
+    color: var(--paper);
+    background: var(--ink-800);
+    border: 1px solid var(--paper-08);
+    border-radius: 3px;
+    padding: 0.55rem 0.7rem;
+    transition: border-color 120ms var(--easing);
+    outline: none;
+    width: 100%;
+  }
+  .input-box:focus { border-color: var(--signal); }
+  .input-box::placeholder { color: var(--paper-40); }
+}
+
+/* ─── react-markdown prose overrides ──────────────────────────────── */
+
+.prose-phosphor {
+  color: var(--paper);
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.6;
+}
+.prose-phosphor p { margin: 0 0 0.7em 0; }
+.prose-phosphor p:last-child { margin-bottom: 0; }
+.prose-phosphor a { color: var(--signal); text-decoration: underline; text-underline-offset: 3px; }
+.prose-phosphor code {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--signal);
+  background: var(--signal-bg);
+  padding: 1px 5px;
+  border-radius: 2px;
+}
+.prose-phosphor pre {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  background: var(--ink-900);
+  border: 1px solid var(--paper-08);
+  padding: 10px 12px;
+  border-radius: 3px;
+  overflow-x: auto;
+}
+.prose-phosphor pre code { background: none; color: var(--paper); padding: 0; }
+.prose-phosphor h1, .prose-phosphor h2, .prose-phosphor h3 {
+  font-family: var(--font-display);
+  color: var(--paper);
+  margin: 0.8em 0 0.4em 0;
+}
+.prose-phosphor ul, .prose-phosphor ol { margin: 0.4em 0 0.7em 1.2em; }
+.prose-phosphor li { margin: 0.2em 0; }
+.prose-phosphor blockquote {
+  border-left: 2px solid var(--signal-dim);
+  padding-left: 0.8em;
+  color: var(--paper-60);
+  margin: 0.6em 0;
+  font-style: italic;
+}
+.prose-phosphor table {
+  border-collapse: collapse;
+  font-size: 13px;
+  margin: 0.6em 0;
+}
+.prose-phosphor th, .prose-phosphor td {
+  border: 1px solid var(--paper-08);
+  padding: 5px 9px;
+  text-align: left;
+}
+.prose-phosphor th {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--paper-60);
+  font-weight: 500;
+}
+
+/* ─── Legacy gclaw-* colors mapped to phosphor palette ──────────────
+   So any page still referencing bg-gclaw-bg or text-gclaw-text keeps
+   working while it gets its own pass. */
+
+.bg-gclaw-bg      { background: var(--ink-900); }
+.bg-gclaw-surface { background: var(--ink-800); }
+.text-gclaw-text  { color: var(--paper); }
+.text-gclaw-muted { color: var(--paper-60); }
+
+/* ─── Global remap: slate / indigo → phosphor palette ───────────────
+   Every page hasn't been hand-tuned yet; these overrides ensure the
+   non-critical pages read in the phosphor aesthetic without a rewrite.
+   Uses !important because Tailwind utilities are already present in the
+   cascade. Scoped to avoid clobbering new utilities. */
+
+/* slate backgrounds → ink surfaces */
+.bg-slate-950 { background-color: var(--ink-900) !important; }
+.bg-slate-900 { background-color: var(--ink-900) !important; }
+.bg-slate-900\/60 { background-color: var(--ink-800) !important; }
+.bg-slate-900\/50 { background-color: var(--ink-800) !important; }
+.bg-slate-900\/40 { background-color: var(--ink-800) !important; }
+.bg-slate-800 { background-color: var(--ink-800) !important; }
+.bg-slate-800\/40 { background-color: rgba(18, 22, 26, 0.6) !important; }
+.bg-slate-800\/50 { background-color: rgba(18, 22, 26, 0.7) !important; }
+.bg-slate-800\/60 { background-color: rgba(18, 22, 26, 0.8) !important; }
+.bg-slate-700 { background-color: var(--ink-700) !important; }
+.bg-slate-600 { background-color: var(--ink-600) !important; }
+.hover\:bg-slate-800:hover { background-color: var(--ink-700) !important; }
+.hover\:bg-slate-700:hover { background-color: var(--ink-600) !important; }
+.hover\:bg-slate-900:hover { background-color: var(--ink-800) !important; }
+
+/* slate text → paper */
+.text-slate-50,
+.text-slate-100,
+.text-slate-200 { color: var(--paper) !important; }
+.text-slate-300 { color: var(--paper-60) !important; }
+.text-slate-400 { color: var(--paper-60) !important; }
+.text-slate-500 { color: var(--paper-40) !important; }
+.text-slate-600 { color: var(--paper-40) !important; }
+.hover\:text-slate-100:hover { color: var(--paper) !important; }
+.hover\:text-slate-200:hover { color: var(--paper) !important; }
+.hover\:text-slate-300:hover { color: var(--paper-60) !important; }
+
+.placeholder-slate-400::placeholder,
+.placeholder-slate-500::placeholder { color: var(--paper-40) !important; }
+
+/* slate borders → hairline */
+.border-slate-600,
+.border-slate-700,
+.border-slate-800 { border-color: var(--paper-08) !important; }
+.hover\:border-slate-500:hover { border-color: var(--paper-15) !important; }
+
+/* divide-slate-* → hairline */
+.divide-slate-700 > :not([hidden]) ~ :not([hidden]),
+.divide-slate-800 > :not([hidden]) ~ :not([hidden]) {
+  border-color: var(--paper-08) !important;
+}
+
+/* indigo (the old accent) → phosphor signal */
+.bg-indigo-500,
+.bg-indigo-600 { background-color: var(--signal-bg) !important; color: var(--signal) !important; }
+.bg-indigo-600\/20,
+.bg-indigo-500\/20 { background-color: var(--signal-bg) !important; }
+.hover\:bg-indigo-500:hover,
+.hover\:bg-indigo-600:hover { background-color: rgba(159,255,110,0.14) !important; }
+.text-indigo-100,
+.text-indigo-200,
+.text-indigo-300,
+.text-indigo-400,
+.text-indigo-500 { color: var(--signal) !important; }
+.hover\:text-indigo-300:hover,
+.hover\:text-indigo-400:hover { color: var(--signal) !important; }
+.border-indigo-500,
+.border-indigo-600,
+.border-indigo-700 { border-color: var(--signal-dim) !important; }
+.hover\:border-indigo-500:hover { border-color: var(--signal) !important; }
+.focus\:border-indigo-500:focus { border-color: var(--signal) !important; }
+.focus\:ring-indigo-500:focus { --tw-ring-color: var(--signal) !important; }
+
+/* red / danger → alert */
+.bg-red-600,
+.bg-red-700,
+.bg-red-800,
+.bg-red-900 { background-color: rgba(255,123,92,0.12) !important; color: var(--alert) !important; }
+.bg-red-900\/30,
+.bg-red-900\/40,
+.bg-red-900\/50,
+.bg-red-950\/40 { background-color: rgba(255,123,92,0.08) !important; }
+.hover\:bg-red-600:hover,
+.hover\:bg-red-500:hover { background-color: rgba(255,123,92,0.18) !important; }
+.border-red-600,
+.border-red-700,
+.border-red-800 { border-color: var(--alert-dim) !important; }
+.text-red-200,
+.text-red-300,
+.text-red-400 { color: var(--alert) !important; }
+
+/* amber / yellow / orange → gold / alert */
+.bg-amber-900\/30,
+.bg-amber-900\/40,
+.bg-amber-950\/40 { background-color: rgba(212,165,94,0.08) !important; }
+.border-amber-700 { border-color: rgba(212,165,94,0.45) !important; }
+.text-amber-200,
+.text-amber-300,
+.text-amber-400 { color: var(--gold) !important; }
+.bg-yellow-900,
+.bg-yellow-900\/30,
+.bg-yellow-900\/40 { background-color: rgba(212,165,94,0.08) !important; }
+.border-yellow-700 { border-color: rgba(212,165,94,0.45) !important; }
+.text-yellow-300,
+.text-yellow-400 { color: var(--gold) !important; }
+.bg-orange-500,
+.bg-orange-600,
+.bg-orange-900,
+.bg-orange-900\/30,
+.bg-orange-900\/40 { background-color: rgba(255,123,92,0.08) !important; }
+.border-orange-500,
+.border-orange-600,
+.border-orange-700 { border-color: var(--alert-dim) !important; }
+.text-orange-200,
+.text-orange-300,
+.text-orange-400 { color: var(--alert) !important; }
+
+/* greens → signal */
+.bg-green-600,
+.bg-green-700,
+.bg-green-900,
+.bg-green-900\/30 { background-color: var(--signal-bg) !important; color: var(--signal) !important; }
+.hover\:bg-green-600:hover,
+.hover\:bg-green-500:hover { background-color: rgba(159,255,110,0.14) !important; }
+.border-green-700 { border-color: var(--signal-dim) !important; }
+.text-green-300,
+.text-green-400 { color: var(--signal) !important; }
+
+/* blues → paper-60 (neutral) */
+.bg-blue-600,
+.bg-blue-900\/30 { background-color: var(--ink-700) !important; }
+.border-blue-700 { border-color: var(--paper-15) !important; }
+.text-blue-200,
+.text-blue-300,
+.text-blue-400 { color: var(--paper-60) !important; }
+
+/* purples → gold */
+.bg-purple-500,
+.bg-purple-600,
+.bg-purple-900,
+.bg-purple-900\/30,
+.bg-purple-900\/40,
+.bg-purple-900\/60 { background-color: rgba(212,165,94,0.08) !important; }
+.border-purple-500,
+.border-purple-600,
+.border-purple-700 { border-color: rgba(212,165,94,0.5) !important; }
+.text-purple-200,
+.text-purple-300 { color: var(--gold) !important; }
+.hover\:bg-purple-900\/60:hover { background-color: rgba(212,165,94,0.14) !important; }
+
+/* teal → gold */
+.bg-teal-600\/20 { background-color: rgba(212,165,94,0.08) !important; }
+.border-teal-700 { border-color: rgba(212,165,94,0.4) !important; }
+.text-teal-300 { color: var(--gold) !important; }
+
+/* Animated spinner → convert the old indigo ring to phosphor ring */
+.animate-spin.border-indigo-400,
+.animate-spin.border-indigo-500 {
+  border-color: var(--signal) !important;
+  border-top-color: transparent !important;
 }

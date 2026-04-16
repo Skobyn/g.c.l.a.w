@@ -1,5 +1,12 @@
 /**
  * Tests for Board View components.
+ *
+ * Assertions updated for the phosphor-observatory redesign:
+ *   - Priority rendered as a single-character glyph (H / M / L).
+ *   - Counts rendered in parentheses and zero-padded: (00), (01), (02).
+ *   - Assignee in lowercase "unassigned" when empty.
+ *   - Empty column placeholder is "— empty —".
+ *   - Loading state uses an inline "LOADING BOARD" label, not a spinner DOM.
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -22,7 +29,6 @@ vi.mock("firebase/app", () => ({
   getApps: vi.fn(() => []),
 }));
 
-// Mock Firestore — onSnapshot will be overridden per test
 const mockUnsubscribe = vi.fn();
 const mockOnSnapshot = vi.fn();
 
@@ -33,7 +39,6 @@ vi.mock("firebase/firestore", () => ({
   onSnapshot: (...args: unknown[]) => mockOnSnapshot(...args),
 }));
 
-// Mock next/navigation
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
 }));
@@ -66,9 +71,19 @@ describe("TaskCard", () => {
     expect(screen.getByText("Fix the login bug")).toBeInTheDocument();
   });
 
-  it("renders priority badge with correct label", () => {
+  it("renders priority as single-character glyph (H) for high", () => {
     render(<TaskCard task={sampleTask} />);
-    expect(screen.getByText("high")).toBeInTheDocument();
+    expect(screen.getByText("H")).toBeInTheDocument();
+  });
+
+  it("renders priority as (M) for medium", () => {
+    render(<TaskCard task={{ ...sampleTask, priority: "medium" }} />);
+    expect(screen.getByText("M")).toBeInTheDocument();
+  });
+
+  it("renders priority as (L) for low", () => {
+    render(<TaskCard task={{ ...sampleTask, priority: "low" }} />);
+    expect(screen.getByText("L")).toBeInTheDocument();
   });
 
   it("renders assignee name", () => {
@@ -76,32 +91,9 @@ describe("TaskCard", () => {
     expect(screen.getByText("alice")).toBeInTheDocument();
   });
 
-  it("renders 'Unassigned' when assignee is empty", () => {
+  it("renders 'unassigned' when assignee is empty", () => {
     render(<TaskCard task={{ ...sampleTask, assignee: "" }} />);
-    expect(screen.getByText("Unassigned")).toBeInTheDocument();
-  });
-
-  it("renders status indicator with correct aria-label", () => {
-    render(<TaskCard task={sampleTask} />);
-    expect(screen.getByLabelText("Status: in_progress")).toBeInTheDocument();
-  });
-
-  it("applies red badge class for high priority", () => {
-    render(<TaskCard task={sampleTask} />);
-    const badge = screen.getByText("high");
-    expect(badge.className).toMatch(/red/);
-  });
-
-  it("applies yellow badge class for medium priority", () => {
-    render(<TaskCard task={{ ...sampleTask, priority: "medium" }} />);
-    const badge = screen.getByText("medium");
-    expect(badge.className).toMatch(/yellow/);
-  });
-
-  it("applies green badge class for low priority", () => {
-    render(<TaskCard task={{ ...sampleTask, priority: "low" }} />);
-    const badge = screen.getByText("low");
-    expect(badge.className).toMatch(/green/);
+    expect(screen.getByText(/unassigned/i)).toBeInTheDocument();
   });
 });
 
@@ -128,7 +120,7 @@ describe("BoardColumn", () => {
     expect(screen.getByText("In Progress")).toBeInTheDocument();
   });
 
-  it("shows count of 0 when no tasks", () => {
+  it("shows count (00) when no tasks", () => {
     render(
       <BoardColumn
         column={inProgressColumn}
@@ -139,10 +131,10 @@ describe("BoardColumn", () => {
         onDrop={() => {}}
       />,
     );
-    expect(screen.getByText("0")).toBeInTheDocument();
+    expect(screen.getByText("(00)")).toBeInTheDocument();
   });
 
-  it("shows empty state message when no tasks", () => {
+  it("shows empty placeholder when no tasks", () => {
     render(
       <BoardColumn
         column={inProgressColumn}
@@ -153,7 +145,7 @@ describe("BoardColumn", () => {
         onDrop={() => {}}
       />,
     );
-    expect(screen.getByText(/no tasks/i)).toBeInTheDocument();
+    expect(screen.getByText(/— empty —/i)).toBeInTheDocument();
   });
 
   it("renders task cards and count when tasks are provided", () => {
@@ -168,7 +160,7 @@ describe("BoardColumn", () => {
         onDrop={() => {}}
       />,
     );
-    expect(screen.getByText("2")).toBeInTheDocument();
+    expect(screen.getByText("(02)")).toBeInTheDocument();
     expect(screen.getByText("Fix the login bug")).toBeInTheDocument();
     expect(screen.getByText("Second task")).toBeInTheDocument();
   });
@@ -182,7 +174,6 @@ describe("BoardView", () => {
   });
 
   it("renders all board columns", async () => {
-    // Simulate an immediate snapshot with no tasks
     mockOnSnapshot.mockImplementation((_q: unknown, cb: (snap: unknown) => void) => {
       cb({ docs: [] });
       return mockUnsubscribe;
@@ -197,17 +188,15 @@ describe("BoardView", () => {
     });
   });
 
-  it("shows loading spinner before data arrives", () => {
+  it("shows a loading label before data arrives", () => {
     // Never call the snapshot callback — stays in loading state
     mockOnSnapshot.mockImplementation(() => mockUnsubscribe);
 
     render(<BoardView />);
-    // The spinner has no text; look for the spin class container instead
-    const spinner = document.querySelector(".animate-spin");
-    expect(spinner).not.toBeNull();
+    expect(screen.getByText(/loading board/i)).toBeInTheDocument();
   });
 
-  it("renders an empty board with zero counts in all columns", async () => {
+  it("renders an empty board with (00) counts in all columns", async () => {
     mockOnSnapshot.mockImplementation((_q: unknown, cb: (snap: unknown) => void) => {
       cb({ docs: [] });
       return mockUnsubscribe;
@@ -216,9 +205,9 @@ describe("BoardView", () => {
     render(<BoardView />);
 
     await waitFor(() => {
-      // Each column should show count 0
-      const countBadges = screen.getAllByText("0");
-      expect(countBadges.length).toBe(BOARD_COLUMNS.length);
+      const countBadges = screen.getAllByText("(00)");
+      // One per board column + the scheduled column
+      expect(countBadges.length).toBeGreaterThanOrEqual(BOARD_COLUMNS.length);
     });
   });
 
@@ -259,7 +248,7 @@ describe("BoardView", () => {
       (_q: unknown, _cb: unknown, errCb: (e: Error) => void) => {
         errCb(new Error("permission-denied"));
         return mockUnsubscribe;
-      }
+      },
     );
 
     render(<BoardView />);

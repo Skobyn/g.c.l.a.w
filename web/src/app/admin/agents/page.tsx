@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * /admin/agents — Agent management list.
+ * /admin/agents — editorial index of the roster.
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -13,6 +13,17 @@ import type { AgentListEntry, CreateAgentPayload } from "@/types";
 import { AgentListCard } from "@/components/admin/agents/agent-list-card";
 import { CreateAgentModal } from "@/components/admin/agents/create-agent-modal";
 import { Banner } from "@/components/admin/agents/shared";
+
+const WORD_NUMS = [
+  "ZERO", "ONE", "TWO", "THREE", "FOUR", "FIVE", "SIX", "SEVEN",
+  "EIGHT", "NINE", "TEN", "ELEVEN", "TWELVE", "THIRTEEN", "FOURTEEN",
+  "FIFTEEN", "SIXTEEN", "SEVENTEEN", "EIGHTEEN", "NINETEEN", "TWENTY",
+];
+
+function numberWord(n: number): string {
+  if (n >= 0 && n < WORD_NUMS.length) return WORD_NUMS[n];
+  return n.toString();
+}
 
 function AgentsContent() {
   const { getIdToken } = useAuth();
@@ -48,42 +59,57 @@ function AgentsContent() {
     router.push(`/admin/agents/${encodeURIComponent(body.agent_name)}`);
   }
 
+  const count = entries.length;
+  const word = numberWord(count).toLowerCase();
+
   return (
-    <div className="flex h-screen flex-col bg-slate-900 text-slate-100">
-      <header className="flex items-center justify-between border-b border-slate-700 px-6 py-4">
-        <div>
-          <h1 className="text-2xl font-bold">Agents</h1>
-          <p className="mt-0.5 text-sm text-slate-400">
-            Manage baseline agents, overrides, and user-created agents.
-          </p>
+    <div className="flex h-full flex-col bg-ink-900 text-paper">
+      <header className="hairline-b px-8 pt-8 pb-6">
+        <div className="flex items-end justify-between gap-4">
+          <div>
+            <div className="label-caps mb-1.5">§ 07 · ROSTER</div>
+            <h1 className="font-display text-[36px] italic leading-none">
+              Agents — a register of
+              <br />
+              the <span className="not-italic text-signal">{word}</span>.
+            </h1>
+            <p className="mt-3 max-w-[520px] font-body text-[13px] text-paper-60 leading-relaxed">
+              Baseline agents, overrides, and user-created agents. Every agent is
+              an <em className="italic text-paper">agent.md</em> bound to a{" "}
+              <em className="italic text-paper">soul.md</em>. They speak to the
+              board, not to each other.
+            </p>
+          </div>
+          <button
+            onClick={() => setShowCreate(true)}
+            className="btn-hair-signal"
+          >
+            + Commission Agent
+          </button>
         </div>
-        <button
-          onClick={() => setShowCreate(true)}
-          className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500"
-        >
-          + Create Agent
-        </button>
       </header>
 
-      <main className="flex-1 overflow-y-auto p-6">
+      <main className="flex-1 overflow-y-auto px-8 py-4">
         {error && (
-          <div className="mb-4">
+          <div className="my-4">
             <Banner tone="red">{error}</Banner>
           </div>
         )}
 
         {loading ? (
-          <div className="flex items-center justify-center py-16">
-            <div className="h-8 w-8 animate-spin rounded-full border-4 border-indigo-400 border-t-transparent" />
+          <div className="flex items-center justify-center py-24">
+            <p className="font-mono text-[11px] uppercase tracking-widest text-paper-40">
+              LOADING ROSTER<span className="signal-cursor" />
+            </p>
           </div>
         ) : entries.length === 0 ? (
-          <div className="rounded-md border border-slate-700 bg-slate-900 px-4 py-12 text-center text-sm text-slate-500">
-            No agents yet. Click &quot;+ Create Agent&quot; to add one.
+          <div className="py-16 text-center font-mono text-[11px] uppercase tracking-widest text-paper-40">
+            — THE REGISTER IS EMPTY —
           </div>
         ) : (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {entries.map((e) => (
-              <AgentListCard key={e.name} entry={e} />
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-10">
+            {entries.map((e, i) => (
+              <AgentListCard key={e.name} entry={e} index={i} />
             ))}
           </div>
         )}

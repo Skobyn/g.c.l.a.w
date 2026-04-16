@@ -1,9 +1,10 @@
 "use client";
 
 /**
- * Dropdown that lets the user pick which agent the chat view is
- * talking to. Fetches the live agent list from /admin/agents on
- * mount and defaults to "orchestrator".
+ * Agent selector — editorial radio cards stacked vertically.
+ *
+ * One agent per row. Name in Fraunces italic, mono handle underneath, role
+ * blurb truncated. Active agent shows a signal-green rule + ACTIVE tag.
  */
 
 import { useEffect, useState } from "react";
@@ -13,18 +14,19 @@ import type { AgentListEntry } from "@/types";
 export const DEFAULT_AGENT = "orchestrator";
 
 interface AgentSelectorProps {
-  /** Currently selected agent name. */
   value: string;
-  /** Fires when the user picks a different agent. */
   onChange: (agentName: string) => void;
-  /** Disable the dropdown (e.g. while a message is in flight). */
   disabled?: boolean;
+  /** When present, updates the parent with the active entry so the
+   *  metadata rail can show the blurb without re-fetching. */
+  onActiveEntry?: (entry: AgentListEntry | null) => void;
 }
 
 export function AgentSelector({
   value,
   onChange,
   disabled = false,
+  onActiveEntry,
 }: AgentSelectorProps) {
   const api = useApiClient();
   const [agents, setAgents] = useState<AgentListEntry[]>([]);
@@ -38,8 +40,6 @@ export function AgentSelector({
       .listAgentsRich()
       .then((list) => {
         if (cancelled) return;
-        // Only show enabled agents. Keep orchestrator first so the
-        // default is always visible at the top of the list.
         const visible = list.filter((a) => a.enabled);
         visible.sort((a, b) => {
           if (a.name === DEFAULT_AGENT) return -1;
@@ -60,34 +60,73 @@ export function AgentSelector({
     };
   }, [api]);
 
+  useEffect(() => {
+    if (!onActiveEntry) return;
+    const entry = agents.find((a) => a.name === value) ?? null;
+    onActiveEntry(entry);
+  }, [value, agents, onActiveEntry]);
+
   if (error) {
     return (
-      <div className="text-xs text-red-300" title={error}>
-        agents unavailable
+      <div className="label-caps text-alert" title={error}>
+        AGENTS · OFFLINE
       </div>
     );
   }
 
   return (
-    <label className="flex items-center gap-2 text-sm text-slate-300">
-      <span className="text-slate-400">Agent:</span>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        disabled={disabled || loading}
-        className="rounded-md border border-slate-700 bg-slate-800 px-2 py-1 text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50"
-        aria-label="Select agent"
-      >
-        {loading && agents.length === 0 ? (
-          <option value={DEFAULT_AGENT}>loading…</option>
-        ) : (
-          agents.map((a) => (
-            <option key={a.name} value={a.name}>
-              {a.display_name || a.name}
-            </option>
-          ))
-        )}
-      </select>
-    </label>
+    <div>
+      <div className="label-caps mb-3">§ AGENT ROSTER</div>
+      {loading && agents.length === 0 ? (
+        <p className="font-mono text-[11px] text-paper-40">loading roster…</p>
+      ) : (
+        <ul className="flex flex-col">
+          {agents.map((a) => {
+            const isActive = a.name === value;
+            const display = a.display_name || a.name;
+            return (
+              <li key={a.name}>
+                <button
+                  type="button"
+                  disabled={disabled}
+                  onClick={() => onChange(a.name)}
+                  className={`w-full text-left py-2.5 pr-2 pl-3 border-l transition-colors ${
+                    isActive
+                      ? "border-signal bg-signal-tint"
+                      : "border-transparent hover:bg-ink-700"
+                  } ${disabled ? "opacity-60 cursor-not-allowed" : ""}`}
+                >
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span
+                      className={`font-display italic text-[14.5px] ${
+                        isActive ? "text-signal" : "text-paper"
+                      }`}
+                    >
+                      {display}
+                    </span>
+                    {isActive && (
+                      <span className="label-caps-signal shrink-0">ACTIVE</span>
+                    )}
+                  </div>
+                  <div className="mt-0.5 flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.12em] text-paper-40">
+                    <span>{a.name}</span>
+                    {a.heartbeat_enabled && (
+                      <span className="flex items-center gap-1">
+                        · <span className="phosphor-dot" /> HB
+                      </span>
+                    )}
+                  </div>
+                  {a.description && !isActive && (
+                    <p className="mt-1 text-[12px] text-paper-60 line-clamp-1 font-body">
+                      {a.description}
+                    </p>
+                  )}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
   );
 }

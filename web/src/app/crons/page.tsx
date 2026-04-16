@@ -66,41 +66,31 @@ function CronsContent() {
   };
 
   return (
-    <div className="flex h-screen flex-col bg-slate-900 text-slate-100">
-      {/* Header */}
-      <header className="flex items-center justify-between border-b border-slate-700 px-6 py-4">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-100">Crons</h1>
-          <p className="text-sm text-slate-400 mt-0.5">
-            {crons.length} cron job{crons.length !== 1 ? "s" : ""} configured
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={fetchCrons}
-            disabled={loading}
-            className="flex items-center gap-2 rounded-md border border-slate-600 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800 disabled:opacity-50 transition-colors"
-          >
-            <svg
-              className={`h-4 w-4 ${loading ? "animate-spin" : ""}`}
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2}
+    <div className="flex h-full flex-col bg-ink-900 text-paper">
+      <header className="hairline-b px-8 pt-6 pb-5">
+        <div className="flex items-end justify-between">
+          <div>
+            <div className="label-caps mb-1.5">§ 03 · SCHEDULE</div>
+            <h1 className="font-display text-[30px] italic leading-none">Crons</h1>
+            <p className="mt-2 font-body text-[13px] text-paper-60">
+              {crons.length} job{crons.length !== 1 ? "s" : ""} on the wire
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={fetchCrons}
+              disabled={loading}
+              className="btn-hair"
             >
-              <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-            </svg>
-            Refresh
-          </button>
-          <button
-            onClick={() => setShowCreateForm((prev) => !prev)}
-            className="flex items-center gap-2 rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 transition-colors"
-          >
-            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-            </svg>
-            New Cron
-          </button>
+              {loading ? "REFRESHING…" : "REFRESH"}
+            </button>
+            <button
+              onClick={() => setShowCreateForm((prev) => !prev)}
+              className="btn-hair-signal"
+            >
+              + New Cron
+            </button>
+          </div>
         </div>
       </header>
 

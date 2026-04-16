@@ -1,20 +1,18 @@
 "use client";
 
 /**
- * TaskCard component.
+ * TaskCard — a typeset board entry.
  *
- * Renders a single board task. Two visual modes:
- *   - Compact (default): for backlog/queued/in_progress/done columns.
- *   - Approval panel: when status === "needs_approval", shows full description
- *     and Approve/Reject buttons.
- *
- * Cards are draggable when their current status has at least one allowed
- * user-driven transition (see USER_ALLOWED_TRANSITIONS in @/types).
+ * No enclosing box. Each task is 2–3 lines separated by a thin hairline
+ * below. Title in Instrument Sans semibold, then a mono meta line, then
+ * (optional) one-line description. Approval cards get an amber gold rule
+ * on the left and typeset Approve / Reject buttons.
  */
 
 import { useState } from "react";
-import type { BoardTask, TaskPriority, TaskStatus } from "@/types";
+import type { BoardTask, TaskStatus } from "@/types";
 import { USER_ALLOWED_TRANSITIONS } from "@/types";
+import { formatShortStamp, priorityGlyph } from "@/lib/format";
 
 export interface DragInfo {
   id: string;
@@ -30,19 +28,10 @@ interface TaskCardProps {
   onReject?: (task: BoardTask, note: string) => Promise<void> | void;
 }
 
-const priorityBadgeClass: Record<TaskPriority, string> = {
-  high: "bg-red-900 text-red-300 border border-red-700",
-  medium: "bg-yellow-900 text-yellow-300 border border-yellow-700",
-  low: "bg-green-900 text-green-300 border border-green-700",
-};
-
-const statusDotClass: Record<BoardTask["status"], string> = {
-  backlog: "bg-gray-400",
-  queued: "bg-blue-400",
-  in_progress: "bg-yellow-400",
-  needs_approval: "bg-orange-400",
-  done: "bg-green-400",
-  failed: "bg-red-400",
+const priorityColor: Record<string, string> = {
+  H: "text-alert",
+  M: "text-gold",
+  L: "text-paper-40",
 };
 
 function ageString(iso: string | null | undefined): string {
@@ -54,9 +43,9 @@ function ageString(iso: string | null | undefined): string {
   if (mins < 1) return "just now";
   if (mins < 60) return `${mins}m`;
   const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ${mins - hrs * 60}m`;
+  if (hrs < 24) return `${hrs}h`;
   const days = Math.floor(hrs / 24);
-  return `${days}d ${hrs - days * 24}h`;
+  return `${days}d`;
 }
 
 export function TaskCard({
@@ -87,17 +76,9 @@ export function TaskCard({
     onDragEnd?.();
   };
 
-  const baseClass = `rounded-lg border bg-slate-800 p-3 shadow-sm transition-all ${
-    draggable ? "cursor-grab active:cursor-grabbing" : "cursor-default"
-  } ${
-    isDragging
-      ? "opacity-40 ring-2 ring-indigo-500"
-      : "border-slate-700 hover:border-indigo-500"
-  }`;
-
   if (task.status === "needs_approval") {
     return (
-      <NeedsApprovalCard
+      <NeedsApprovalEntry
         task={task}
         draggable={draggable}
         isDragging={!!isDragging}
@@ -109,45 +90,44 @@ export function TaskCard({
     );
   }
 
+  const glyph = priorityGlyph(task.priority);
+  const priClass = priorityColor[glyph] ?? "text-paper-40";
+
   return (
-    <div
+    <article
       draggable={draggable}
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
-      className={baseClass}
+      className={`group py-3 px-3 -mx-1 hairline-b transition-colors ${
+        draggable ? "cursor-grab active:cursor-grabbing" : "cursor-default"
+      } ${isDragging ? "opacity-40" : "hover:bg-ink-800"}`}
     >
-      <div className="flex items-start justify-between gap-2">
-        <p className="text-sm font-medium text-slate-100 leading-snug line-clamp-2">
-          {task.title}
-        </p>
-        <span
-          className={`shrink-0 rounded px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wide ${priorityBadgeClass[task.priority]}`}
-        >
-          {task.priority}
+      <p className="font-body text-[13.5px] font-medium text-paper leading-snug">
+        {task.title}
+      </p>
+      <div className="mt-1.5 flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.1em] text-paper-40">
+        <span>{formatShortStamp(task.updated_at || task.created_at)}</span>
+        <span>·</span>
+        <span className="truncate max-w-[90px] text-paper-60">
+          {task.assignee || "unassigned"}
         </span>
+        <span className={`ml-auto font-bold ${priClass}`}>{glyph}</span>
       </div>
-
-      {task.status === "failed" && task.rejection_note && (
-        <p className="mt-2 text-xs text-slate-400 italic line-clamp-3">
-          rejected: {task.rejection_note}
+      {task.description && (
+        <p className="mt-1 font-body text-[12px] text-paper-60 line-clamp-1 italic">
+          {task.description}
         </p>
       )}
-
-      <div className="mt-2 flex items-center justify-between">
-        <span className="text-xs text-slate-400 truncate max-w-[120px]">
-          {task.assignee || "Unassigned"}
-        </span>
-        <span
-          className={`h-2.5 w-2.5 rounded-full ${statusDotClass[task.status]}`}
-          title={task.status}
-          aria-label={`Status: ${task.status}`}
-        />
-      </div>
-    </div>
+      {task.status === "failed" && task.rejection_note && (
+        <p className="mt-1 font-mono text-[10px] text-alert line-clamp-2">
+          rejected · {task.rejection_note}
+        </p>
+      )}
+    </article>
   );
 }
 
-interface NeedsApprovalCardProps {
+interface NeedsApprovalEntryProps {
   task: BoardTask;
   draggable: boolean;
   isDragging: boolean;
@@ -157,7 +137,7 @@ interface NeedsApprovalCardProps {
   onReject?: (task: BoardTask, note: string) => Promise<void> | void;
 }
 
-function NeedsApprovalCard({
+function NeedsApprovalEntry({
   task,
   draggable,
   isDragging,
@@ -165,21 +145,12 @@ function NeedsApprovalCard({
   onDragEnd,
   onApprove,
   onReject,
-}: NeedsApprovalCardProps) {
+}: NeedsApprovalEntryProps) {
   const [rejecting, setRejecting] = useState(false);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState<"approve" | "reject" | null>(null);
   const [error, setError] = useState<string | null>(null);
-
   const age = ageString(task.updated_at || task.created_at);
-
-  const baseClass = `rounded-lg border bg-slate-800 shadow-sm transition-all ${
-    draggable ? "cursor-grab active:cursor-grabbing" : "cursor-default"
-  } ${
-    isDragging
-      ? "opacity-40 ring-2 ring-indigo-500"
-      : "border-orange-700 hover:border-orange-500"
-  }`;
 
   const handleApprove = async () => {
     if (!onApprove) return;
@@ -211,104 +182,98 @@ function NeedsApprovalCard({
   };
 
   return (
-    <div
+    <article
       draggable={draggable}
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
-      className={baseClass}
+      className={`relative -mx-1 pl-3 pr-3 py-3 border-l-2 hairline-b transition-colors ${
+        isDragging ? "opacity-40" : ""
+      }`}
+      style={{ borderLeftColor: "var(--gold)" }}
     >
-      {/* Stripe */}
-      <div className="flex items-center justify-between rounded-t-lg bg-orange-900/40 border-b border-orange-700 px-3 py-1.5">
-        <span className="text-[10px] font-semibold uppercase tracking-wide text-orange-200">
-          Awaiting approval
+      <div className="flex items-center justify-between">
+        <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-gold font-semibold flex items-center gap-1.5">
+          <span className="phosphor-dot-amber" />
+          PENDING APPROVAL
         </span>
         {age && (
-          <span className="text-[10px] text-orange-200/80">waiting {age}</span>
+          <span className="font-mono text-[10px] text-paper-40 uppercase">
+            · {age}
+          </span>
         )}
       </div>
 
-      <div className="p-3">
-        <div className="flex items-start justify-between gap-2">
-          <p className="text-sm font-medium text-slate-100 leading-snug">
-            {task.title}
-          </p>
-          <span
-            className={`shrink-0 rounded px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wide ${priorityBadgeClass[task.priority]}`}
+      <p className="mt-2 font-body text-[14px] font-medium text-paper leading-snug">
+        {task.title}
+      </p>
+
+      {task.description && (
+        <p className="mt-1 font-body text-[12px] text-paper-60 leading-relaxed line-clamp-3 whitespace-pre-wrap">
+          {task.description}
+        </p>
+      )}
+
+      <div className="mt-2 font-mono text-[10px] uppercase tracking-[0.1em] text-paper-40">
+        ASSIGNEE · {task.assignee || "UNASSIGNED"}
+      </div>
+
+      {error && (
+        <p className="mt-2 font-mono text-[10px] text-alert">{error}</p>
+      )}
+
+      {!rejecting ? (
+        <div className="mt-3 flex gap-2">
+          <button
+            type="button"
+            onClick={handleApprove}
+            disabled={busy !== null}
+            className="btn-hair-signal flex-1"
           >
-            {task.priority}
-          </span>
+            {busy === "approve" ? "Approving…" : "Approve"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setRejecting(true)}
+            disabled={busy !== null}
+            className="btn-hair-alert flex-1"
+          >
+            Reject
+          </button>
         </div>
-
-        {task.description && (
-          <p className="mt-2 whitespace-pre-wrap text-xs text-slate-300 leading-relaxed">
-            {task.description}
-          </p>
-        )}
-
-        <div className="mt-2 flex items-center text-xs text-slate-400">
-          <span className="truncate max-w-[160px]">
-            {task.assignee || "Unassigned"}
-          </span>
-        </div>
-
-        {error && (
-          <p className="mt-2 text-xs text-red-400">{error}</p>
-        )}
-
-        {!rejecting ? (
-          <div className="mt-3 flex gap-1.5">
+      ) : (
+        <div className="mt-3 space-y-2">
+          <textarea
+            autoFocus
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            rows={2}
+            placeholder="Reason (required)"
+            className="input-box font-body text-[12px]"
+          />
+          <div className="flex gap-2">
             <button
               type="button"
-              onClick={handleApprove}
-              disabled={busy !== null}
-              className="flex-1 rounded-md bg-green-700 px-2 py-1.5 text-xs font-semibold text-white hover:bg-green-600 disabled:opacity-50 transition-colors"
+              onClick={handleReject}
+              disabled={busy !== null || note.trim().length === 0}
+              className="btn-hair-alert flex-1"
             >
-              {busy === "approve" ? "Approving…" : "Approve"}
+              {busy === "reject" ? "Rejecting…" : "Confirm"}
             </button>
             <button
               type="button"
-              onClick={() => setRejecting(true)}
+              onClick={() => {
+                setRejecting(false);
+                setNote("");
+                setError(null);
+              }}
               disabled={busy !== null}
-              className="flex-1 rounded-md bg-red-700 px-2 py-1.5 text-xs font-semibold text-white hover:bg-red-600 disabled:opacity-50 transition-colors"
+              className="btn-hair"
             >
-              Reject
+              Cancel
             </button>
           </div>
-        ) : (
-          <div className="mt-3 space-y-2">
-            <textarea
-              autoFocus
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              rows={2}
-              placeholder="Reason (required)"
-              className="w-full rounded-md border border-slate-700 bg-slate-900 px-2 py-1.5 text-xs text-slate-100 focus:border-indigo-500 focus:outline-none"
-            />
-            <div className="flex gap-1.5">
-              <button
-                type="button"
-                onClick={handleReject}
-                disabled={busy !== null || note.trim().length === 0}
-                className="flex-1 rounded-md bg-red-700 px-2 py-1.5 text-xs font-semibold text-white hover:bg-red-600 disabled:opacity-50 transition-colors"
-              >
-                {busy === "reject" ? "Rejecting…" : "Confirm Reject"}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setRejecting(false);
-                  setNote("");
-                  setError(null);
-                }}
-                disabled={busy !== null}
-                className="rounded-md border border-slate-600 px-2 py-1.5 text-xs text-slate-300 hover:bg-slate-800 transition-colors"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
+        </div>
+      )}
+    </article>
   );
 }

@@ -56,28 +56,30 @@ function HeartbeatContent() {
   const hasAnyActivity = events.length > 0 || agents.length > 0;
 
   return (
-    <div className="flex h-screen flex-col bg-slate-900 text-slate-100">
-      <header className="flex items-center justify-between border-b border-slate-700 px-6 py-4">
+    <div className="flex h-full flex-col bg-ink-900 text-paper">
+      <header className="hairline-b px-8 pt-6 pb-5 flex items-end justify-between gap-4">
         <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold text-slate-100">Heartbeat Health</h1>
+          <div className="label-caps mb-1.5">§ 09 · VITALS</div>
+          <div className="flex items-baseline gap-3">
+            <h1 className="font-display text-[30px] italic leading-none">
+              Heartbeat Health
+            </h1>
             <span
-              className={`rounded-md border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
-                hasAnyActivity
-                  ? "border-green-700 bg-green-600/20 text-green-400"
-                  : "border-slate-600 bg-slate-800 text-slate-400"
+              className={`font-mono text-[10px] uppercase tracking-[0.16em] flex items-center gap-1.5 ${
+                hasAnyActivity ? "text-signal" : "text-paper-40"
               }`}
             >
+              {hasAnyActivity && <span className="phosphor-dot" />}
               {hasAnyActivity ? "ACTIVE" : "IDLE"}
             </span>
           </div>
-          <p className="text-sm text-slate-400 mt-0.5">
+          <p className="mt-2 font-body text-[13px] text-paper-60">
             Live view of agent wake events and per-agent status.
             {lastRefresh && (
               <>
                 {" · "}
-                <span className="text-slate-500">
-                  updated {lastRefresh.toLocaleTimeString()}
+                <span className="font-mono text-[11px] uppercase tracking-widest text-paper-40">
+                  UPDATED {lastRefresh.toLocaleTimeString()}
                 </span>
               </>
             )}
@@ -86,22 +88,9 @@ function HeartbeatContent() {
         <button
           onClick={fetchData}
           disabled={loading}
-          className="flex items-center gap-2 rounded-md border border-slate-600 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800 disabled:opacity-50 transition-colors"
+          className="btn-hair"
         >
-          <svg
-            className={`h-4 w-4 ${loading ? "animate-spin" : ""}`}
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={2}
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-            />
-          </svg>
-          Refresh
+          {loading ? "REFRESHING…" : "REFRESH"}
         </button>
       </header>
 

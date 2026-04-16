@@ -11,39 +11,37 @@ function MemoryExplorerContent() {
   const [activeTab, setActiveTab] = useState<Tab>("search");
 
   return (
-    <div className="flex h-screen flex-col bg-slate-900 text-slate-100">
-      {/* Header */}
-      <header className="border-b border-slate-700 px-6 py-4">
-        <h1 className="text-2xl font-bold text-slate-100">Memory Explorer</h1>
-        <p className="text-sm text-slate-400 mt-0.5">Search and browse agent memories</p>
+    <div className="flex h-full flex-col bg-ink-900 text-paper">
+      <header className="hairline-b px-8 pt-6 pb-5">
+        <div className="label-caps mb-1.5">§ 04 · RECOLLECTION</div>
+        <h1 className="font-display text-[30px] italic leading-none">
+          Memory Explorer
+        </h1>
+        <p className="mt-2 font-body text-[13px] text-paper-60">
+          Search and browse what the agents remember.
+        </p>
       </header>
 
-      {/* Tabs */}
-      <div className="flex border-b border-slate-700 px-6">
-        <button
-          onClick={() => setActiveTab("search")}
-          className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
-            activeTab === "search"
-              ? "border-indigo-400 text-indigo-400"
-              : "border-transparent text-slate-400 hover:text-slate-200"
-          }`}
-        >
-          Search
-        </button>
-        <button
-          onClick={() => setActiveTab("browse")}
-          className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
-            activeTab === "browse"
-              ? "border-indigo-400 text-indigo-400"
-              : "border-transparent text-slate-400 hover:text-slate-200"
-          }`}
-        >
-          Browse
-        </button>
+      <div className="flex hairline-b px-8 gap-6">
+        {(["search", "browse"] as const).map((tab) => (
+          <button
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            className={`relative py-3 font-mono text-[11px] uppercase tracking-[0.16em] transition-colors ${
+              activeTab === tab
+                ? "text-signal"
+                : "text-paper-60 hover:text-paper"
+            }`}
+          >
+            {activeTab === tab && (
+              <span className="absolute left-0 right-0 -bottom-px h-[2px] bg-signal" />
+            )}
+            {tab}
+          </button>
+        ))}
       </div>
 
-      {/* Tab content */}
-      <main className="flex-1 overflow-y-auto p-6">
+      <main className="flex-1 overflow-y-auto px-8 py-6">
         {activeTab === "search" ? <MemorySearch /> : <MemoryList />}
       </main>
     </div>
