@@ -18,6 +18,7 @@ from gclaw.routing.router import ModelRouter
 from gclaw.tools import (
     comms_tools,
     context_tools,
+    image_gen_tools,
     dev_tools,
     home_tools,
     postiz_tools,
@@ -264,10 +265,15 @@ def build_managers(
         postiz_tools.postiz_list_channels,
     ]
 
+    img_tools = [
+        image_gen_tools.generate_image,
+        image_gen_tools.generate_image_b64,
+    ]
+
     cm_tools = [
         comms_tools.list_chat_spaces,
         comms_tools.post_chat_message,
-    ] + pz_tools + board_tools + ctx_tools
+    ] + pz_tools + img_tools + board_tools + ctx_tools
 
     rs_tools = [
         research_tools.web_search,
