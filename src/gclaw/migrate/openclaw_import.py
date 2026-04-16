@@ -26,6 +26,7 @@ import argparse
 import json
 import logging
 import re
+import shutil
 import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -40,6 +41,19 @@ from gclaw.models.catalog import (
     Capabilities,
     ModelParams,
     ProviderKind,
+)
+from gclaw.models.cron import (
+    AgentTurnPayload,
+    AtSchedule,
+    Cron,
+    CronExprSchedule,
+    CronMode,
+    DeliveryAnnounce,
+    DeliveryNone,
+    DeliveryWebhook,
+    EverySchedule,
+    FailureAlert,
+    SystemEventPayload,
 )
 
 logger = logging.getLogger(__name__)
@@ -306,14 +320,41 @@ class ContextPlan:
 
 
 @dataclass
+class CronPlanEntry:
+    cron: Cron
+    source_id: str  # OpenClaw uuid (also used as the GClaw id)
+    schedule_summary: str
+    already_present: bool = False
+
+
+@dataclass
+class SkillPlanEntry:
+    name: str
+    source_path: Path
+    target_path: Path
+    file_count: int
+    already_present: bool = False
+
+
+# OpenClaw bundled "tools" we know about — full sub-projects, not GClaw tools.
+_KNOWN_OPENCLAW_TOOLS: list[tuple[str, str]] = [
+    ("claude-pulse", "Next.js project"),
+    ("watson-kb", "Python module"),
+]
+
+
+@dataclass
 class ImportPlan:
     providers: list[ProviderPlan] = field(default_factory=list)
     models: list[ModelPlan] = field(default_factory=list)
     agents: list[AgentPlan] = field(default_factory=list)
     context_entries: list[ContextPlan] = field(default_factory=list)
+    crons: list[CronPlanEntry] = field(default_factory=list)
+    skills: list[SkillPlanEntry] = field(default_factory=list)
     skipped_binaries: list[Path] = field(default_factory=list)
     missing_workspaces: list[str] = field(default_factory=list)
     unknown_tools: list[str] = field(default_factory=list)
+    manual_tools: list[tuple[str, str]] = field(default_factory=list)
 
 
 # --- Plan builders -----------------------------------------------------------
@@ -373,15 +414,305 @@ def _sm_api_key(env_name: str | None, *, project: str) -> ApiKeySpec | None:
     )
 
 
+# --- Cron import helpers ----------------------------------------------------
+
+
+def _ms_to_dt(ms: Any) -> datetime | None:
+    if ms is None:
+        return None
+    try:
+        return datetime.fromtimestamp(int(ms) / 1000.0, tz=timezone.utc)
+    except (TypeError, ValueError, OSError):
+        return None
+
+
+def _parse_iso(value: Any) -> datetime | None:
+    if not value or not isinstance(value, str):
+        return None
+    s = value.replace("Z", "+00:00")
+    try:
+        dt = datetime.fromisoformat(s)
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def _humanize_ms(ms: int) -> str:
+    if ms <= 0:
+        return f"{ms}ms"
+    s, rem = divmod(int(ms), 1000)
+    if rem:
+        return f"{ms}ms"
+    if s % 86400 == 0:
+        return f"{s // 86400}d"
+    if s % 3600 == 0:
+        return f"{s // 3600}h"
+    if s % 60 == 0:
+        return f"{s // 60}m"
+    return f"{s}s"
+
+
+def _schedule_summary(sched) -> str:
+    if isinstance(sched, AtSchedule):
+        return f"at {sched.at.strftime('%Y-%m-%dT%H:%M')}"
+    if isinstance(sched, EverySchedule):
+        return f"every {_humanize_ms(sched.every_ms)}"
+    if isinstance(sched, CronExprSchedule):
+        return f"cron {sched.expr}"
+    return str(sched)
+
+
+def _build_schedule(raw: dict) -> Any:
+    kind = raw.get("kind")
+    if kind == "at":
+        at = _parse_iso(raw.get("at"))
+        if at is None:
+            raise ValueError(f"invalid 'at' schedule: {raw!r}")
+        return AtSchedule(at=at)
+    if kind == "every":
+        return EverySchedule(
+            every_ms=int(raw.get("everyMs", 0)),
+            anchor_ms=raw.get("anchorMs"),
+        )
+    if kind == "cron":
+        return CronExprSchedule(
+            expr=raw.get("expr", ""),
+            tz=raw.get("tz"),
+            stagger_ms=raw.get("staggerMs"),
+        )
+    raise ValueError(f"unknown schedule kind: {kind!r}")
+
+
+def _build_payload(raw: dict) -> Any:
+    kind = raw.get("kind")
+    if kind == "systemEvent":
+        return SystemEventPayload(text=raw.get("text") or "")
+    if kind == "agentTurn":
+        return AgentTurnPayload(
+            message=raw.get("message") or "",
+            model=raw.get("model"),
+            timeout_seconds=raw.get("timeoutSeconds"),
+            light_context=bool(raw.get("lightContext", False)),
+        )
+    raise ValueError(f"unknown payload kind: {kind!r}")
+
+
+def _build_delivery(raw: dict | None) -> Any:
+    if not raw:
+        return DeliveryNone()
+    mode = raw.get("mode")
+    if mode in (None, "none"):
+        return DeliveryNone()
+    if mode == "announce":
+        return DeliveryAnnounce(
+            channel=raw.get("channel"),
+            to=raw.get("to"),
+            account_id=raw.get("accountId"),
+            best_effort=bool(raw.get("bestEffort", False)),
+        )
+    if mode == "webhook":
+        url = raw.get("url")
+        if not url:
+            return DeliveryNone()
+        return DeliveryWebhook(
+            url=url,
+            best_effort=bool(raw.get("bestEffort", False)),
+        )
+    return DeliveryNone()
+
+
+def _build_failure_alert(raw: dict | None) -> FailureAlert | None:
+    if not raw:
+        return None
+    mode = raw.get("mode") or "announce"
+    return FailureAlert(
+        after=int(raw.get("after", 3)),
+        cooldown_ms=int(raw.get("cooldownMs", 3_600_000)),
+        channel=raw.get("channel"),
+        to=raw.get("to"),
+        url=raw.get("url"),
+        mode=mode if mode in ("announce", "webhook") else "announce",
+    )
+
+
+def _load_crons(source: Path) -> list[dict]:
+    """Read OpenClaw cron/jobs.json. Returns [] if missing."""
+    path = source / "cron" / "jobs.json"
+    if not path.is_file():
+        return []
+    try:
+        data = json.loads(path.read_text())
+    except Exception:
+        logger.warning("failed to parse %s", path, exc_info=True)
+        return []
+    return list(data.get("jobs") or [])
+
+
+def _build_cron_from_dict(raw: dict) -> Cron:
+    """Translate one OpenClaw CronJob dict into a GClaw Cron model."""
+    agent_id = raw.get("agentId") or "main"
+    assignee = "orchestrator" if agent_id == "main" else agent_id
+
+    schedule = _build_schedule(raw.get("schedule") or {})
+    payload = _build_payload(raw.get("payload") or {})
+    delivery = _build_delivery(raw.get("delivery"))
+    failure_alert = _build_failure_alert(raw.get("failureAlert"))
+
+    state = raw.get("state") or {}
+    last_run = _ms_to_dt(state.get("lastRunAtMs"))
+    last_error = state.get("lastError")
+    consecutive_errors = int(state.get("consecutiveErrors") or 0)
+
+    created_at = _ms_to_dt(raw.get("createdAtMs")) or datetime.now(timezone.utc)
+    updated_at = _ms_to_dt(raw.get("updatedAtMs")) or created_at
+
+    wake_mode = raw.get("wakeMode") or "now"
+    if wake_mode not in ("now", "next-heartbeat"):
+        wake_mode = "now"
+
+    # OpenClaw doesn't model auto/todo: agent_turn -> auto, system_event -> todo.
+    if isinstance(payload, AgentTurnPayload):
+        mode = CronMode.AUTO
+    else:
+        mode = CronMode.TODO
+
+    return Cron(
+        id=raw.get("id") or f"cron_{raw.get('name', 'imported')}",
+        title=raw.get("name") or "Imported cron",
+        description=raw.get("description") or "",
+        schedule=schedule,
+        payload=payload,
+        delivery=delivery,
+        failure_alert=failure_alert,
+        mode=mode,
+        assignee=assignee,
+        wake_mode=wake_mode,
+        enabled=bool(raw.get("enabled", True)),
+        delete_after_run=bool(raw.get("deleteAfterRun", False)),
+        last_run=last_run,
+        last_error=last_error,
+        consecutive_errors=consecutive_errors,
+        created_at=created_at,
+        updated_at=updated_at,
+    )
+
+
+def _build_cron_plan(
+    source: Path,
+    *,
+    existing_cron_ids: set[str],
+) -> list[CronPlanEntry]:
+    entries: list[CronPlanEntry] = []
+    for raw in _load_crons(source):
+        try:
+            cron = _build_cron_from_dict(raw)
+        except Exception as exc:
+            logger.warning(
+                "skipping malformed cron %s: %s", raw.get("id"), exc
+            )
+            continue
+        entries.append(
+            CronPlanEntry(
+                cron=cron,
+                source_id=raw.get("id") or cron.id,
+                schedule_summary=_schedule_summary(cron.schedule),
+                already_present=cron.id in existing_cron_ids,
+            )
+        )
+    return entries
+
+
+# --- Skill import helpers ---------------------------------------------------
+
+
+_SKILL_IGNORE = shutil.ignore_patterns(
+    "node_modules", ".git", ".next", "__pycache__",
+    ".venv", "dist", "build", ".turbo", ".cache",
+    "*.pyc",
+)
+
+
+def _count_files(directory: Path) -> int:
+    n = 0
+    skip_dirs = {
+        "node_modules", ".git", ".next", "__pycache__",
+        ".venv", "dist", "build", ".turbo", ".cache",
+    }
+    for path in directory.rglob("*"):
+        if not path.is_file():
+            continue
+        if any(part in skip_dirs for part in path.relative_to(directory).parts):
+            continue
+        n += 1
+    return n
+
+
+def _discover_skills(source: Path) -> list[tuple[str, Path]]:
+    """Find every directory containing SKILL.md under workspaces/*/skills/.
+
+    Dedup by skill name; prefer the one in workspaces/workspace/skills/ first.
+    """
+    workspaces_root = source / "workspaces"
+    if not workspaces_root.is_dir():
+        return []
+
+    # Order workspaces so the canonical "workspace" dir wins on dedup.
+    workspace_dirs = sorted(
+        [p for p in workspaces_root.iterdir() if p.is_dir()],
+        key=lambda p: (p.name != "workspace", p.name),
+    )
+    found: dict[str, Path] = {}
+    for ws in workspace_dirs:
+        skills_dir = ws / "skills"
+        if not skills_dir.is_dir():
+            continue
+        for entry in sorted(skills_dir.iterdir()):
+            if not entry.is_dir():
+                continue
+            if not (entry / "SKILL.md").is_file():
+                continue
+            if entry.name in found:
+                continue  # earlier (canonical) workspace wins
+            found[entry.name] = entry
+    return [(name, path) for name, path in sorted(found.items())]
+
+
+def _build_skill_plan(
+    source: Path, *, target_root: Path
+) -> list[SkillPlanEntry]:
+    entries: list[SkillPlanEntry] = []
+    for name, src_path in _discover_skills(source):
+        target = target_root / name
+        entries.append(
+            SkillPlanEntry(
+                name=name,
+                source_path=src_path,
+                target_path=target,
+                file_count=_count_files(src_path),
+                already_present=(target / "SKILL.md").is_file(),
+            )
+        )
+    return entries
+
+
+# --- Plan builder -----------------------------------------------------------
+
+
 def build_plan(
     source: Path,
     *,
     existing_provider_names: set[str] | None = None,
     existing_model_keys: set[tuple[str, str]] | None = None,
     existing_agent_names: set[str] | None = None,
+    existing_cron_ids: set[str] | None = None,
     skip_providers: bool = False,
     skip_agents: bool = False,
     skip_context: bool = False,
+    skip_crons: bool = False,
+    skip_skills: bool = False,
+    skills_target_dir: Path | None = None,
     use_secret_manager: bool = False,
     sm_project: str = "apex-internal-apps",
 ) -> ImportPlan:
@@ -393,6 +724,7 @@ def build_plan(
     existing_provider_names = existing_provider_names or set()
     existing_model_keys = existing_model_keys or set()
     existing_agent_names = existing_agent_names or set()
+    existing_cron_ids = existing_cron_ids or set()
 
     plan = ImportPlan()
     config_path = source / "openclaw.json"
@@ -585,6 +917,42 @@ def build_plan(
                     )
                 )
 
+    # ------- Crons -------
+    if not skip_crons:
+        plan.crons = _build_cron_plan(source, existing_cron_ids=existing_cron_ids)
+
+    # ------- Skills -------
+    if not skip_skills:
+        target_root = skills_target_dir or (source.parents[1] / "skills")
+        plan.skills = _build_skill_plan(source, target_root=target_root)
+
+    # ------- Manual tools (informational) -------
+    tools_root = source / "workspaces"
+    if tools_root.is_dir():
+        seen_tools: set[str] = set()
+        for ws in sorted(tools_root.iterdir()):
+            tdir = ws / "tools"
+            if not tdir.is_dir():
+                continue
+            for tool_dir in sorted(tdir.iterdir()):
+                if not tool_dir.is_dir():
+                    continue
+                if tool_dir.name in seen_tools:
+                    continue
+                seen_tools.add(tool_dir.name)
+                # Infer kind
+                has_pkg = (tool_dir / "package.json").is_file()
+                has_py = (tool_dir / "setup.py").is_file() or (
+                    tool_dir / "pyproject.toml"
+                ).is_file() or any(tool_dir.glob("*.py"))
+                if has_pkg:
+                    kind = "Next.js project"
+                elif has_py:
+                    kind = "Python module"
+                else:
+                    kind = "unknown project type"
+                plan.manual_tools.append((tool_dir.name, kind))
+
     return plan
 
 
@@ -686,7 +1054,35 @@ def render_plan(plan: ImportPlan) -> str:
     if not (plan.missing_workspaces or plan.unknown_tools or plan.skipped_binaries):
         lines.append("  - (none)")
 
-    lines.append("Skills: 0 to import (OpenClaw skills list not migrated)")
+    # --- Crons ---
+    to_create_c = [c for c in plan.crons if not c.already_present]
+    present_c = [c for c in plan.crons if c.already_present]
+    lines.append(f"Crons to create: {len(to_create_c)}")
+    for c in to_create_c:
+        lines.append(
+            f"  - {c.cron.title} [{c.schedule_summary}] -> {c.cron.assignee}"
+        )
+    lines.append(f"Crons already present (will update): {len(present_c)}")
+
+    # --- Skills ---
+    to_import_s = [s for s in plan.skills if not s.already_present]
+    present_s = [s for s in plan.skills if s.already_present]
+    lines.append(f"Skills to import: {len(to_import_s)}")
+    for s in to_import_s:
+        lines.append(f"  - {s.name} ({s.file_count} files)")
+    if present_s:
+        lines.append(f"Skills already present (will overwrite): {len(present_s)}")
+        for s in present_s:
+            lines.append(f"  - {s.name} ({s.file_count} files)")
+
+    # --- Manual tools ---
+    if plan.manual_tools:
+        lines.append("Tools (manual setup required):")
+        for name, kind in plan.manual_tools:
+            lines.append(
+                f"  - {name} ({kind}) -- deploy separately or skip"
+            )
+
     lines.append("Channels: 0 to import (not wired in this pass)")
     lines.append("")
     lines.append("Run with --apply to execute.")
@@ -705,6 +1101,10 @@ class ApplyResult:
     agents_created: int = 0
     agents_updated: int = 0
     context_created: int = 0
+    crons_created: int = 0
+    crons_updated: int = 0
+    skills_imported: int = 0
+    skill_names: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
 
 
@@ -714,9 +1114,12 @@ def apply_plan(
     catalog_service,
     agent_config_service,
     shared_context_service,
+    cron_service=None,
     skip_providers: bool = False,
     skip_agents: bool = False,
     skip_context: bool = False,
+    skip_crons: bool = False,
+    skip_skills: bool = False,
     use_secret_manager: bool = False,  # noqa: ARG001 — consumed during build_plan
     sm_project: str = "apex-internal-apps",  # noqa: ARG001
 ) -> ApplyResult:
@@ -882,6 +1285,61 @@ def apply_plan(
                     f"context {cp.path.name} → {cp.namespace}: {e}"
                 )
 
+    # -- crons
+    if not skip_crons and cron_service is not None:
+        for ce in plan.crons:
+            try:
+                if ce.already_present:
+                    cron_service.update(
+                        ce.cron.id,
+                        title=ce.cron.title,
+                        schedule=ce.cron.schedule,
+                        payload=ce.cron.payload,
+                        delivery=ce.cron.delivery,
+                        failure_alert=ce.cron.failure_alert,
+                        mode=ce.cron.mode.value,
+                        description=ce.cron.description,
+                        assignee=ce.cron.assignee,
+                        wake_mode=ce.cron.wake_mode,
+                        enabled=ce.cron.enabled,
+                        delete_after_run=ce.cron.delete_after_run,
+                    )
+                    result.crons_updated += 1
+                else:
+                    cron_service.create(
+                        title=ce.cron.title,
+                        assignee=ce.cron.assignee,
+                        schedule=ce.cron.schedule,
+                        payload=ce.cron.payload,
+                        delivery=ce.cron.delivery,
+                        failure_alert=ce.cron.failure_alert,
+                        mode=ce.cron.mode.value,
+                        description=ce.cron.description,
+                        wake_mode=ce.cron.wake_mode,
+                        enabled=ce.cron.enabled,
+                        delete_after_run=ce.cron.delete_after_run,
+                    )
+                    result.crons_created += 1
+            except Exception as e:
+                result.errors.append(f"cron {ce.cron.title}: {e}")
+
+    # -- skills (filesystem copy)
+    if not skip_skills:
+        for sp in plan.skills:
+            try:
+                sp.target_path.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copytree(
+                    sp.source_path,
+                    sp.target_path,
+                    dirs_exist_ok=True,
+                    ignore=_SKILL_IGNORE,
+                    copy_function=shutil.copy2,  # preserves file mode
+                )
+                result.skills_imported += 1
+                result.skill_names.append(sp.name)
+            except Exception as e:
+                result.errors.append(f"skill {sp.name}: {e}")
+
     return result
 
 
@@ -901,6 +1359,14 @@ def render_apply(result: ApplyResult) -> str:
         f"{result.agents_updated} updated"
     )
     lines.append(f"Shared-context entries: {result.context_created} created")
+    lines.append(
+        f"Crons: {result.crons_created} created, "
+        f"{result.crons_updated} updated"
+    )
+    lines.append(
+        f"Skills: {result.skills_imported} imported"
+        + (f" ({', '.join(result.skill_names)})" if result.skill_names else "")
+    )
     if result.errors:
         lines.append(f"Errors ({len(result.errors)}):")
         for e in result.errors[:50]:
@@ -967,10 +1433,23 @@ def _build_services() -> dict[str, Any]:
         blob_store=blob_store,
     )
 
+    # Cron service for importing cron jobs.
+    from gclaw.board.service import BoardService
+    from gclaw.cron.service import CronService
+    from gclaw.firestore.board_repo import BoardRepo
+    from gclaw.firestore.cron_repo import CronRepo
+
+    dev_user_id = os.environ.get("GCLAW_USER_ID", "default_user")
+    board_repo = BoardRepo(db=db, user_id=dev_user_id)
+    board_service = BoardService(repo=board_repo, user_id=dev_user_id)
+    cron_repo = CronRepo(db=db, user_id=dev_user_id)
+    cron_service = CronService(cron_repo=cron_repo, board_service=board_service)
+
     return {
         "catalog_service": catalog_service,
         "agent_config_service": agent_config_service,
         "shared_context_service": shared_context_service,
+        "cron_service": cron_service,
     }
 
 
@@ -995,6 +1474,17 @@ def _existing_sets(services: dict[str, Any]) -> tuple[set[str], set[tuple[str, s
     return provider_names, model_keys, agent_names
 
 
+def _existing_cron_ids(services: dict[str, Any]) -> set[str]:
+    """Return ids of crons already in the system."""
+    cron_svc = services.get("cron_service")
+    if cron_svc is None:
+        return set()
+    try:
+        return {c.id for c in cron_svc.list_all()}
+    except Exception:
+        return set()
+
+
 # --- CLI ---------------------------------------------------------------------
 
 
@@ -1005,6 +1495,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--skip-providers", action="store_true")
     parser.add_argument("--skip-agents", action="store_true")
     parser.add_argument("--skip-context", action="store_true")
+    parser.add_argument("--skip-crons", action="store_true")
+    parser.add_argument("--skip-skills", action="store_true")
     parser.add_argument(
         "--use-secret-manager",
         action="store_true",
@@ -1030,18 +1522,28 @@ def main(argv: list[str] | None = None) -> int:
     if args.apply:
         services = _build_services()
         prov_names, model_keys, agent_names = _existing_sets(services)
+        cron_ids = _existing_cron_ids(services)
     else:
         services = {}
         prov_names, model_keys, agent_names = set(), set(), set()
+        cron_ids: set[str] = set()
+
+    # skills target = repo_root/skills/
+    repo_root = Path(__file__).resolve().parents[3]
+    skills_target = repo_root / "skills"
 
     plan = build_plan(
         source,
         existing_provider_names=prov_names,
         existing_model_keys=model_keys,
         existing_agent_names=agent_names,
+        existing_cron_ids=cron_ids,
         skip_providers=args.skip_providers,
         skip_agents=args.skip_agents,
         skip_context=args.skip_context,
+        skip_crons=args.skip_crons,
+        skip_skills=args.skip_skills,
+        skills_target_dir=skills_target,
         use_secret_manager=args.use_secret_manager,
         sm_project=args.sm_project,
     )
@@ -1056,9 +1558,12 @@ def main(argv: list[str] | None = None) -> int:
         catalog_service=services.get("catalog_service"),
         agent_config_service=services.get("agent_config_service"),
         shared_context_service=services.get("shared_context_service"),
+        cron_service=services.get("cron_service"),
         skip_providers=args.skip_providers,
         skip_agents=args.skip_agents,
         skip_context=args.skip_context,
+        skip_crons=args.skip_crons,
+        skip_skills=args.skip_skills,
         use_secret_manager=args.use_secret_manager,
         sm_project=args.sm_project,
     )

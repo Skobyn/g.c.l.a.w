@@ -10,8 +10,14 @@ import pytest
 
 from gclaw.migrate.openclaw_import import (
     ApplyResult,
+    CronPlanEntry,
     ImportPlan,
+    SkillPlanEntry,
+    _build_cron_from_dict,
     _classify_provider,
+    _discover_skills,
+    _load_crons,
+    _schedule_summary,
     _split_ref,
     apply_plan,
     build_plan,
@@ -24,6 +30,13 @@ from gclaw.models.catalog import (
     ModelProvider,
     ModelRecord,
     ProviderKind,
+)
+from gclaw.models.cron import (
+    AgentTurnPayload,
+    AtSchedule,
+    Cron,
+    CronExprSchedule,
+    SystemEventPayload,
 )
 
 
@@ -487,3 +500,259 @@ def test_apply_plan_context_namespace_values(tmp_path):
     for w in sc.writes:
         assert w["created_by"] == "openclaw-import"
         assert w["metadata"]["source"] == "openclaw-import"
+
+
+# ---- cron import tests ------------------------------------------------------
+
+
+def _sample_cron_at_system_event() -> dict:
+    return {
+        "id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        "agentId": "main",
+        "name": "Reminder: dentist",
+        "enabled": False,
+        "createdAtMs": 1769654164017,
+        "updatedAtMs": 1769654164036,
+        "schedule": {"kind": "at", "at": "2025-02-04T00:00:00.000Z"},
+        "sessionTarget": "main",
+        "wakeMode": "next-heartbeat",
+        "payload": {"kind": "systemEvent", "text": "Don't forget dentist!"},
+        "state": {"lastRunAtMs": 1769654164036, "lastStatus": "ok"},
+    }
+
+
+def _sample_cron_cron_agent_turn() -> dict:
+    return {
+        "id": "11111111-2222-3333-4444-555555555555",
+        "agentId": "intel",
+        "name": "Feed digest",
+        "enabled": True,
+        "createdAtMs": 1774200000000,
+        "updatedAtMs": 1774200000000,
+        "schedule": {
+            "kind": "cron",
+            "expr": "0 10 * * *",
+            "tz": "America/Chicago",
+        },
+        "sessionTarget": "isolated",
+        "wakeMode": "now",
+        "payload": {
+            "kind": "agentTurn",
+            "message": "Pull feeds and write digest",
+            "timeoutSeconds": 600,
+        },
+        "delivery": {
+            "mode": "announce",
+            "channel": "slack",
+            "bestEffort": True,
+            "to": "user:U123",
+        },
+        "state": {
+            "lastRunAtMs": 1774271804929,
+            "lastStatus": "ok",
+            "consecutiveErrors": 0,
+        },
+    }
+
+
+def test_load_crons_parses_jobs_file(tmp_path):
+    """Fixture with 2 sample CronJob dicts. Returns Cron objects with right types."""
+    cron_dir = tmp_path / "cron"
+    cron_dir.mkdir()
+    jobs = {"version": 1, "jobs": [_sample_cron_at_system_event(), _sample_cron_cron_agent_turn()]}
+    (cron_dir / "jobs.json").write_text(json.dumps(jobs))
+
+    raw_list = _load_crons(tmp_path)
+    assert len(raw_list) == 2
+
+    c1 = _build_cron_from_dict(raw_list[0])
+    assert isinstance(c1, Cron)
+    assert isinstance(c1.schedule, AtSchedule)
+    assert isinstance(c1.payload, SystemEventPayload)
+    assert c1.title == "Reminder: dentist"
+    assert c1.enabled is False
+    assert c1.wake_mode == "next-heartbeat"
+
+    c2 = _build_cron_from_dict(raw_list[1])
+    assert isinstance(c2, Cron)
+    assert isinstance(c2.schedule, CronExprSchedule)
+    assert c2.schedule.tz == "America/Chicago"
+    assert isinstance(c2.payload, AgentTurnPayload)
+    assert c2.payload.timeout_seconds == 600
+    assert c2.assignee == "intel"
+
+
+def test_cron_main_agent_id_maps_to_orchestrator():
+    raw = _sample_cron_at_system_event()
+    assert raw["agentId"] == "main"
+    cron = _build_cron_from_dict(raw)
+    assert cron.assignee == "orchestrator"
+
+
+class FakeCronService:
+    """Minimal stub for CronService in import tests."""
+
+    def __init__(self):
+        self.crons: dict[str, dict] = {}
+        self.creates: list[dict] = []
+        self.updates: list[dict] = []
+
+    def list_all(self):
+        return list(self.crons.values())
+
+    def create(self, title, assignee, **kw):
+        cron = Cron(title=title, assignee=assignee, **kw)
+        self.crons[cron.id] = cron
+        self.creates.append({"title": title})
+        return cron
+
+    def update(self, cron_id, **kw):
+        self.updates.append({"id": cron_id, **kw})
+        return self.crons.get(cron_id)
+
+
+def test_cron_apply_idempotent(tmp_path):
+    """Apply twice; second run should update, not create duplicates."""
+    source = tmp_path / "src"
+    source.mkdir()
+    (source / "openclaw.json").write_text(json.dumps(
+        {"agents": {"defaults": {}, "list": []}, "models": {"providers": {}}}
+    ))
+    cron_dir = source / "cron"
+    cron_dir.mkdir()
+    jobs = {"version": 1, "jobs": [_sample_cron_cron_agent_turn()]}
+    (cron_dir / "jobs.json").write_text(json.dumps(jobs))
+
+    svc = FakeCronService()
+
+    plan1 = build_plan(
+        source,
+        skip_providers=True,
+        skip_agents=True,
+        skip_context=True,
+    )
+    assert len(plan1.crons) == 1
+    result1 = apply_plan(
+        plan1,
+        catalog_service=None,
+        agent_config_service=None,
+        shared_context_service=None,
+        cron_service=svc,
+        skip_providers=True,
+        skip_agents=True,
+        skip_context=True,
+    )
+    assert result1.crons_created == 1
+
+    # Second apply: mark existing ids
+    plan2 = build_plan(
+        source,
+        skip_providers=True,
+        skip_agents=True,
+        skip_context=True,
+        existing_cron_ids={ce.cron.id for ce in plan1.crons},
+    )
+    assert plan2.crons[0].already_present is True
+    result2 = apply_plan(
+        plan2,
+        catalog_service=None,
+        agent_config_service=None,
+        shared_context_service=None,
+        cron_service=svc,
+        skip_providers=True,
+        skip_agents=True,
+        skip_context=True,
+    )
+    assert result2.crons_created == 0
+    assert result2.crons_updated == 1
+
+
+# ---- skill import tests -----------------------------------------------------
+
+
+def test_discover_skills_finds_skill_md_dirs(tmp_path):
+    ws = tmp_path / "workspaces" / "workspace" / "skills"
+    s1 = ws / "alpha"
+    s1.mkdir(parents=True)
+    (s1 / "SKILL.md").write_text("# Alpha")
+    (s1 / "helper.py").write_text("pass")
+
+    s2 = ws / "beta"
+    s2.mkdir()
+    (s2 / "SKILL.md").write_text("# Beta")
+
+    # dir without SKILL.md should NOT be discovered
+    s3 = ws / "gamma"
+    s3.mkdir()
+    (s3 / "README.md").write_text("no skill")
+
+    result = _discover_skills(tmp_path)
+    names = [n for n, _ in result]
+    assert "alpha" in names
+    assert "beta" in names
+    assert "gamma" not in names
+
+
+def test_skill_apply_copies_files_and_ignores_node_modules(tmp_path):
+    source = tmp_path / "src"
+    ws = source / "workspaces" / "workspace" / "skills" / "test-skill"
+    ws.mkdir(parents=True)
+    (ws / "SKILL.md").write_text("# Test Skill")
+    (ws / "run.py").write_text("print('hi')")
+    nm = ws / "node_modules" / "foo"
+    nm.mkdir(parents=True)
+    (nm / "index.js").write_text("module.exports = {}")
+    pycache = ws / "__pycache__"
+    pycache.mkdir()
+    (pycache / "cached.pyc").write_text("bytes")
+
+    target_root = tmp_path / "skills"
+    target_root.mkdir()
+
+    (source / "openclaw.json").write_text(json.dumps(
+        {"agents": {"defaults": {}, "list": []}, "models": {"providers": {}}}
+    ))
+
+    plan = build_plan(
+        source,
+        skip_providers=True,
+        skip_agents=True,
+        skip_context=True,
+        skip_crons=True,
+        skills_target_dir=target_root,
+    )
+    assert len(plan.skills) == 1
+    assert plan.skills[0].name == "test-skill"
+
+    result = apply_plan(
+        plan,
+        catalog_service=None,
+        agent_config_service=None,
+        shared_context_service=None,
+        skip_providers=True,
+        skip_agents=True,
+        skip_context=True,
+        skip_crons=True,
+    )
+    assert result.skills_imported == 1
+    target = target_root / "test-skill"
+    assert (target / "SKILL.md").is_file()
+    assert (target / "run.py").is_file()
+    assert not (target / "node_modules").exists()
+    assert not (target / "__pycache__").exists()
+
+
+def test_skill_dedup_prefers_main_workspace(tmp_path):
+    """When same skill name exists in multiple workspaces, prefer 'workspace'."""
+    ws1 = tmp_path / "workspaces" / "workspace" / "skills" / "shared-skill"
+    ws1.mkdir(parents=True)
+    (ws1 / "SKILL.md").write_text("# From main workspace")
+
+    ws2 = tmp_path / "workspaces" / "workspace-adlan" / "skills" / "shared-skill"
+    ws2.mkdir(parents=True)
+    (ws2 / "SKILL.md").write_text("# From adlan workspace")
+
+    result = _discover_skills(tmp_path)
+    assert len([n for n, _ in result if n == "shared-skill"]) == 1
+    _, path = next((n, p) for n, p in result if n == "shared-skill")
+    assert "workspace" in path.parts and "workspace-adlan" not in str(path)
