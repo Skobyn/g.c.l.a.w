@@ -270,7 +270,8 @@ async def test_model(
             status_code=400,
             detail=f"Provider {model.provider_id!r} not found for model {model_id!r}",
         )
-    return await test_connection(provider, model)
+    resolved_key = svc.resolve_api_key(provider)
+    return await test_connection(provider, model, resolved_key=resolved_key)
 
 
 # --- Presets ----------------------------------------------------------------

@@ -44,6 +44,13 @@ _DEFAULT_BASE_URLS = {
 
 
 def _resolve_key(provider: ModelProvider) -> str | None:
+    """Fallback local resolver. Handles LITERAL and ENV only.
+
+    Secret-Manager-backed keys (including OAuth-refreshed tokens) must be
+    resolved by the caller via ``CatalogService.resolve_api_key`` and passed
+    into ``test_connection`` as ``resolved_key`` — that path has SM reader
+    and OAuth token-manager integration this module can't replicate.
+    """
     spec = provider.api_key
     if spec is None:
         return None
@@ -73,22 +80,30 @@ def _result(
 async def test_connection(
     provider: ModelProvider,
     model: ModelRecord,
+    *,
+    resolved_key: str | None = None,
 ) -> dict:
     """Make a minimal request against ``provider``/``model``.
+
+    When ``resolved_key`` is provided, it is used verbatim — this is the
+    canonical path because ``CatalogService.resolve_api_key`` handles
+    SECRET_MANAGER and OAuth tokens. When omitted, falls back to a local
+    LITERAL/ENV-only resolver.
 
     Returns a JSON-serializable dict with keys:
       ok, latency_ms, error, sample_response
     """
     start = time.perf_counter()
+    key = resolved_key if resolved_key is not None else _resolve_key(provider)
     try:
         if provider.kind in _OPENAI_COMPAT_KINDS:
-            return await _test_openai_compat(provider, model, start)
+            return await _test_openai_compat(provider, model, start, key)
         if provider.kind == ProviderKind.ANTHROPIC:
-            return await _test_anthropic(provider, model, start)
+            return await _test_anthropic(provider, model, start, key)
         if provider.kind == ProviderKind.ANTHROPIC_OAUTH:
-            return await _test_anthropic_oauth(provider, model, start)
+            return await _test_anthropic_oauth(provider, model, start, key)
         if provider.kind == ProviderKind.GOOGLE_GEMINI:
-            return await _test_google_gemini(provider, model, start)
+            return await _test_google_gemini(provider, model, start, key)
         if provider.kind == ProviderKind.GOOGLE_VERTEX:
             return await _test_google_vertex(provider, model, start)
         latency = (time.perf_counter() - start) * 1000
@@ -103,7 +118,7 @@ async def test_connection(
 
 
 async def _test_openai_compat(
-    provider: ModelProvider, model: ModelRecord, start: float
+    provider: ModelProvider, model: ModelRecord, start: float, key: str | None
 ) -> dict:
     base_url = provider.base_url or _DEFAULT_BASE_URLS.get(provider.kind)
     if not base_url:
@@ -112,7 +127,6 @@ async def _test_openai_compat(
 
     url = base_url.rstrip("/") + "/chat/completions"
     headers = {"Content-Type": "application/json", **provider.default_headers}
-    key = _resolve_key(provider)
     if key:
         headers["Authorization"] = f"Bearer {key}"
 
@@ -139,11 +153,10 @@ async def _test_openai_compat(
 
 
 async def _test_anthropic(
-    provider: ModelProvider, model: ModelRecord, start: float
+    provider: ModelProvider, model: ModelRecord, start: float, key: str | None
 ) -> dict:
     base_url = provider.base_url or _DEFAULT_BASE_URLS[ProviderKind.ANTHROPIC]
     url = base_url.rstrip("/") + "/v1/messages"
-    key = _resolve_key(provider)
     headers = {
         "Content-Type": "application/json",
         "anthropic-version": "2023-06-01",
@@ -173,11 +186,10 @@ async def _test_anthropic(
 
 
 async def _test_anthropic_oauth(
-    provider: ModelProvider, model: ModelRecord, start: float
+    provider: ModelProvider, model: ModelRecord, start: float, key: str | None
 ) -> dict:
     base_url = provider.base_url or _DEFAULT_BASE_URLS[ProviderKind.ANTHROPIC]
     url = base_url.rstrip("/") + "/v1/messages"
-    key = _resolve_key(provider)
     headers = {
         "Content-Type": "application/json",
         "anthropic-version": "2023-06-01",
@@ -208,9 +220,8 @@ async def _test_anthropic_oauth(
 
 
 async def _test_google_gemini(
-    provider: ModelProvider, model: ModelRecord, start: float
+    provider: ModelProvider, model: ModelRecord, start: float, key: str | None
 ) -> dict:
-    key = _resolve_key(provider)
     if not key:
         latency = (time.perf_counter() - start) * 1000
         return _result(
