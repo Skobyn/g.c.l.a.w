@@ -426,6 +426,17 @@ def build_app():
         except Exception:
             logger.warning("catalog: seed_system_defaults failed", exc_info=True)
 
+    # Tool catalog — sibling of the model catalog. Populated on demand via
+    # /admin/tools. Agent binding arrives in Phase 3; for now the service
+    # is stood up so the routes have somewhere to land.
+    tool_catalog_service = None
+    try:
+        from gclaw.firestore.tool_repo import ToolRepo
+        from gclaw.tools.catalog.service import ToolCatalogService
+        tool_catalog_service = ToolCatalogService(tool_repo=ToolRepo(db=db))
+    except Exception:
+        logger.warning("tool catalog: init failed", exc_info=True)
+
     # OAuth token manager — constructed below once SM service is ready;
     # forward-declared so we can pass it into create_app().
     oauth_manager = None
@@ -828,6 +839,7 @@ def build_app():
         system_config_repo=system_config_repo,
         run_registry=run_registry,
         agent_runs_repo=agent_runs_repo,
+        tool_catalog_service=tool_catalog_service,
     )
 
 

@@ -35,7 +35,7 @@ EXECUTION RULES (read these first, every loop iteration)
 STATE TRACKER  (source of truth for /loop progress)
 ================================================================================
 [x] Phase 1: Data model + Firestore repo + service-layer CRUD — DONE 2026-04-18: ToolKind enum + 5 AuthSpec variants + 4 ToolConfig variants (discriminated unions, derived top-level kind); ToolRecord round-trips through to_firestore_dict; ToolRepo mirrors ModelRepo at config/tools_catalog/tools/{id}; ToolCatalogService with create/get/list/list_enabled/list_by_kind/update/delete/validate_config; 31 tests across tests/test_tool_catalog_model.py + tests/test_tool_catalog_service.py all pass; existing catalog tests unaffected.
-[ ] Phase 2: Admin CRUD API (/admin/tools) + test-tool endpoint
+[x] Phase 2: Admin CRUD API (/admin/tools) + test-tool endpoint — DONE 2026-04-18: 5 REST endpoints (list/create/get/patch/delete) under /admin/tools + POST /admin/tools/{id}/test; kind-dispatched tester with real builtin probe (import + signature report) and stub responses for mcp/http_api/code_exec until Phases 4/5/6 land; wired through api/app.py and main.py (ToolCatalogService constructed alongside the model catalog); 11 route tests across CRUD happy-path + discriminator-mismatch-400 + 404s + probe dispatch all pass (49 tests total across Phase 1+2+existing catalog).
 [ ] Phase 3: Builtin-kind migration — catalog-aware binding in AgentFactory
 [ ] Phase 4: MCP-kind integration (stdio/SSE/HTTP transports) + credentials
 [ ] Phase 5: HTTP-API-kind + OpenAPI→MCP in-process auto-wrap
