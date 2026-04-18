@@ -8,10 +8,24 @@ from gclaw.tools import research_tools
 
 
 @pytest.mark.asyncio
-async def test_web_search_stub_returns_placeholder():
-    result = await research_tools.web_search("test query")
+async def test_web_search_returns_grounded_answer():
+    mock_response = MagicMock()
+    mock_response.text = "Synthesized answer about test query."
+    mock_response.candidates = []  # no grounding chunks → no Sources block
+
+    mock_client = MagicMock()
+    mock_client.aio.models.generate_content = AsyncMock(return_value=mock_response)
+
+    with patch("google.genai.Client", return_value=mock_client):
+        result = await research_tools.web_search("test query")
+
     assert "test query" in result
-    assert "stub" in result.lower() or "not yet" in result.lower() or "placeholder" in result.lower()
+
+
+@pytest.mark.asyncio
+async def test_web_search_rejects_empty_query():
+    result = await research_tools.web_search("   ")
+    assert "empty" in result.lower()
 
 
 @pytest.mark.asyncio
