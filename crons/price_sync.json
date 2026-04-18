@@ -1,0 +1,8 @@
+{
+    "name": "price_sync",
+    "description": "Nightly refresh of ModelCatalog pricing + context windows from LiteLLM JSON + OpenRouter /models. Keeps context-% gauge and cost math current without a redeploy.",
+    "schedule": "15 3 * * *",
+    "schedule_description": "Daily at 03:15 UTC",
+    "endpoint": "POST /admin/price-sync",
+    "notes": "Cloud Scheduler should hit POST /admin/price-sync on the configured schedule. The endpoint is admin-scoped (protected by Firebase auth when enabled). Infrastructure setup is manual or via Terraform — not managed by this application."
+}

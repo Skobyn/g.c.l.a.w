@@ -320,3 +320,27 @@ def install_presets(
         )
         created.append(_serialize_model(created_model))
     return {"created": created, "skipped": skipped}
+
+
+# --- Nightly price sync (Phase 5) -------------------------------------------
+
+
+@router.post("/price-sync")
+async def price_sync(
+    _user_id: str = Depends(get_current_user_id),  # noqa: B008
+) -> dict:
+    """Refresh every catalog model's pricing + context window from LiteLLM
+    JSON + OpenRouter ``/models``.
+
+    Idempotent: only writes back when upstream actually differs. Driven
+    by Cloud Scheduler on a daily cadence (see crons/price_sync.json).
+    The endpoint is admin-scoped via the standard Firebase auth
+    dependency.
+    """
+    import asyncio
+
+    from gclaw.models.price_sync import sync_catalog_prices
+
+    svc = _require_service()
+    result = await asyncio.to_thread(sync_catalog_prices, svc)
+    return result.as_dict()
