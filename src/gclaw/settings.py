@@ -15,6 +15,15 @@ class Settings:
     gcp_location: str = field(
         default_factory=lambda: os.environ.get("GCP_LOCATION", "us-central1")
     )
+    # IANA timezone for the primary user. Agents use this to convert
+    # between UTC (wall-clock server time, logs, Firestore timestamps)
+    # and the user's local time when interpreting phrases like "at 8am
+    # tomorrow" and when formatting times in replies. Crons created
+    # without an explicit tz inherit this default. Multi-tenant setup
+    # is a follow-up — today it's a single global default.
+    user_timezone: str = field(
+        default_factory=lambda: os.environ.get("USER_TIMEZONE", "UTC")
+    )
     gemini_pro_model: str = field(
         default_factory=lambda: os.environ.get(
             "GEMINI_PRO_MODEL", "gemini-2.5-flash"

@@ -34,11 +34,17 @@ class CronService:
         board_service: BoardService,
         cron_event_queue_repo: Any | None = None,
         delivery_service: CronDeliveryService | None = None,
+        default_timezone: str = "UTC",
     ) -> None:
         self._repo = cron_repo
         self._board = board_service
         self._event_queue = cron_event_queue_repo
         self._delivery = delivery_service or CronDeliveryService()
+        # Applied to CronExprSchedule records that come in without an
+        # explicit tz. Without this, every cron silently interprets its
+        # expression in UTC, so "0 8 * * *" fires at midnight for a
+        # Central-time user.
+        self._default_tz = default_timezone
 
     # ------------------------------------------------------------------ create
     def create(
@@ -69,6 +75,12 @@ class CronService:
         - If ``delivery`` is omitted, ``DeliveryNone`` is used.
         """
         sched = self._coerce_schedule(schedule, cron_expr)
+        # If the caller gave us a cron-expression schedule without a tz,
+        # stamp the user default so the schedule isn't silently UTC.
+        if isinstance(sched, CronExprSchedule) and not sched.tz:
+            sched = sched.model_copy(update={"tz": self._default_tz})
+        elif isinstance(sched, dict) and sched.get("kind") == "cron" and not sched.get("tz"):
+            sched = {**sched, "tz": self._default_tz}
         pl = self._coerce_payload(payload, title=title, description=description)
         deliv = delivery if delivery is not None else DeliveryNone()
 

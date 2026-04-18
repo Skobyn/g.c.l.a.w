@@ -251,6 +251,7 @@ def _build_heartbeat_registry(
         board_service=board_service,
         cron_event_queue_repo=cron_event_queue_repo,
         delivery_service=delivery_service,
+        default_timezone=settings.user_timezone,
     )
     context_gatherer = HeartbeatContextGatherer(
         board_service=board_service,
@@ -542,6 +543,7 @@ def build_app():
         cron_repo=cron_repo,
         board_service=board_service,
         delivery_service=cron_delivery,
+        default_timezone=settings.user_timezone,
     )
 
     # Config + skills
@@ -550,7 +552,11 @@ def build_app():
     from gclaw.skill.in_memory_repo import InMemorySkillRepo
 
     skill_loader = SkillLoader()
-    loader = ConfigLoader(settings.config_dir, skill_loader=skill_loader)
+    loader = ConfigLoader(
+        settings.config_dir,
+        skill_loader=skill_loader,
+        user_timezone=settings.user_timezone,
+    )
     skill_registry = SkillRegistry(skill_repo=InMemorySkillRepo())
     loaded_skills = skill_registry.load_builtins(settings.skills_dir)
     logger.info("Loaded %d built-in skills", len(loaded_skills))

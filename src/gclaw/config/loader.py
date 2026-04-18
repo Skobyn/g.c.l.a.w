@@ -93,10 +93,12 @@ class ConfigLoader:
         override_provider: (
             Callable[[str], "AgentOverride | None"] | None
         ) = None,
+        user_timezone: str = "UTC",
     ) -> None:
         self._config_dir = config_dir
         self._skill_loader = skill_loader
         self._override_provider = override_provider
+        self._user_timezone = user_timezone
 
     def _get_override(self, agent_name: str) -> "AgentOverride | None":
         if self._override_provider is None:
@@ -114,6 +116,38 @@ class ConfigLoader:
         """Set (or clear) the override provider. Used when the service is
         constructed after the loader (chicken-and-egg at app boot)."""
         self._override_provider = provider
+
+    def current_time_block(self) -> str:
+        """Render a '# Current time' section with UTC + user-local clock.
+
+        Gemini has no inherent notion of wall-clock time or the user's
+        timezone — without this, agents guess (usually wrong, usually
+        UTC) when they reason about "at 8am tomorrow" or "in two
+        hours". We compute it fresh on every prompt build so it stays
+        accurate for the turn the agent is about to take.
+        """
+        from datetime import datetime, timezone as _dt_tz
+
+        now_utc = datetime.now(_dt_tz.utc)
+        tz_name = self._user_timezone or "UTC"
+        local_str = now_utc.astimezone(_dt_tz.utc).isoformat(timespec="seconds")
+        try:
+            from zoneinfo import ZoneInfo
+
+            local_dt = now_utc.astimezone(ZoneInfo(tz_name))
+            local_str = local_dt.strftime("%Y-%m-%d %H:%M %Z")
+        except Exception:
+            # Unknown IANA name — fall back to UTC with a warning note.
+            tz_name = f"{tz_name} (invalid — falling back to UTC)"
+            local_str = now_utc.strftime("%Y-%m-%d %H:%M UTC")
+
+        return (
+            f"UTC: {now_utc.isoformat(timespec='seconds')}\n"
+            f"User local ({tz_name}): {local_str}\n"
+            "Use the user-local time when interpreting phrases like 'today', "
+            "'tomorrow', 'this morning', or when setting reminders/crons. "
+            "Persist timestamps in UTC; display them in the user's local zone."
+        )
 
     def load_user_profile(self) -> str:
         """Return the shared user-profile markdown, or "" if missing.
@@ -282,6 +316,10 @@ class ConfigLoader:
         # Agent definition (frontmatter stripped)
         agent_def = self.load_agent(agent_name)
         parts.append(f"# Agent Role\n\n{agent_def}")
+
+        # Current time — injected on every build so the agent never has
+        # to guess "what time is it" or silently assume UTC.
+        parts.append(f"# Current time\n\n{self.current_time_block()}")
 
         # User profile — shared context about who the user is. Injected
         # once at the top of every agent prompt (after the role) so agents
