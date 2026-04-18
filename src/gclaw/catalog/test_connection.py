@@ -198,9 +198,14 @@ async def _test_anthropic_oauth(
     }
     if key:
         headers["Authorization"] = f"Bearer {key}"
+    # Claude Code OAuth tokens require the request to identify itself as
+    # Claude Code via a system prompt. Without it Anthropic silently
+    # rate-limits (HTTP 429 with a blank "Error" message) on higher-tier
+    # models like opus/sonnet — haiku tolerates the missing identifier.
     body = {
         "model": model.model_id,
         "max_tokens": 5,
+        "system": "You are Claude Code, Anthropic's official CLI for Claude.",
         "messages": [{"role": "user", "content": "ping"}],
     }
     async with httpx.AsyncClient(timeout=_TIMEOUT_SECONDS) as client:
