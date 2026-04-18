@@ -67,6 +67,7 @@ def create_app(
     run_registry: object | None = None,
     agent_runs_repo: object | None = None,
     tool_catalog_service: object | None = None,
+    vertex_scorer: object | None = None,
 ) -> FastAPI:
     # Lifespan that optionally starts the per-agent heartbeat loop.
     _loop_holder: dict = {}
@@ -202,6 +203,10 @@ def create_app(
 
     if tool_catalog_service is not None:
         app.include_router(init_tool_router(tool_catalog_service))
+
+    if vertex_scorer is not None:
+        from gclaw.api.scoring_routes import init_scoring_router
+        app.include_router(init_scoring_router(scorer=vertex_scorer))
 
     if config_loader is not None and skill_registry is not None:
         app.include_router(init_admin_router(

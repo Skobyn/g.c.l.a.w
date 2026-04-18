@@ -705,6 +705,36 @@ def build_app():
     )
     set_recorder(usage_recorder)
 
+    # Guardrails — inline I/O validation on every agent response.
+    # No-op when GUARDRAILS_ENABLED=false; the service is still
+    # constructed so runner wiring stays uniform.
+    guardrail_service = None
+    try:
+        from gclaw.guardrails import GuardrailService
+        guardrail_service = GuardrailService(
+            enabled=settings.guardrails_enabled,
+            default_profile=settings.guardrails_default_profile,
+        )
+        if settings.guardrails_enabled:
+            logger.info(
+                "guardrails: enabled (profile=%s)",
+                settings.guardrails_default_profile,
+            )
+    except Exception:
+        logger.warning("guardrails: init failed", exc_info=True)
+
+    # Vertex Gen AI Evaluation — async quality scoring (nightly cron).
+    vertex_scorer = None
+    try:
+        from gclaw.eval.vertex_scoring_service import VertexScoringService
+        vertex_scorer = VertexScoringService(
+            project=settings.gcp_project_id,
+            location=settings.gcp_location,
+            enabled=settings.vertex_scoring_enabled,
+        )
+    except Exception:
+        logger.warning("vertex-scoring: init failed", exc_info=True)
+
     # Runner
     runner = AgentRunner(
         agent=orchestrator,
@@ -715,6 +745,7 @@ def build_app():
         session_store=session_store,
         usage_recorder=usage_recorder,
         model_chain_provider=factory.resolve_model_chain,
+        guardrail_service=guardrail_service,
     )
 
     # Multi-agent runner registry. The chat endpoint lets the user
@@ -734,6 +765,7 @@ def build_app():
             session_store=session_store,
             usage_recorder=usage_recorder,
             model_chain_provider=factory.resolve_model_chain,
+            guardrail_service=guardrail_service,
         )
 
     runner_registry = AgentRunnerRegistry(
@@ -840,6 +872,7 @@ def build_app():
         run_registry=run_registry,
         agent_runs_repo=agent_runs_repo,
         tool_catalog_service=tool_catalog_service,
+        vertex_scorer=vertex_scorer,
     )
 
 

@@ -264,6 +264,28 @@ class Settings:
             "OTEL_SAMPLING_RATIO", "1.0"
         ))
     )
+    # Guardrails — OFF by default. When true, AgentRunner calls
+    # GuardrailService.check_output on the completed response and
+    # stamps guardrail.{outcome,violations} on the turn span. A BLOCK
+    # outcome raises GuardrailBlockedError.
+    guardrails_enabled: bool = field(
+        default_factory=lambda: os.environ.get(
+            "GUARDRAILS_ENABLED", "false"
+        ).lower() == "true"
+    )
+    guardrails_default_profile: str = field(
+        default_factory=lambda: os.environ.get(
+            "GUARDRAILS_DEFAULT_PROFILE", "loose"
+        )
+    )
+    # Vertex Gen AI Evaluation — nightly async quality scoring. OFF by
+    # default; when true the /admin/eval/run endpoint returns real
+    # scores instead of {enabled:false}.
+    vertex_scoring_enabled: bool = field(
+        default_factory=lambda: os.environ.get(
+            "VERTEX_SCORING_ENABLED", "false"
+        ).lower() == "true"
+    )
 
 
 def get_settings() -> Settings:

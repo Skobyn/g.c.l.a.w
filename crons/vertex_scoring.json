@@ -1,0 +1,11 @@
+{
+    "name": "vertex_scoring",
+    "description": "Nightly quality scoring — samples recent agent spans and runs Vertex Gen AI Evaluation (groundedness, coherence, tool_use_quality). Writes scores back to Firestore + Phoenix span attributes for the dashboard.",
+    "schedule": "30 4 * * *",
+    "schedule_description": "Daily at 04:30 UTC",
+    "endpoint": "POST /admin/eval/run",
+    "request_body": {
+        "samples": "<span-sampler-output; empty body = no-op dry run>"
+    },
+    "notes": "Cloud Scheduler hits this endpoint nightly. Request body comes from the span-sampler that pulls the last 24h of OpenInference spans from Phoenix and stratifies by agent name. Scorer is fail-soft: when google-cloud-aiplatform is unavailable or VERTEX_SCORING_ENABLED=false, the endpoint returns {enabled:false} without error."
+}

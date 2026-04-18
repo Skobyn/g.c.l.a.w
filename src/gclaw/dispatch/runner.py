@@ -142,6 +142,8 @@ class AgentRunner:
         extraction_topics: list[str] | None = None,
         usage_recorder: "UsageRecorder | None" = None,
         model_chain_provider: Callable[[str], list[Any]] | None = None,
+        guardrail_service: object | None = None,
+        guardrail_profile: str | None = None,
     ) -> None:
         self._agent = agent
         self._app_name = app_name
@@ -150,6 +152,8 @@ class AgentRunner:
         self._board_service = board_service
         self._session_store = session_store
         self._usage_recorder = usage_recorder
+        self._guardrail_service = guardrail_service
+        self._guardrail_profile = guardrail_profile
         # Default to the full MemoryTopic taxonomy so Memory Bank's
         # generate call has structured guidance instead of picking a
         # narrow category on its own. Callers can override with a
@@ -412,6 +416,14 @@ class AgentRunner:
                     )
                 except Exception:
                     pass
+            # Inline guardrail check — only runs when a service is
+            # wired AND enabled. Fail-open on service errors (logged
+            # via the service itself). A BLOCK outcome raises and the
+            # chat endpoint translates that to a 4xx for the client.
+            if self._guardrail_service is not None and getattr(
+                self._guardrail_service, "enabled", False
+            ) and response.text:
+                await self._apply_guardrail(turn_span, response.text)
             break
 
         _ = last_error  # silence unused-assignment warning
@@ -451,6 +463,42 @@ class AgentRunner:
             task.add_done_callback(self._pending_captures.discard)
 
         return response
+
+    async def _apply_guardrail(self, turn_span: Any, text: str) -> None:
+        """Run the configured guardrail service and stamp span attrs."""
+        try:
+            import json as _json
+
+            result = await self._guardrail_service.check_output(
+                text, profile=self._guardrail_profile
+            )
+        except Exception:
+            logger.warning(
+                "guardrail: check_output raised (swallowed)", exc_info=True
+            )
+            return
+
+        try:
+            turn_span.set_attribute(
+                "guardrail.outcome", result.outcome.value
+            )
+            if result.violations:
+                turn_span.set_attribute(
+                    "guardrail.violations",
+                    _json.dumps(result.violations_as_json())[:4096],
+                )
+            if result.duration_ms:
+                turn_span.set_attribute(
+                    "guardrail.duration_ms", int(result.duration_ms)
+                )
+        except Exception:
+            pass
+
+        outcome_name = getattr(result.outcome, "value", str(result.outcome))
+        if outcome_name == "block":
+            from gclaw.guardrails.models import GuardrailBlockedError
+
+            raise GuardrailBlockedError(result)
 
     def _record_turn(
         self,
