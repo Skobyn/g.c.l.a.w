@@ -447,6 +447,11 @@ def build_app():
             catalog_service.set_oauth_manager(oauth_manager)
 
             # Register all ANTHROPIC_OAUTH providers whose key is in SM.
+            # ``register`` is declared async but only touches an in-memory
+            # set — when uvicorn calls build_app() as a factory inside
+            # its ASGI lifespan, asyncio.run() fails with "cannot be
+            # called from a running event loop". Mutating _tracked
+            # directly side-steps the coroutine entirely.
             registered = 0
             try:
                 for prov in catalog_service.list_providers():
@@ -456,11 +461,7 @@ def build_app():
                         continue
                     if prov.api_key.kind != ApiKeyKind.SECRET_MANAGER:
                         continue
-                    # Synchronous register since oauth_manager.register is
-                    # a coroutine; drive with asyncio.run to avoid needing
-                    # an event loop here.
-                    import asyncio
-                    asyncio.run(oauth_manager.register(prov.api_key.value))
+                    oauth_manager._tracked.add(prov.api_key.value)
                     registered += 1
             except Exception:
                 logger.warning(
@@ -472,14 +473,30 @@ def build_app():
                     "oauth-manager: registered %d provider(s) for refresh",
                     registered,
                 )
-                # Kick a synchronous ensure_fresh pass to catch any tokens
-                # that expired while we were down.
+                # Initial ensure_fresh pass — run in a worker thread
+                # because the factory may be executing inside uvicorn's
+                # running loop, where asyncio.run() would raise.
                 try:
                     import asyncio
+                    import concurrent.futures
+
                     async def _initial_refresh():
                         for p in oauth_manager.tracked_paths():
                             await oauth_manager.ensure_fresh(p)
-                    asyncio.run(_initial_refresh())
+
+                    try:
+                        asyncio.get_running_loop()
+                        # We're inside a loop — run the coroutine on a
+                        # short-lived worker thread.
+                        with concurrent.futures.ThreadPoolExecutor(
+                            max_workers=1
+                        ) as ex:
+                            ex.submit(
+                                asyncio.run, _initial_refresh()
+                            ).result(timeout=30)
+                    except RuntimeError:
+                        # No running loop — safe to call directly.
+                        asyncio.run(_initial_refresh())
                 except Exception:
                     logger.warning(
                         "oauth-manager: initial ensure_fresh pass failed",
@@ -523,6 +540,18 @@ def build_app():
     # Memory
     memory_service = _build_memory_service(settings)
 
+    # System config (user_timezone, future cross-cutting settings).
+    # Read once at boot; admin route hot-swaps live when the user
+    # changes it from the UI. Computed here — BEFORE the first
+    # cron_service construction — so every downstream consumer
+    # (cron, loader, heartbeat registry) sees the same resolved tz.
+    from gclaw.config.system_config import SystemConfigRepo
+    system_config_repo = SystemConfigRepo(db=db)
+    _sysconf = system_config_repo.get()
+    effective_timezone = (
+        _sysconf.get("user_timezone") or settings.user_timezone
+    )
+
     # Cron service — used by admin routes + heartbeat. The delivery
     # service is constructed ONCE and shared with both the user-facing
     # CronService (admin API) and the per-agent CronService inside the
@@ -551,16 +580,6 @@ def build_app():
     from gclaw.skill.loader import SkillLoader
     from gclaw.skill.registry import SkillRegistry
     from gclaw.skill.in_memory_repo import InMemorySkillRepo
-
-    # System config (user_timezone, future cross-cutting settings).
-    # Read once at boot; admin route hot-swaps live when the user
-    # changes it from the UI.
-    from gclaw.config.system_config import SystemConfigRepo
-    system_config_repo = SystemConfigRepo(db=db)
-    _sysconf = system_config_repo.get()
-    effective_timezone = (
-        _sysconf.get("user_timezone") or settings.user_timezone
-    )
 
     skill_loader = SkillLoader()
     loader = ConfigLoader(
