@@ -24,6 +24,24 @@ env:
   GCP_REGION: ${{ secrets.GCP_REGION }}
 
 jobs:
+  # ── Path filter ────────────────────────────────────────────────────
+  # Emits per-path booleans so the Phoenix deploy only runs when
+  # infra/phoenix/** or this workflow actually changed.
+  changes:
+    name: Detect changed paths
+    runs-on: ubuntu-latest
+    outputs:
+      phoenix: ${{ steps.filter.outputs.phoenix }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            phoenix:
+              - 'infra/phoenix/**'
+              - '.github/workflows/deploy.yml'
+
   # ── Test ───────────────────────────────────────────────────────────
   test:
     name: Test (Python)
@@ -92,6 +110,32 @@ jobs:
       - name: Build & deploy web
         working-directory: web
         run: gcloud builds submit --project $GCP_PROJECT --config cloudbuild.yaml . --quiet
+
+  # ── Deploy Phoenix (observability OTLP sink → Cloud Run: phoenix) ──
+  # Path-filtered: only runs when infra/phoenix/** or this workflow
+  # changes. See infra/phoenix/README.md for one-time GCP provisioning.
+  deploy-phoenix:
+    name: Deploy Phoenix
+    needs: [test, changes]
+    if: needs.changes.outputs.phoenix == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Build & deploy phoenix
+        run: gcloud builds submit --project $GCP_PROJECT --config infra/phoenix/cloudbuild.yaml --quiet
 
 # ─────────────────────────────────────────────────────────────────────
 # ONE-TIME SETUP (run these gcloud commands once to enable WIF)

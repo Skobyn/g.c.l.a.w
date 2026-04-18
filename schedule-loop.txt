@@ -30,7 +30,7 @@ STATE TRACKER  (source of truth for /loop progress)
 ================================================================================
 [x] Phase 1: OpenTelemetry + OpenInference foundation — DONE 2026-04-18: added 7 OTel/OpenInference deps, created src/gclaw/observability/{__init__,constants,tracing}.py with fail-soft Cloud Trace + OTLP/HTTP exporters and ADK/LiteLLM instrumentors; 5 OBS_* settings fields wired; init_tracing() called at top of build_app(); scripts/otel_smoke.py + 3 unit tests. 1019 pytests pass (1 pre-existing research_tools failure unrelated to Phase 1, confirmed via git stash). .env.example touched through Write permissions denied — OBS vars documented in settings.py + tracing.py docstrings; user to sync .env.example manually if desired.
 [x] Phase 2: Runner instrumentation (AgentRunner spans) — DONE 2026-04-18: added observability/semconv.py attribute helpers; runner.py wraps run() in AGENT-kind OpenInference span via _run_turn() split; LLM token/model attrs stamped on both success and fallback-exhausted paths; record_exception + ERROR status on failure; 3 new tests via InMemorySpanExporter. 1022 pytests pass (34 runner tests + 3 new span tests).
-[ ] Phase 3: Phoenix sidecar on Cloud Run (OTLP sink)
+[x] Phase 3: Phoenix sidecar on Cloud Run (OTLP sink) — DONE 2026-04-18: added infra/phoenix/{Dockerfile,cloudbuild.yaml,README.md} + .github/workflows/deploy.yml gains `changes` path-filter job (dorny/paths-filter@v3) and `deploy-phoenix` gated on infra/phoenix/** changes. README documents one-time Cloud SQL + VPC connector + phoenix-run-sa + Secret Manager provisioning. Both YAML files lint-clean; 1022 pytests pass. Phoenix image pinned to arizephoenix/phoenix:version-8.0.0 with TODO(ops) to swap in a digest before first prod rollout. Actual GCP provisioning and first deploy remain the user's manual step.
 [ ] Phase 4: LiveSpanProcessor -> Firestore + SSE endpoint
 [ ] Phase 5: ModelCatalog context/cache enrichment + nightly price sync
 [ ] Phase 6: Next.js live agent cockpit widgets
@@ -195,46 +195,88 @@ C — Completion
   [ ] git commit: `feat(obs): instrument AgentRunner with OpenInference spans`
 
 ================================================================================
-PHASE 3 — Phoenix sidecar on Cloud Run (OTLP sink)
+PHASE 3 — Phoenix sidecar on Cloud Run (OTLP sink)  [CI/CD via GitHub Actions]
 ================================================================================
+Deploy model: GitHub Actions → Workload Identity Federation → `gcloud builds
+submit` → cloudbuild.yaml → Artifact Registry + Cloud Run. Existing pipeline
+lives in .github/workflows/deploy.yml + cloudbuild.yaml (gclaw backend).
+Phase 3 adds a second service `phoenix` with its own cloudbuild pipeline and
+a new job in the existing workflow. The loop writes IaC artifacts only —
+one-time GCP provisioning (Cloud SQL, VPC connector, Secret Manager entries,
+IAM bindings for the phoenix-run-sa) remains the user's manual step because
+those operations require human authorization.
+
 S — Specification
   Goal: Deploy Arize Phoenix as a second OTLP consumer alongside Cloud Trace so
   the team has a rich trace/evaluation UI without data ever leaving apex-internal-apps.
   Acceptance:
-    - Phoenix reachable at an internal Cloud Run URL (auth via IAM).
-    - Same spans from Phase 2 appear in both Cloud Trace AND Phoenix.
-    - Phoenix persists to a dedicated Postgres (Cloud SQL private instance).
-    - Deploy docs updated; rollback is `--no-traffic` + delete revision.
+    - infra/phoenix/ contains Dockerfile + cloudbuild.yaml + README.md that
+      a human operator can use to stand up the service once provisioning is done.
+    - A new `deploy-phoenix` job in .github/workflows/deploy.yml triggers on
+      push to master (gated by a path filter `infra/phoenix/**`) and runs
+      `gcloud builds submit --config infra/phoenix/cloudbuild.yaml`.
+    - README.md documents one-time provisioning (Cloud SQL, VPC connector,
+      phoenix-run-sa, Secret Manager entries) and the rollback procedure.
+    - Main-app OTEL_EXPORTER_OTLP_ENDPOINT left empty in code (set via
+      Secret Manager in prod env); cloudbuild for gclaw backend unchanged.
 
 P — Pseudocode
-  1. infra/phoenix/Dockerfile — base: arizephoenix/phoenix:latest
-  2. infra/phoenix/cloudbuild.yaml — build + push + gcloud run deploy
-  3. Provision Cloud SQL Postgres (db: phoenix, private IP, VPC connector)
-  4. Cloud Run service: ingress=internal, auth=IAM invoker, min=0/max=2,
-     env PHOENIX_SQL_DATABASE_URL from Secret Manager
-  5. Main app settings: set OTEL_EXPORTER_OTLP_ENDPOINT to the Phoenix URL
-  6. Add VPC egress connector so gclaw-backend Cloud Run can hit Phoenix internal URL
+  1. infra/phoenix/Dockerfile — base: arizephoenix/phoenix:<pinned-digest>;
+     set PHOENIX_WORKING_DIR, PHOENIX_PORT=6006.
+  2. infra/phoenix/cloudbuild.yaml — three-step pipeline mirroring the root
+     cloudbuild.yaml shape (build → push SHA + latest → deploy). Substitutions:
+       _REGION: us-central1
+       _IMAGE: us-central1-docker.pkg.dev/${PROJECT_ID}/gclaw/phoenix
+       _SERVICE: phoenix
+     gcloud run deploy flags:
+       --ingress=internal-and-cloud-load-balancing
+       --no-allow-unauthenticated
+       --service-account=phoenix-run-sa@${PROJECT_ID}.iam.gserviceaccount.com
+       --vpc-connector=<user-provisioned>
+       --set-secrets=PHOENIX_SQL_DATABASE_URL=phoenix-sql-url:latest
+       --set-env-vars=PHOENIX_WORKING_DIR=/tmp/phoenix,PHOENIX_PORT=6006,...
+       --min-instances=0 --max-instances=2 --cpu=1 --memory=1Gi
+  3. .github/workflows/deploy.yml — add job `deploy-phoenix` mirroring
+     `deploy-backend` but:
+       - working-directory: . (cloudbuild path is infra/phoenix/cloudbuild.yaml)
+       - path filter limiting it to changes in infra/phoenix/** or the workflow
+         file itself (use dorny/paths-filter or a simple `if:` guard against
+         the commit message / changed files via github.event.head_commit)
+       - needs: test (doesn't depend on gclaw backend; it's an independent service)
+  4. infra/phoenix/README.md — one-time provisioning + rollback + troubleshooting.
 
 A — Architecture
   - NEW: infra/phoenix/Dockerfile
   - NEW: infra/phoenix/cloudbuild.yaml
-  - NEW: infra/phoenix/README.md                (deploy + rollback steps)
-  - MOD: .env.example                           (document OTEL_EXPORTER_OTLP_ENDPOINT)
-  - MOD: docs/architecture.md or README.md      (architecture diagram update)
+  - NEW: infra/phoenix/README.md          (provisioning + rollback docs)
+  - MOD: .github/workflows/deploy.yml     (add deploy-phoenix job)
 
 R — Refinement
-  - Pin Phoenix image to a specific digest, not :latest (reproducible deploys).
-  - Budget alert on Cloud SQL (small f1-micro tier to start, $10-15/mo).
-  - Retention: Phoenix env PHOENIX_TRACE_RETENTION_DAYS=14 to keep DB small.
-  - Note: Phoenix self-host under Elastic License 2.0 — document this.
+  - Pin the Phoenix image to a specific DIGEST, not :latest. Look it up from
+    https://hub.docker.com/r/arizephoenix/phoenix/tags and record the digest
+    in a comment in the Dockerfile so future bumps are explicit.
+  - Document in README: Cloud SQL db_f1_micro tier, `db_name: phoenix`, private
+    IP only, enable Cloud SQL Admin API, budget alert at $20/mo.
+  - Retention: Phoenix env PHOENIX_TRACE_RETENTION_DAYS=14 in cloudbuild.yaml.
+  - Elastic License 2.0 — document in README.md that self-hosted Phoenix is
+    source-available but not OSI-approved; compliance sign-off is the user's.
+  - Path-filtered job prevents every backend push from also rebuilding Phoenix.
 
-C — Completion
-  [ ] Cloud Run service `phoenix` reachable internally (curl via IAP)
-  [ ] Main app OTEL_EXPORTER_OTLP_ENDPOINT points to Phoenix URL
-  [ ] One real chat turn produces trace visible in Phoenix UI
-  [ ] Cloud Trace still receives the same spans (dual-sink verified)
-  [ ] Rollback procedure tested (delete revision; main app degrades gracefully)
-  [ ] git commit: `feat(obs): deploy Phoenix OTLP sink on Cloud Run`
+C — Completion (loop-reachable scope)
+  [ ] infra/phoenix/Dockerfile present with pinned Phoenix digest
+  [ ] infra/phoenix/cloudbuild.yaml present and lint-clean (YAML parses)
+  [ ] infra/phoenix/README.md documents provisioning + rollback
+  [ ] .github/workflows/deploy.yml parses (use `python -c "import yaml; yaml.safe_load(open(...))"` as a smoke)
+  [ ] `yamllint` (if available) OR basic yaml.safe_load passes on both YAML files
+  [ ] `uv run pytest` full suite still green (no Python code changed — should be a no-op)
+  [ ] git commit: `feat(obs): add Phoenix Cloud Run sidecar + deploy job`
+
+C — Manual verification (user, post-merge)
+  [ ] One-time: create Cloud SQL `phoenix` instance + phoenix-run-sa + VPC connector + Secret Manager entry for PHOENIX_SQL_DATABASE_URL
+  [ ] Merge PR; deploy-phoenix job succeeds in GitHub Actions
+  [ ] `gcloud run services describe phoenix --region=us-central1` returns URL
+  [ ] Update Secret Manager `otel-exporter-otlp-endpoint` with the Phoenix URL
+  [ ] One real chat turn → trace visible in Phoenix UI AND Cloud Trace
 
 ================================================================================
 PHASE 4 — LiveSpanProcessor -> Firestore + SSE endpoint

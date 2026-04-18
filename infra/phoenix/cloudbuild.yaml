@@ -1,0 +1,79 @@
+# Cloud Build pipeline for the Phoenix OTLP sink (Cloud Run service).
+#
+# Invoked by .github/workflows/deploy.yml on pushes that touch
+# infra/phoenix/** or the workflow file itself. Mirrors the shape of
+# the root cloudbuild.yaml (build -> push SHA + latest -> deploy).
+#
+# One-time provisioning (see infra/phoenix/README.md) must be done BEFORE
+# the first run of this pipeline:
+#   - Cloud SQL Postgres instance `phoenix-db` with db `phoenix`
+#   - phoenix-run-sa service account with roles/cloudsql.client, logging.logWriter
+#   - Secret Manager entry `phoenix-sql-url` holding the Cloud SQL connection URL
+#   - VPC connector `gclaw-connector` (shared with the backend)
+
+substitutions:
+  _REGION: us-central1
+  _IMAGE: us-central1-docker.pkg.dev/apex-internal-apps/gclaw/phoenix
+  _SERVICE: phoenix
+  _SERVICE_ACCOUNT: phoenix-run-sa@apex-internal-apps.iam.gserviceaccount.com
+  _VPC_CONNECTOR: gclaw-connector
+
+steps:
+  - id: build
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - --tag=${_IMAGE}:${BUILD_ID}
+      - --tag=${_IMAGE}:latest
+      - infra/phoenix
+
+  - id: push-sha
+    name: gcr.io/cloud-builders/docker
+    args: [push, "${_IMAGE}:${BUILD_ID}"]
+    waitFor: [build]
+
+  - id: push-latest
+    name: gcr.io/cloud-builders/docker
+    args: [push, "${_IMAGE}:latest"]
+    waitFor: [build]
+
+  - id: deploy
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - ${_SERVICE}
+      - --image=${_IMAGE}:${BUILD_ID}
+      - --region=${_REGION}
+      - --platform=managed
+      - --port=6006
+      # Private ingress only — Phoenix is reached from the gclaw backend
+      # over the shared VPC connector, never from the public internet.
+      - --ingress=internal-and-cloud-load-balancing
+      - --no-allow-unauthenticated
+      - --service-account=${_SERVICE_ACCOUNT}
+      - --vpc-connector=${_VPC_CONNECTOR}
+      - --vpc-egress=private-ranges-only
+      # PHOENIX_SQL_DATABASE_URL is the full Cloud SQL connection URL
+      # (e.g. postgresql+psycopg://user:pass@/phoenix?host=/cloudsql/<instance>).
+      - --set-secrets=PHOENIX_SQL_DATABASE_URL=phoenix-sql-url:latest
+      - --set-env-vars=PHOENIX_WORKING_DIR=/tmp/phoenix,PHOENIX_PORT=6006,PHOENIX_HOST=0.0.0.0,PHOENIX_ENABLE_AUTH=true,PHOENIX_TRACE_RETENTION_DAYS=14
+      - --min-instances=0
+      - --max-instances=2
+      - --cpu=1
+      - --memory=1Gi
+      - --timeout=60
+      - --quiet
+    waitFor: [push-sha]
+
+images:
+  - ${_IMAGE}:${BUILD_ID}
+  - ${_IMAGE}:latest
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: E2_HIGHCPU_8
+  substitution_option: ALLOW_LOOSE
+
+timeout: 1200s
