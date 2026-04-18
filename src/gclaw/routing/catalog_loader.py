@@ -57,7 +57,14 @@ def load_endpoints_from_catalog(
             max_context_tokens=model.context_window or 128_000,
         )
         api_key = catalog_service.resolve_api_key(provider)
-        adk_overrides[name] = build_adk_override_from_model(provider, model, api_key)
+        captured_provider = provider
+
+        def _key_provider(_p=captured_provider):
+            return catalog_service.resolve_api_key(_p)
+
+        adk_overrides[name] = build_adk_override_from_model(
+            provider, model, api_key, key_provider=_key_provider
+        )
 
     router = ModelRouter(
         endpoints=endpoints,

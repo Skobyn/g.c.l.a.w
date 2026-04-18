@@ -200,8 +200,16 @@ class AgentFactory:
                 exc_info=True,
             )
             api_key = None
+        catalog = self._catalog
+        captured_provider = provider
+
+        def _key_provider():
+            return catalog.resolve_api_key(captured_provider)
+
         try:
-            adk_model = build_adk_override_from_model(provider, model, api_key)
+            adk_model = build_adk_override_from_model(
+                provider, model, api_key, key_provider=_key_provider
+            )
         except Exception:
             logger.warning(
                 "factory: build_adk_override_from_model failed for %r",
@@ -296,7 +304,19 @@ class AgentFactory:
             return None
         provider, model = resolved
         api_key = self._catalog.resolve_api_key(provider)
-        adk_model = build_adk_override_from_model(provider, model, api_key)
+        # Capture a closure that re-resolves the key on demand so
+        # OAuth-backed providers (Anthropic OAuth, Copilot exchange)
+        # get a fresh token per call instead of baking the boot-time
+        # value into the LiteLlm instance.
+        catalog = self._catalog
+        captured_provider = provider
+
+        def _key_provider():
+            return catalog.resolve_api_key(captured_provider)
+
+        adk_model = build_adk_override_from_model(
+            provider, model, api_key, key_provider=_key_provider
+        )
         return self._apply_params_override(adk_model, ref.params)
 
     def build(
