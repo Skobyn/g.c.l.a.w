@@ -234,6 +234,36 @@ class Settings:
             "POSTIZ_CHANNEL_APEX", ""
         )
     )
+    # Observability — OpenTelemetry + OpenInference. OFF by default; when
+    # OBSERVABILITY_ENABLED=true the main.py composition root calls
+    # observability.init_tracing() which registers a TracerProvider with
+    # Cloud Trace (primary) and an optional OTLP/HTTP exporter (secondary,
+    # typically a Phoenix Cloud Run service wired in Phase 3).
+    observability_enabled: bool = field(
+        default_factory=lambda: os.environ.get(
+            "OBSERVABILITY_ENABLED", "false"
+        ).lower() == "true"
+    )
+    otel_exporter_otlp_endpoint: str = field(
+        default_factory=lambda: os.environ.get(
+            "OTEL_EXPORTER_OTLP_ENDPOINT", ""
+        )
+    )
+    otel_exporter_otlp_headers: str = field(
+        default_factory=lambda: os.environ.get(
+            "OTEL_EXPORTER_OTLP_HEADERS", ""
+        )
+    )
+    otel_service_name: str = field(
+        default_factory=lambda: os.environ.get(
+            "OTEL_SERVICE_NAME", "gclaw-backend"
+        )
+    )
+    otel_sampling_ratio: float = field(
+        default_factory=lambda: float(os.environ.get(
+            "OTEL_SAMPLING_RATIO", "1.0"
+        ))
+    )
 
 
 def get_settings() -> Settings:

@@ -321,6 +321,18 @@ def _build_heartbeat_registry(
 def build_app():
     settings = get_settings()
 
+    # Observability — must run BEFORE AgentFactory/ADK imports so the
+    # OpenInference instrumentors patch google-adk + litellm call sites
+    # at boot. No-op when OBSERVABILITY_ENABLED is false.
+    try:
+        from gclaw.observability import init_tracing
+        init_tracing(settings)
+    except Exception:
+        logger.warning(
+            "observability: init_tracing failed — continuing without tracing",
+            exc_info=True,
+        )
+
     # Bootstrap Secret Manager-backed runtime credentials (GH_TOKEN,
     # GOOGLE_WORKSPACE_CREDENTIALS_FILE, etc.) BEFORE we import anything
     # that might read those env vars. Non-fatal — missing secrets just
