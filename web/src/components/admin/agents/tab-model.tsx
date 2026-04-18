@@ -6,7 +6,6 @@ import type {
   CatalogModel,
   ThinkingLevel,
 } from "@/types";
-import { ChipInput } from "./chip-input";
 import {
   INPUT_CLS,
   LABEL_CLS,
@@ -80,14 +79,63 @@ export function TabModel({ value, models, onSave, onDirtyChange }: Props) {
     onDirtyChange(dirty);
   }, [dirty, onDirtyChange]);
 
-  const modelOptions = useMemo(
-    () =>
-      models.map((m) => ({
+  // Only offer enabled models; dedupe by model_id (same id may appear under
+  // multiple providers, e.g. gpt-4o via OpenAI and OpenRouter — the router
+  // resolves that at runtime).
+  const modelOptions = useMemo(() => {
+    const seen = new Set<string>();
+    const out: { value: string; label: string }[] = [];
+    for (const m of models) {
+      if (!m.enabled) continue;
+      if (seen.has(m.model_id)) continue;
+      seen.add(m.model_id);
+      out.push({
         value: m.model_id,
-        label: `${m.display_name} (${m.model_id})`,
-      })),
-    [models],
+        label:
+          m.display_name && m.display_name !== m.model_id
+            ? `${m.display_name} — ${m.model_id}`
+            : m.model_id,
+      });
+    }
+    out.sort((a, b) => a.label.localeCompare(b.label));
+    return out;
+  }, [models]);
+
+  const knownIds = useMemo(
+    () => new Set(modelOptions.map((o) => o.value)),
+    [modelOptions],
   );
+
+  // When a saved primary or fallback references a model that is no longer
+  // enabled / present in the catalog, show it anyway so the user isn't
+  // silently losing configuration — just tag it "(missing)".
+  const primaryOptions = useMemo(() => {
+    const opts = modelOptions.slice();
+    if (local.primary && !knownIds.has(local.primary)) {
+      opts.unshift({
+        value: local.primary,
+        label: `${local.primary} (not in catalog)`,
+      });
+    }
+    return opts;
+  }, [modelOptions, knownIds, local.primary]);
+
+  const fallbackOptions = useMemo(
+    () => modelOptions.filter((o) => !local.fallbacks.includes(o.value)),
+    [modelOptions, local.fallbacks],
+  );
+
+  function addFallback(modelId: string) {
+    if (!modelId) return;
+    if (local.fallbacks.includes(modelId)) return;
+    setLocal({ ...local, fallbacks: [...local.fallbacks, modelId] });
+  }
+
+  function removeFallback(idx: number) {
+    const next = local.fallbacks.slice();
+    next.splice(idx, 1);
+    setLocal({ ...local, fallbacks: next });
+  }
 
   async function save() {
     setSaving(true);
@@ -107,32 +155,82 @@ export function TabModel({ value, models, onSave, onDirtyChange }: Props) {
 
       <div>
         <label className={LABEL_CLS}>Primary model</label>
-        <input
-          type="text"
+        <select
           className={INPUT_CLS}
-          list="model-options"
           value={local.primary ?? ""}
           onChange={(e) =>
             setLocal({ ...local, primary: e.target.value || null })
           }
-          placeholder="model_id (free-form or pick from catalog)"
-        />
-        <datalist id="model-options">
-          {modelOptions.map((o) => (
+          disabled={modelOptions.length === 0 && !local.primary}
+        >
+          <option value="">(inherit default)</option>
+          {primaryOptions.map((o) => (
             <option key={o.value} value={o.value}>
               {o.label}
             </option>
           ))}
-        </datalist>
+        </select>
+        {modelOptions.length === 0 && (
+          <p className="mt-1 text-[11px] text-amber-400">
+            No models configured. Add providers + models in{" "}
+            <span className="font-mono">/admin/models</span> first.
+          </p>
+        )}
       </div>
 
       <div>
         <label className={LABEL_CLS}>Fallbacks</label>
-        <ChipInput
-          values={local.fallbacks}
-          onChange={(v) => setLocal({ ...local, fallbacks: v })}
-          placeholder="Add fallback model_id and press Enter"
-        />
+        <div className="flex flex-wrap items-center gap-1.5 rounded-md border border-slate-600 bg-slate-900 px-2 py-1.5">
+          {local.fallbacks.map((mid, i) => {
+            const missing = !knownIds.has(mid);
+            return (
+              <span
+                key={`${mid}-${i}`}
+                className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs ${
+                  missing
+                    ? "border-amber-600/60 bg-amber-950/40 text-amber-200"
+                    : "border-slate-600 bg-slate-800 text-slate-200"
+                }`}
+                title={missing ? "Not in catalog" : undefined}
+              >
+                {mid}
+                <button
+                  type="button"
+                  onClick={() => removeFallback(i)}
+                  className="text-slate-400 hover:text-red-300"
+                  aria-label={`Remove ${mid}`}
+                >
+                  ×
+                </button>
+              </span>
+            );
+          })}
+          {local.fallbacks.length === 0 && (
+            <span className="px-1 text-xs text-slate-500">
+              No fallbacks set
+            </span>
+          )}
+        </div>
+        <select
+          className={`${INPUT_CLS} mt-2`}
+          value=""
+          onChange={(e) => {
+            addFallback(e.target.value);
+            e.target.value = "";
+          }}
+          disabled={fallbackOptions.length === 0}
+        >
+          <option value="">
+            {fallbackOptions.length === 0
+              ? "All configured models already selected"
+              : "+ Add fallback model"}
+          </option>
+          {fallbackOptions.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
       </div>
 
       <div>
