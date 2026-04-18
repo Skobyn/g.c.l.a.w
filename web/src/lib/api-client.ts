@@ -342,6 +342,24 @@ export class ApiClient {
     });
   }
 
+  // --- Admin: System ---
+
+  async getSystemTimezone(): Promise<{ timezone: string }> {
+    return this.request<{ timezone: string }>("/admin/system/timezone");
+  }
+
+  async updateSystemTimezone(
+    timezone: string,
+  ): Promise<{ timezone: string; status: string }> {
+    return this.request<{ timezone: string; status: string }>(
+      "/admin/system/timezone",
+      {
+        method: "PUT",
+        body: JSON.stringify({ timezone }),
+      },
+    );
+  }
+
   // --- Admin: User Profile ---
 
   async getUserProfile(): Promise<{ content: string }> {

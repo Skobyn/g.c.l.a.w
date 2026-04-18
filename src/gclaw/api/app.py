@@ -62,6 +62,7 @@ def create_app(
     oauth_manager: object | None = None,
     oauth_loop_enabled: bool = False,
     oauth_refresh_interval_seconds: int = 300,
+    system_config_repo: object | None = None,
 ) -> FastAPI:
     # Lifespan that optionally starts the per-agent heartbeat loop.
     _loop_holder: dict = {}
@@ -180,6 +181,7 @@ def create_app(
             cron_service=cron_service,
             heartbeat_registry=heartbeat_registry,
             cron_delivery_service=cron_delivery_service,
+            system_config_repo=system_config_repo,
         ))
 
     if connection_service is not None:

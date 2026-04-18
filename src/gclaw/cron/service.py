@@ -46,6 +46,13 @@ class CronService:
         # Central-time user.
         self._default_tz = default_timezone
 
+    def set_default_timezone(self, tz: str) -> None:
+        """Hot-swap the default timezone applied to new unzoned crons."""
+        self._default_tz = tz or "UTC"
+
+    def get_default_timezone(self) -> str:
+        return self._default_tz or "UTC"
+
     # ------------------------------------------------------------------ create
     def create(
         self,

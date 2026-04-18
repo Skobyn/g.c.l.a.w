@@ -224,6 +224,7 @@ def _build_heartbeat_registry(
     runner,
     config_loader,
     delivery_service,
+    effective_timezone: str = "UTC",
 ):
     """Build a HeartbeatRegistry containing one HeartbeatService per
     agent that opted into the heartbeat via YAML frontmatter.
@@ -251,7 +252,7 @@ def _build_heartbeat_registry(
         board_service=board_service,
         cron_event_queue_repo=cron_event_queue_repo,
         delivery_service=delivery_service,
-        default_timezone=settings.user_timezone,
+        default_timezone=effective_timezone,
     )
     context_gatherer = HeartbeatContextGatherer(
         board_service=board_service,
@@ -543,7 +544,7 @@ def build_app():
         cron_repo=cron_repo,
         board_service=board_service,
         delivery_service=cron_delivery,
-        default_timezone=settings.user_timezone,
+        default_timezone=effective_timezone,
     )
 
     # Config + skills
@@ -551,11 +552,21 @@ def build_app():
     from gclaw.skill.registry import SkillRegistry
     from gclaw.skill.in_memory_repo import InMemorySkillRepo
 
+    # System config (user_timezone, future cross-cutting settings).
+    # Read once at boot; admin route hot-swaps live when the user
+    # changes it from the UI.
+    from gclaw.config.system_config import SystemConfigRepo
+    system_config_repo = SystemConfigRepo(db=db)
+    _sysconf = system_config_repo.get()
+    effective_timezone = (
+        _sysconf.get("user_timezone") or settings.user_timezone
+    )
+
     skill_loader = SkillLoader()
     loader = ConfigLoader(
         settings.config_dir,
         skill_loader=skill_loader,
-        user_timezone=settings.user_timezone,
+        user_timezone=effective_timezone,
     )
     skill_registry = SkillRegistry(skill_repo=InMemorySkillRepo())
     loaded_skills = skill_registry.load_builtins(settings.skills_dir)
@@ -711,6 +722,7 @@ def build_app():
         runner=runner,
         config_loader=loader,
         delivery_service=cron_delivery,
+        effective_timezone=effective_timezone,
     )
     # Default/legacy service — the orchestrator's, for POST /heartbeat.
     heartbeat_service = (
@@ -749,6 +761,7 @@ def build_app():
         oauth_refresh_interval_seconds=(
             settings.oauth_refresh_check_interval_seconds
         ),
+        system_config_repo=system_config_repo,
     )
 
 

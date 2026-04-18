@@ -40,6 +40,7 @@ _memory_service: MemoryService | None = None
 _cron_service: CronService | None = None
 _cron_delivery_service: CronDeliveryService | None = None
 _heartbeat_registry: object | None = None
+_system_config_repo: object | None = None
 
 
 def init_admin_router(
@@ -50,10 +51,11 @@ def init_admin_router(
     cron_service: CronService | None = None,
     heartbeat_registry: object | None = None,
     cron_delivery_service: CronDeliveryService | None = None,
+    system_config_repo: object | None = None,
 ) -> APIRouter:
     global _config_loader, _hb_repo_factory, _skill_registry
     global _memory_service, _cron_service, _heartbeat_registry
-    global _cron_delivery_service
+    global _cron_delivery_service, _system_config_repo
     _config_loader = config_loader
     _hb_repo_factory = heartbeat_log_repo_factory
     _skill_registry = skill_registry
@@ -61,6 +63,7 @@ def init_admin_router(
     _cron_service = cron_service
     _heartbeat_registry = heartbeat_registry
     _cron_delivery_service = cron_delivery_service
+    _system_config_repo = system_config_repo
     return router
 
 
@@ -253,6 +256,68 @@ def update_soul_file(
     with open(soul_path, "w") as f:
         f.write(req.content)
     return {"name": name, "status": "updated"}
+
+
+# --- System: Timezone ---
+
+
+@router.get("/system/timezone")
+def get_system_timezone(user_id: str = Depends(get_current_user_id)):
+    """Return the currently-active user timezone (IANA name)."""
+    tz = (
+        _config_loader.get_user_timezone()
+        if _config_loader is not None
+        else "UTC"
+    )
+    return {"timezone": tz}
+
+
+class TimezoneUpdateRequest(BaseModel):
+    timezone: str
+
+
+@router.put("/system/timezone")
+def update_system_timezone(
+    req: TimezoneUpdateRequest,
+    user_id: str = Depends(get_current_user_id),
+):
+    """Hot-swap the user timezone.
+
+    Validates the IANA name against zoneinfo, persists to
+    ``config/system`` in Firestore so the value survives restarts,
+    then pushes the value into the live ConfigLoader and CronService
+    so subsequent prompts and crons pick it up immediately.
+    """
+    tz = (req.timezone or "").strip()
+    if not tz:
+        raise HTTPException(status_code=400, detail="timezone is required")
+    try:
+        from zoneinfo import ZoneInfo
+        ZoneInfo(tz)  # validates; raises on unknown name
+    except Exception:
+        raise HTTPException(
+            status_code=400, detail=f"unknown IANA timezone: {tz!r}"
+        )
+
+    if _system_config_repo is not None:
+        try:
+            _system_config_repo.set_field("user_timezone", tz)
+        except Exception:
+            logger.warning(
+                "system-config: failed to persist timezone", exc_info=True
+            )
+
+    if _config_loader is not None:
+        _config_loader.set_user_timezone(tz)
+    if _cron_service is not None:
+        try:
+            _cron_service.set_default_timezone(tz)
+        except Exception:
+            logger.warning(
+                "cron-service: set_default_timezone failed", exc_info=True
+            )
+
+    return {"timezone": tz, "status": "updated"}
 
 
 # --- User Profile ---

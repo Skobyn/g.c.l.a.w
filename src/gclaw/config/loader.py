@@ -100,6 +100,18 @@ class ConfigLoader:
         self._override_provider = override_provider
         self._user_timezone = user_timezone
 
+    def set_user_timezone(self, tz: str) -> None:
+        """Hot-swap the timezone used in the Current time block.
+
+        Called by admin routes when the user updates their timezone
+        from the UI so the change takes effect on the very next
+        prompt build, no redeploy.
+        """
+        self._user_timezone = tz or "UTC"
+
+    def get_user_timezone(self) -> str:
+        return self._user_timezone or "UTC"
+
     def _get_override(self, agent_name: str) -> "AgentOverride | None":
         if self._override_provider is None:
             return None
