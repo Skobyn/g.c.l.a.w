@@ -119,13 +119,37 @@ def create_app(
 
     app = FastAPI(title="GClaw", version="0.4.0", lifespan=lifespan)
 
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+    # CORS: ``allow_origins=["*"]`` + ``allow_credentials=True`` is
+    # invalid per the CORS spec — Starlette silently drops the
+    # Access-Control-Allow-Origin header in that combo, which is the
+    # root cause of the browser's "No 'Access-Control-Allow-Origin'
+    # header is present" error when the web app hits this backend.
+    #
+    # Resolution:
+    #   - If CORS_ORIGINS is set (comma-separated list) → exact-match
+    #     allow-list (tightest, production default once you know the
+    #     web domain).
+    #   - Otherwise → allow_origin_regex=".*" which echoes back the
+    #     caller's Origin header verbatim and IS credential-compatible.
+    import os as _os
+    cors_env = _os.environ.get("CORS_ORIGINS", "").strip()
+    if cors_env:
+        allowed = [o.strip() for o in cors_env.split(",") if o.strip()]
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=allowed,
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+    else:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origin_regex=".*",
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
 
     if enable_auth:
         app.add_middleware(FirebaseAuthMiddleware)
