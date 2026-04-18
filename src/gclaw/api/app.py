@@ -63,6 +63,8 @@ def create_app(
     oauth_loop_enabled: bool = False,
     oauth_refresh_interval_seconds: int = 300,
     system_config_repo: object | None = None,
+    run_registry: object | None = None,
+    agent_runs_repo: object | None = None,
 ) -> FastAPI:
     # Lifespan that optionally starts the per-agent heartbeat loop.
     _loop_holder: dict = {}
@@ -217,6 +219,27 @@ def create_app(
     app.include_router(init_routing_router(model_router))
 
     app.include_router(init_usage_router(usage_repo))  # type: ignore[arg-type]
+
+    # Live observability dashboard — SSE feed for /admin/live widgets.
+    # Mounted only when the LiveSpanProcessor/RunRegistry were wired up
+    # (i.e. OBSERVABILITY_ENABLED=true in main.py).
+    if run_registry is not None:
+        from gclaw.api.dashboard_routes import build_dashboard_router
+        owner_lookup = None
+        if agent_runs_repo is not None:
+            owner_lookup = (
+                lambda uid, rid: agent_runs_repo.get_owner(  # type: ignore[attr-defined]
+                    rid, uid
+                )
+            )
+        app.include_router(
+            build_dashboard_router(
+                run_registry=run_registry,  # type: ignore[arg-type]
+                owner_lookup=owner_lookup,
+            )
+        )
+        app.state.run_registry = run_registry
+        app.state.agent_runs_repo = agent_runs_repo
 
     if catalog_service is not None:
         app.include_router(init_catalog_router(catalog_service))

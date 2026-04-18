@@ -324,14 +324,33 @@ def build_app():
     # Observability — must run BEFORE AgentFactory/ADK imports so the
     # OpenInference instrumentors patch google-adk + litellm call sites
     # at boot. No-op when OBSERVABILITY_ENABLED is false.
-    try:
-        from gclaw.observability import init_tracing
-        init_tracing(settings)
-    except Exception:
-        logger.warning(
-            "observability: init_tracing failed — continuing without tracing",
-            exc_info=True,
-        )
+    #
+    # The LiveSpanProcessor is constructed here (without its Firestore
+    # repo yet) so it can be registered with the TracerProvider before
+    # any instrumented code runs. The repo is injected later, once the
+    # Firestore client is ready (`live_span_processor.set_firestore_repo`).
+    run_registry = None
+    live_span_processor = None
+    if settings.observability_enabled:
+        try:
+            from gclaw.observability import (
+                LiveSpanProcessor,
+                RunRegistry,
+                init_tracing,
+            )
+            run_registry = RunRegistry()
+            live_span_processor = LiveSpanProcessor(run_registry=run_registry)
+            init_tracing(
+                settings,
+                extra_processors=[live_span_processor],
+            )
+        except Exception:
+            logger.warning(
+                "observability: init_tracing failed — continuing without tracing",
+                exc_info=True,
+            )
+            run_registry = None
+            live_span_processor = None
 
     # Bootstrap Secret Manager-backed runtime credentials (GH_TOKEN,
     # GOOGLE_WORKSPACE_CREDENTIALS_FILE, etc.) BEFORE we import anything
@@ -372,6 +391,20 @@ def build_app():
         project=settings.gcp_project_id,
         database=settings.firestore_database,
     )
+
+    # Now that Firestore is ready, wire the live-dashboard repo into
+    # the LiveSpanProcessor registered earlier. The processor has been
+    # collecting events in-memory with a None repo until this point.
+    agent_runs_repo = None
+    if live_span_processor is not None:
+        try:
+            from gclaw.firestore.agent_runs_repo import AgentRunsRepo
+            agent_runs_repo = AgentRunsRepo(db=db)
+            live_span_processor.set_firestore_repo(agent_runs_repo)
+        except Exception:
+            logger.warning(
+                "observability: AgentRunsRepo wiring failed", exc_info=True
+            )
 
     # Board — user_id flows per-request from auth middleware
     # In dev mode (auth disabled), DevUserMiddleware sets a default user_id
@@ -793,6 +826,8 @@ def build_app():
             settings.oauth_refresh_check_interval_seconds
         ),
         system_config_repo=system_config_repo,
+        run_registry=run_registry,
+        agent_runs_repo=agent_runs_repo,
     )
 
 

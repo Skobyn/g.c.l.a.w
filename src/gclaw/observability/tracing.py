@@ -21,12 +21,20 @@ from typing import Any, Optional
 logger = logging.getLogger(__name__)
 
 
-def init_tracing(settings: Any) -> Optional[Any]:
+def init_tracing(
+    settings: Any,
+    *,
+    extra_processors: list[Any] | None = None,
+) -> Optional[Any]:
     """Initialize the global OpenTelemetry tracer provider.
 
     Returns the ``TracerProvider`` on success, ``None`` when disabled or
     when the OTel SDK is unavailable. Idempotent — a second call returns
-    the existing provider.
+    the existing provider and adds any new ``extra_processors`` to it.
+
+    ``extra_processors`` are registered AFTER the Cloud Trace + OTLP
+    exporters so live-fanout processors (e.g. LiveSpanProcessor) run
+    alongside the durable sinks, not instead of them.
     """
     if not getattr(settings, "observability_enabled", False):
         return None
@@ -35,7 +43,6 @@ def init_tracing(settings: Any) -> Optional[Any]:
         from opentelemetry import trace
         from opentelemetry.sdk.resources import Resource
         from opentelemetry.sdk.trace import TracerProvider
-        from opentelemetry.sdk.trace.export import BatchSpanProcessor
         from opentelemetry.sdk.trace.sampling import TraceIdRatioBased
     except ImportError:
         logger.warning("tracing: OTel SDK not installed; tracing disabled")
@@ -43,6 +50,13 @@ def init_tracing(settings: Any) -> Optional[Any]:
 
     existing = trace.get_tracer_provider()
     if isinstance(existing, TracerProvider):
+        for proc in extra_processors or []:
+            try:
+                existing.add_span_processor(proc)
+            except Exception:
+                logger.warning(
+                    "tracing: failed to add extra processor", exc_info=True
+                )
         return existing
 
     resource = Resource.create(
@@ -61,14 +75,23 @@ def init_tracing(settings: Any) -> Optional[Any]:
     _register_cloud_trace_exporter(provider, settings)
     _register_otlp_exporter(provider, settings)
 
+    for proc in extra_processors or []:
+        try:
+            provider.add_span_processor(proc)
+        except Exception:
+            logger.warning(
+                "tracing: failed to add extra processor", exc_info=True
+            )
+
     trace.set_tracer_provider(provider)
 
     _register_instrumentors()
 
     logger.info(
-        "tracing: initialized (service=%s, sampling=%s)",
+        "tracing: initialized (service=%s, sampling=%s, extra_processors=%d)",
         getattr(settings, "otel_service_name", "gclaw-backend"),
         getattr(settings, "otel_sampling_ratio", 1.0),
+        len(extra_processors or []),
     )
     return provider
 
