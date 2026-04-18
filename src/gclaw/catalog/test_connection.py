@@ -126,6 +126,13 @@ async def _test_openai_compat(
         return _result(False, latency_ms=latency, error="No base_url configured")
 
     headers = {"Content-Type": "application/json", **provider.default_headers}
+    # GitHub Copilot's IDE-auth check rejects calls missing these headers
+    # regardless of the bearer token's validity. Inject defaults when the
+    # provider hasn't pre-populated them so the test-ping works without
+    # manual configuration.
+    if "githubcopilot.com" in (base_url or "").lower():
+        headers.setdefault("Editor-Version", "vscode/1.95.0")
+        headers.setdefault("Copilot-Integration-Id", "vscode-chat")
     if key:
         headers["Authorization"] = f"Bearer {key}"
 

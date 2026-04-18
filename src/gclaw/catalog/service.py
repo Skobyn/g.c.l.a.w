@@ -36,6 +36,7 @@ class CatalogService:
         provider_repo: ProviderRepo,
         model_repo: ModelRepo,
         oauth_manager: "object | None" = None,
+        copilot_token_cache: "object | None" = None,
     ) -> None:
         self._providers = provider_repo
         self._models = model_repo
@@ -44,12 +45,20 @@ class CatalogService:
         # resolve_api_key uses it to mint a fresh access_token; otherwise we
         # fall back to a raw SM read + JSON parse.
         self._oauth_manager = oauth_manager
+        # Optional cache that exchanges raw ``ghu_`` GitHub user tokens for
+        # short-lived Copilot session tokens. When wired, resolve_api_key
+        # routes Copilot-hosted providers through it.
+        self._copilot_token_cache = copilot_token_cache
 
     def set_oauth_manager(self, oauth_manager) -> None:
         """Install an OAuth manager after construction (main.py wires this
         post-init because the manager needs the sm_service which is built
         alongside the catalog)."""
         self._oauth_manager = oauth_manager
+
+    def set_copilot_token_cache(self, cache) -> None:
+        """Install the Copilot token exchange cache post-construction."""
+        self._copilot_token_cache = cache
 
     # --- Providers ------------------------------------------------------
 
@@ -184,6 +193,43 @@ class CatalogService:
                 )
             return value
         if spec.kind == ApiKeyKind.SECRET_MANAGER:
+            # Copilot branch: CUSTOM_OPENAI providers pointed at Copilot's
+            # host store the raw ``ghu_`` GitHub user token in SM, which
+            # Copilot rejects for most models (notably the codex family).
+            # When a cache is wired, exchange it for a short-lived Copilot
+            # session token before returning.
+            if (
+                provider.kind == ProviderKind.CUSTOM_OPENAI
+                and "githubcopilot.com" in (provider.base_url or "").lower()
+                and self._copilot_token_cache is not None
+            ):
+                try:
+                    import asyncio
+                    coro = self._copilot_token_cache.get_access_token(spec.value)
+                    try:
+                        loop = asyncio.get_event_loop()
+                        if loop.is_running():
+                            import concurrent.futures
+                            with concurrent.futures.ThreadPoolExecutor(
+                                max_workers=1
+                            ) as ex:
+                                fut = ex.submit(asyncio.run, coro)
+                                token = fut.result(timeout=30)
+                        else:
+                            token = loop.run_until_complete(coro)
+                    except RuntimeError:
+                        token = asyncio.run(coro)
+                    if token:
+                        return token
+                    # Fall through to raw SM read so the caller still gets
+                    # something to attempt with — surfaces a clean 401.
+                except Exception as e:
+                    logger.warning(
+                        "copilot-cache resolve failed for provider %s: %s",
+                        provider.name,
+                        e,
+                    )
+
             # OAuth-aware branch: for ANTHROPIC_OAUTH providers, prefer the
             # token manager (auto-refreshes near-expiry tokens). Fall back
             # to raw SM read + JSON extract when no manager is wired (tests

@@ -398,6 +398,28 @@ def build_app():
                 "secret manager service init failed", exc_info=True
             )
 
+    # GitHub Copilot token exchange cache. Copilot rejects the raw ``ghu_``
+    # user token for most models (codex family, /responses endpoint) and
+    # requires a short-lived session token obtained via the Copilot
+    # exchange endpoint. The cache does the exchange lazily and keeps the
+    # result in process memory for ~30 min.
+    if (
+        secret_manager_service is not None
+        and catalog_service is not None
+    ):
+        try:
+            from gclaw.catalog.copilot_tokens import CopilotTokenCache
+            copilot_cache = CopilotTokenCache(sm_service=secret_manager_service)
+            catalog_service.set_copilot_token_cache(copilot_cache)
+            logger.info("copilot-cache: wired into catalog service")
+        except Exception:
+            logger.warning(
+                "copilot-cache: initialization failed — Copilot models "
+                "will fall back to raw token (works for gpt-5-mini "
+                "chat/completions only).",
+                exc_info=True,
+            )
+
     # OAuth token manager — wired once we have both SM service + catalog.
     # Scans catalog for ANTHROPIC_OAUTH providers with SM-backed keys and
     # registers them for periodic refresh.
