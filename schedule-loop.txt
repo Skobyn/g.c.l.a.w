@@ -29,7 +29,7 @@ EXECUTION RULES (read these first, every loop iteration)
 STATE TRACKER  (source of truth for /loop progress)
 ================================================================================
 [x] Phase 1: OpenTelemetry + OpenInference foundation — DONE 2026-04-18: added 7 OTel/OpenInference deps, created src/gclaw/observability/{__init__,constants,tracing}.py with fail-soft Cloud Trace + OTLP/HTTP exporters and ADK/LiteLLM instrumentors; 5 OBS_* settings fields wired; init_tracing() called at top of build_app(); scripts/otel_smoke.py + 3 unit tests. 1019 pytests pass (1 pre-existing research_tools failure unrelated to Phase 1, confirmed via git stash). .env.example touched through Write permissions denied — OBS vars documented in settings.py + tracing.py docstrings; user to sync .env.example manually if desired.
-[ ] Phase 2: Runner instrumentation (AgentRunner spans)
+[x] Phase 2: Runner instrumentation (AgentRunner spans) — DONE 2026-04-18: added observability/semconv.py attribute helpers; runner.py wraps run() in AGENT-kind OpenInference span via _run_turn() split; LLM token/model attrs stamped on both success and fallback-exhausted paths; record_exception + ERROR status on failure; 3 new tests via InMemorySpanExporter. 1022 pytests pass (34 runner tests + 3 new span tests).
 [ ] Phase 3: Phoenix sidecar on Cloud Run (OTLP sink)
 [ ] Phase 4: LiveSpanProcessor -> Firestore + SSE endpoint
 [ ] Phase 5: ModelCatalog context/cache enrichment + nightly price sync

@@ -19,8 +19,10 @@ from google.adk.agents import LlmAgent
 from google.adk.runners import Runner
 from google.adk.sessions import BaseSessionService
 from google.genai import types
+from opentelemetry import trace
 
 from gclaw.models.memory import DEFAULT_EXTRACTION_TOPICS
+from gclaw.observability.semconv import set_llm_attrs, set_turn_attrs
 
 if TYPE_CHECKING:
     from gclaw.memory.service import MemoryService
@@ -28,6 +30,7 @@ if TYPE_CHECKING:
     from gclaw.usage.recorder import UsageRecorder
 
 logger = logging.getLogger(__name__)
+_tracer = trace.get_tracer(__name__)
 
 
 def _is_retryable_model_error(exc: BaseException) -> bool:
@@ -186,6 +189,40 @@ class AgentRunner:
         agent_name: str | None = None,
     ) -> AgentResponse:
         """Execute a single user turn with memory hooks."""
+        # Resolve the effective agent name once — used by the observability
+        # span, the usage recorder, and the fallback-chain lookup below.
+        if agent_name is None:
+            agent_name = getattr(self._agent, "name", "agent") or "agent"
+
+        # Root AGENT span for the turn. OpenInference-spec attributes are
+        # stamped upfront; LLM token/model attrs are added at turn end
+        # (success OR fallback-exhausted failure) so every recorded turn
+        # carries a usable summary. When OBSERVABILITY_ENABLED=false the
+        # tracer's NoOpSpan makes this effectively free.
+        with _tracer.start_as_current_span(f"agent.{agent_name}") as turn_span:
+            set_turn_attrs(
+                turn_span,
+                agent_name=agent_name,
+                session_id=session_id,
+                user_id=user_id,
+            )
+            return await self._run_turn(
+                user_id=user_id,
+                session_id=session_id,
+                message=message,
+                agent_name=agent_name,
+                turn_span=turn_span,
+            )
+
+    async def _run_turn(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        message: str,
+        agent_name: str,
+        turn_span: Any,
+    ) -> AgentResponse:
         if self._board_service is not None:
             self._board_service.set_active_user(user_id)
         if self._session_store is not None:
@@ -245,8 +282,6 @@ class AgentRunner:
         # Resolve fallback chain. We only need the fallbacks (index>=1);
         # the primary is whatever the existing self._runner is already
         # wrapping — we don't rebuild it on the happy path.
-        if agent_name is None:
-            agent_name = getattr(self._agent, "name", "agent") or "agent"
         fallback_models: list[Any] = []
         if self._model_chain_provider is not None:
             try:
@@ -318,6 +353,23 @@ class AgentRunner:
                     fallback_index=attempt_index,
                 )
                 if not has_next:
+                    # Stamp aggregate LLM attributes on the span before we
+                    # re-raise so the trace shows what the failing turn
+                    # actually consumed, then record the exception.
+                    set_llm_attrs(
+                        turn_span,
+                        model_name=model_seen,
+                        tokens_in=tokens_in_total,
+                        tokens_out=tokens_out_total,
+                    )
+                    try:
+                        turn_span.record_exception(e)
+                        from opentelemetry.trace import Status, StatusCode
+                        turn_span.set_status(
+                            Status(StatusCode.ERROR, run_error)
+                        )
+                    except Exception:
+                        pass
                     last_error = e
                     raise
                 next_model = fallback_models[attempt_index]
@@ -347,6 +399,19 @@ class AgentRunner:
                 tool_calls=response.tool_calls,
                 fallback_index=attempt_index,
             )
+            set_llm_attrs(
+                turn_span,
+                model_name=model_seen,
+                tokens_in=tokens_in_total,
+                tokens_out=tokens_out_total,
+            )
+            if attempt_index and turn_span is not None:
+                try:
+                    turn_span.set_attribute(
+                        "agent.fallback_index", attempt_index
+                    )
+                except Exception:
+                    pass
             break
 
         _ = last_error  # silence unused-assignment warning
