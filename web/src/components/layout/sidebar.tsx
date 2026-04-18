@@ -53,6 +53,7 @@ const SECTIONS: NavSection[] = [
       { href: "/admin/heartbeat", label: "Heartbeat", num: "09" },
       { href: "/admin/usage", label: "Usage", num: "10" },
       { href: "/connections", label: "Connections", num: "11" },
+      { href: "/admin/user", label: "User", num: "12" },
     ],
   },
 ];

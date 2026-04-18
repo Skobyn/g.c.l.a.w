@@ -342,6 +342,21 @@ export class ApiClient {
     });
   }
 
+  // --- Admin: User Profile ---
+
+  async getUserProfile(): Promise<{ content: string }> {
+    return this.request<{ content: string }>("/admin/user-profile");
+  }
+
+  async updateUserProfile(
+    content: string,
+  ): Promise<{ status: string; bytes: number }> {
+    return this.request<{ status: string; bytes: number }>("/admin/user-profile", {
+      method: "PUT",
+      body: JSON.stringify({ content }),
+    });
+  }
+
   // --- Admin: Skills ---
 
   async getSkills(): Promise<SkillInfo[]> {

@@ -255,6 +255,38 @@ def update_soul_file(
     return {"name": name, "status": "updated"}
 
 
+# --- User Profile ---
+
+
+@router.get("/user-profile")
+def get_user_profile(user_id: str = Depends(get_current_user_id)):
+    """Read the shared user-profile markdown (``<config_dir>/user.md``).
+
+    Returns an empty string when the file doesn't exist so the UI can
+    render its starter template. The loader also gracefully handles a
+    missing file at prompt-build time.
+    """
+    content = _config_loader.load_user_profile()
+    return {"content": content}
+
+
+class UserProfileUpdateRequest(BaseModel):
+    content: str
+
+
+@router.put("/user-profile")
+def update_user_profile(
+    req: UserProfileUpdateRequest,
+    user_id: str = Depends(get_current_user_id),
+):
+    """Write the shared user-profile markdown. Creates the file when
+    missing so a blank fresh install still lands somewhere writable."""
+    path = os.path.join(_config_loader._config_dir, "user.md")
+    with open(path, "w") as f:
+        f.write(req.content)
+    return {"status": "updated", "bytes": len(req.content)}
+
+
 # --- Skills ---
 
 

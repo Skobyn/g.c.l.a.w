@@ -115,6 +115,21 @@ class ConfigLoader:
         constructed after the loader (chicken-and-egg at app boot)."""
         self._override_provider = provider
 
+    def load_user_profile(self) -> str:
+        """Return the shared user-profile markdown, or "" if missing.
+
+        The profile lives at ``<config_dir>/user.md`` and captures stable
+        facts every agent should know about the user (name, role, timezone,
+        communication preferences). Evolving preferences keep living in
+        Memory Bank — this file intentionally holds the slow-changing
+        baseline so agents don't need to derive it from memory every call.
+        """
+        path = os.path.join(self._config_dir, "user.md")
+        if not os.path.isfile(path):
+            return ""
+        with open(path) as f:
+            return f.read().strip()
+
     def load_soul(self, base: str, overlay: str | None = None) -> str:
         base_path = os.path.join(self._config_dir, "soul", f"{base}.md")
         if not os.path.isfile(base_path):
@@ -268,7 +283,15 @@ class ConfigLoader:
         agent_def = self.load_agent(agent_name)
         parts.append(f"# Agent Role\n\n{agent_def}")
 
-        # Soul
+        # User profile — shared context about who the user is. Injected
+        # once at the top of every agent prompt (after the role) so agents
+        # don't rediscover it from memory each call.
+        user_profile = self.load_user_profile()
+        if user_profile:
+            parts.append(f"# About the User\n\n{user_profile}")
+
+        # Soul — agent-specific personality / behavior, distinct from user
+        # context.
         try:
             soul = self.load_soul(soul_base, overlay=soul_overlay)
         except FileNotFoundError:
@@ -282,7 +305,7 @@ class ConfigLoader:
                 soul = soul + "\n" + override.soul_overlay
             else:
                 soul = override.soul_overlay
-        parts.append(f"# Personality & User Context\n\n{soul}")
+        parts.append(f"# Personality\n\n{soul}")
 
         # Injected memories
         if memories:

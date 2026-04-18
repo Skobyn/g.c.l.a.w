@@ -32,6 +32,7 @@ RUN set -eux; \
 WORKDIR /app
 
 COPY pyproject.toml .
+COPY user.md .
 COPY src/ src/
 COPY soul/ soul/
 COPY agents/ agents/
