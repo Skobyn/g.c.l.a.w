@@ -54,6 +54,11 @@ class AgentToolsSpec(BaseModel):
     profile: str | None = None  # "default" | "minimal" | "coding" | "messaging" | "full"
     allow: list[str] = Field(default_factory=list)
     deny: list[str] = Field(default_factory=list)
+    # Catalog tool IDs (from /admin/tools). The factory resolves each to
+    # its underlying callable via ToolBindingService and appends the
+    # result to the agent's tool list. Legacy allow/deny still apply
+    # on top of the merged result.
+    catalog_tool_ids: list[str] = Field(default_factory=list)
 
 
 class AgentSubagentsSpec(BaseModel):

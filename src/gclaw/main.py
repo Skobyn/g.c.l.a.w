@@ -426,14 +426,41 @@ def build_app():
         except Exception:
             logger.warning("catalog: seed_system_defaults failed", exc_info=True)
 
-    # Tool catalog — sibling of the model catalog. Populated on demand via
-    # /admin/tools. Agent binding arrives in Phase 3; for now the service
-    # is stood up so the routes have somewhere to land.
+    # Tool catalog — sibling of the model catalog.
+    #
+    # Phase 3 wires it end-to-end: the seeder reflects any
+    # @tool_export-decorated builtins into Firestore (idempotent), and
+    # ToolBindingService is handed to AgentFactory so agents whose
+    # override has `tools.catalog_tool_ids` pick up the matching
+    # callables at build time.
     tool_catalog_service = None
+    tool_binding_service = None
     try:
         from gclaw.firestore.tool_repo import ToolRepo
+        from gclaw.tools.catalog.binding import ToolBindingService
+        from gclaw.tools.catalog.seeder import seed_builtin_tools
         from gclaw.tools.catalog.service import ToolCatalogService
+
+        # Importing the tools package triggers @tool_export
+        # registration as a side effect of module load — keep this
+        # BEFORE seed_builtin_tools.
+        import gclaw.tools  # noqa: F401
+
         tool_catalog_service = ToolCatalogService(tool_repo=ToolRepo(db=db))
+        try:
+            stats = seed_builtin_tools(tool_catalog_service)
+            if stats["created"] or stats["existing"]:
+                logger.info(
+                    "tool catalog seeded: created=%d existing=%d",
+                    stats["created"],
+                    stats["existing"],
+                )
+        except Exception:
+            logger.warning("tool catalog: seed failed", exc_info=True)
+
+        tool_binding_service = ToolBindingService(
+            catalog_service=tool_catalog_service
+        )
     except Exception:
         logger.warning("tool catalog: init failed", exc_info=True)
 
@@ -666,6 +693,7 @@ def build_app():
         skill_registry=skill_registry,
         catalog_service=catalog_service,
         agent_config_service=agent_config_service,
+        tool_binding_service=tool_binding_service,
     )
 
     # Orchestrator

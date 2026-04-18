@@ -17,6 +17,8 @@ import os
 
 import httpx
 
+from gclaw.tools.catalog.builtin_registry import tool_export
+
 logger = logging.getLogger(__name__)
 
 
@@ -28,6 +30,7 @@ _MAX_QUERY_CHARS = 1000
 _MAX_RESULT_CHARS = 4000
 
 
+@tool_export(description="Search the web via Gemini Google-Search grounding.")
 async def web_search(query: str) -> str:
     """Search the web and return a synthesized answer with sources.
 
@@ -152,6 +155,7 @@ def _extract_sources(response) -> list[dict]:
     return out
 
 
+@tool_export(description="Fetch the text content of a URL as a string.")
 async def fetch_url(url: str, max_chars: int = 4000) -> str:
     """Fetch the text content of a URL."""
     try:

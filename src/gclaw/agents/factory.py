@@ -32,6 +32,7 @@ class AgentFactory:
         skill_registry: "SkillRegistry | None" = None,
         catalog_service: "CatalogService | None" = None,
         agent_config_service: "AgentConfigService | None" = None,
+        tool_binding_service: Any | None = None,
     ) -> None:
         self._loader = loader
         self._default_model = default_model
@@ -39,6 +40,11 @@ class AgentFactory:
         self._skill_registry = skill_registry
         self._catalog = catalog_service
         self._agent_config_service = agent_config_service
+        # Tool catalog binding — resolves override.tools.catalog_tool_ids
+        # into callables. None is valid; the factory skips catalog-tool
+        # merging in that case (back-compat for the legacy allow/deny
+        # path).
+        self._tool_binding = tool_binding_service
 
     def _get_override(
         self, agent_name: str
@@ -54,6 +60,36 @@ class AgentFactory:
                 exc_info=True,
             )
             return None
+
+    def _merge_catalog_tools(
+        self, agent_name: str, tools: list[Any] | None
+    ) -> list[Any]:
+        """Append override.tools.catalog_tool_ids → callables onto tools.
+
+        Returns a new list; input is unchanged. De-duplicates by
+        tool-name so the same function pulled in through both the
+        legacy allow-list and the catalog doesn't appear twice.
+        """
+        merged: list[Any] = list(tools or [])
+        if self._tool_binding is None:
+            return merged
+        override = self._get_override(agent_name)
+        if override is None:
+            return merged
+        ids = getattr(getattr(override, "tools", None), "catalog_tool_ids", []) or []
+        if not ids:
+            return merged
+        resolved = self._tool_binding.resolve_catalog_tools(ids)
+        if not resolved:
+            return merged
+        seen = {self._tool_name(t) for t in merged}
+        for t in resolved:
+            name = self._tool_name(t)
+            if name in seen:
+                continue
+            merged.append(t)
+            seen.add(name)
+        return merged
 
     @staticmethod
     def _tool_name(tool: Any) -> str:
@@ -334,6 +370,11 @@ class AgentFactory:
     ) -> LlmAgent:
         if skills is None and self._skill_registry is not None:
             skills = self._skill_registry.list_for_agent(agent_name)
+
+        # Merge catalog-selected tools onto the caller-supplied list
+        # BEFORE allow/deny filtering runs, so legacy filters apply
+        # uniformly across hard-coded and catalog-origin tools.
+        tools = self._merge_catalog_tools(agent_name, tools)
 
         tools, sub_agents, skills = self._apply_override(
             agent_name, tools, sub_agents, skills
