@@ -1,13 +1,15 @@
 # Auto-fix CI failures using Claude Code.
 #
 # When the Deploy workflow fails, this workflow:
-# 1. Downloads the failure logs
-# 2. Runs Claude Code CLI with the logs as context
-# 3. Claude diagnoses the issue and pushes a fix to a branch
-# 4. Opens a PR targeting master
+# 1. Downloads the failure logs for the failed run
+# 2. Invokes anthropics/claude-code-action with those logs as context
+# 3. Claude diagnoses the root cause, applies a minimal fix, and
+#    verifies it by re-running pytest inside the runner
+# 4. Only if tests pass, Claude commits; the workflow then pushes
+#    the branch and opens a PR targeting the same base branch
 #
 # Requires:
-#   ANTHROPIC_API_KEY — set in GitHub repo secrets
+#   CLAUDE_CODE_OAUTH_TOKEN — set by /install-github-app
 
 name: Auto-fix CI
 
@@ -15,6 +17,13 @@ on:
   workflow_run:
     workflows: ["Deploy"]
     types: [completed]
+
+# Only one auto-fix attempt per branch at a time. If a newer Deploy
+# fails while we're still working on the previous failure, cancel the
+# in-flight run — its context is already stale.
+concurrency:
+  group: auto-fix-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: true
 
 jobs:
   auto-fix:
@@ -24,7 +33,9 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+      issues: read
       actions: read
+      id-token: write
 
     steps:
       - uses: actions/checkout@v4
@@ -32,69 +43,87 @@ jobs:
           ref: ${{ github.event.workflow_run.head_branch }}
           fetch-depth: 0
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
       - name: Download failure logs
         env:
           GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
         run: |
-          RUN_ID=${{ github.event.workflow_run.id }}
           echo "Fetching logs for run ${RUN_ID}..."
-          gh run view "${RUN_ID}" --log-failed > /tmp/ci-failure.log 2>&1 || true
+          gh run view "${RUN_ID}" --log-failed > /tmp/failure.log 2>&1 || true
           echo "--- Log tail ---"
-          tail -100 /tmp/ci-failure.log
+          tail -100 /tmp/failure.log
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-
-      - name: Install Claude Code
-        run: npm install -g @anthropic-ai/claude-code
-
-      - name: Run Claude Code to fix
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      - name: Create auto-fix branch
+        id: branch
         run: |
           BRANCH="auto-fix/ci-$(date +%Y%m%d-%H%M%S)"
           git checkout -b "${BRANCH}"
+          git config user.name "claude-autofix[bot]"
+          git config user.email "claude-autofix@users.noreply.github.com"
+          echo "name=${BRANCH}" >> "$GITHUB_OUTPUT"
 
-          FAILURE_LOG=$(cat /tmp/ci-failure.log | tail -200)
+      - name: Run Claude Code
+        uses: anthropics/claude-code-action@v1
+        env:
+          RUN_NUMBER: ${{ github.event.workflow_run.run_number }}
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          additional_permissions: |
+            actions: read
+          prompt: |
+            The Deploy workflow run #${{ github.event.workflow_run.run_number }} just failed.
+            The full CI failure log has been written to `/tmp/failure.log` — use `tail -200 /tmp/failure.log` first; most pytest failures show up at the tail.
 
-          claude -p "The CI pipeline for this project just failed. Here are the failure logs:
+            Project context (read CLAUDE.md for full detail):
+            - Python backend in `src/gclaw/`, tests in `tests/`.
+            - CI command (already reproducible in this runner): `GCP_PROJECT_ID=test-project uv run pytest tests/ -q --ignore=tests/test_integration_litellm_providers.py`
+            - `uv`, Python 3.12, and project deps are already installed.
 
-          \`\`\`
-          ${FAILURE_LOG}
-          \`\`\`
+            Your job:
+            1. Read `/tmp/failure.log` and identify the failing test(s) and root cause.
+            2. Apply the MINIMAL fix — change only what is strictly needed to make CI pass. No refactoring, no feature work, no test additions unless required by the failure.
+            3. Verify locally by running the exact CI command above. Confirm the full suite passes.
+            4. Only if the suite passes, stage the changed files and create a single commit with a clear `fix(…): …` message on the current branch. Do NOT push, and do NOT create a PR — the workflow handles that after you finish.
+            5. If you cannot find a safe minimal fix, exit WITHOUT committing. Leaving the tree clean signals "no fix" and the workflow will skip PR creation.
+          claude_args: '--allowed-tools "Edit,Write,Read,Bash,Glob,Grep"'
 
-          Diagnose the root cause and fix it. The fix should be minimal — only change what's needed to make CI pass. Do NOT add features or refactor unrelated code.
-
-          Key context:
-          - Python backend in src/gclaw/, tests in tests/
-          - Next.js frontend in web/
-          - CI runs: pytest tests/ -q --ignore=tests/test_integration_litellm_providers.py
-          - Read CLAUDE.md for project structure
-
-          After fixing, verify by running: GCP_PROJECT_ID=test-project uv run pytest tests/ -q --ignore=tests/test_integration_litellm_providers.py
-
-          Only commit if tests pass." --allowedTools "Edit,Write,Read,Bash,Glob,Grep"
-
-          # Check if Claude made any commits
-          if git diff --quiet HEAD origin/${{ github.event.workflow_run.head_branch }}; then
-            echo "No changes made — Claude couldn't find a fix."
+      - name: Open PR if Claude produced a fix
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ steps.branch.outputs.name }}
+          BASE: ${{ github.event.workflow_run.head_branch }}
+          RUN_NUM: ${{ github.event.workflow_run.run_number }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+        run: |
+          if git diff --quiet "origin/${BASE}" HEAD; then
+            echo "No commits on ${BRANCH} — Claude did not produce a fix. Exiting."
             exit 0
           fi
 
+          echo "Pushing ${BRANCH} and opening PR against ${BASE}..."
           git push origin "${BRANCH}"
 
           gh pr create \
-            --title "fix(ci): auto-fix for failed deploy run #${{ github.event.workflow_run.run_number }}" \
-            --body "$(cat <<'PREOF'
+            --title "fix(ci): auto-fix for failed deploy run #${RUN_NUM}" \
+            --body "$(cat <<PREOF
           ## Auto-fix PR
 
-          The [Deploy workflow run #${{ github.event.workflow_run.run_number }}](${{ github.event.workflow_run.html_url }}) failed. Claude Code diagnosed the failure and produced this fix.
+          The [Deploy workflow run #${RUN_NUM}](${RUN_URL}) failed on \`${BASE}\`. Claude Code diagnosed the failure and produced this fix.
 
-          **Review carefully before merging** — this was generated automatically.
+          **Review carefully before merging** — this was generated automatically. Verify the diff matches the actual CI failure.
 
-          🤖 Generated by Claude Code via `.github/workflows/auto-fix.yml`
+          🤖 Generated by Claude Code via \`.github/workflows/auto-fix.yml\`
           PREOF
           )" \
-            --base master \
+            --base "${BASE}" \
             --head "${BRANCH}"
