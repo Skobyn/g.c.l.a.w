@@ -7,21 +7,31 @@ import { OnboardingChat } from "./onboarding-chat";
 
 const STEP_LABELS: Record<string, string> = {
   introduction: "Welcome",
-  communication_style: "Communication Style",
-  daily_routines: "Daily Routines",
-  professional_context: "Professional Context",
-  personal_context: "Personal Context",
-  initial_crons: "Initial Setup",
+  q1_identity: "1 · Identity",
+  q2_chronotype: "2 · When you work",
+  q3_detail_level: "3 · Detail level",
+  q4_directness: "4 · Directness",
+  q5_autonomy: "5 · Autonomy",
+  q6_interrupts: "6 · Interrupts",
+  q7_disagreement: "7 · Disagreement",
+  q8_current_focus: "8 · Current focus",
+  q9_hard_nos: "9 · Hard-nos",
+  q10_latent_wish: "10 · Latent wish",
   complete: "Complete",
 };
 
 const STEP_ORDER = [
   "introduction",
-  "communication_style",
-  "daily_routines",
-  "professional_context",
-  "personal_context",
-  "initial_crons",
+  "q1_identity",
+  "q2_chronotype",
+  "q3_detail_level",
+  "q4_directness",
+  "q5_autonomy",
+  "q6_interrupts",
+  "q7_disagreement",
+  "q8_current_focus",
+  "q9_hard_nos",
+  "q10_latent_wish",
   "complete",
 ];
 
@@ -52,15 +62,17 @@ export function OnboardingWizard() {
   }
 
   if (step?.completed) {
+    const preview = step.user_profile_preview ?? step.soul_preview;
     return (
       <div className="text-center space-y-4">
         <h2 className="text-2xl font-bold text-slate-100">You are all set!</h2>
         <p className="text-slate-400">
-          Your soul profile has been generated. GClaw is ready to work for you.
+          Your shared user profile has been compiled. Every agent now has
+          this context in their system prompt.
         </p>
-        {step.soul_preview && (
+        {preview && (
           <pre className="text-left bg-slate-800 border border-slate-700 rounded p-4 text-sm text-slate-200 overflow-auto max-h-64">
-            {step.soul_preview}
+            {preview}
           </pre>
         )}
         <a

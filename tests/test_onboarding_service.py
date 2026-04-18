@@ -71,12 +71,12 @@ class TestStartOnboarding:
         service._get_state = AsyncMock(
             return_value=OnboardingState(
                 user_id="test_user",
-                current_step=OnboardingStep.COMMUNICATION_STYLE,
+                current_step=OnboardingStep.Q1_IDENTITY,
             )
         )
 
         result = await service.start_onboarding("test_user")
-        assert result["step"] == "communication_style"
+        assert result["step"] == "q1_identity"
 
 
 class TestAdvanceOnboarding:
@@ -88,75 +88,82 @@ class TestAdvanceOnboarding:
         service._get_state = AsyncMock(
             return_value=OnboardingState(
                 user_id="test_user",
-                current_step=OnboardingStep.COMMUNICATION_STYLE,
+                current_step=OnboardingStep.Q1_IDENTITY,
             )
         )
         service._save_state = AsyncMock()
 
         result = await service.advance_onboarding(
             user_id="test_user",
-            response="I prefer casual but concise communication.",
+            response="Call me Scott, I run a small product team.",
         )
-        assert result["step"] != "communication_style"
+        assert result["step"] != "q1_identity"
         mock_agent_runner.run.assert_called()
 
     @pytest.mark.asyncio
-    async def test_advance_past_final_step_triggers_soul_gen(
+    async def test_advance_past_final_step_triggers_profile_gen(
         self, service, mock_agent_runner, mock_memory_service
     ):
-        """Advancing past the last interview step triggers soul generation."""
+        """Advancing past the last interview step triggers profile generation."""
         service._get_state = AsyncMock(
             return_value=OnboardingState(
                 user_id="test_user",
-                current_step=OnboardingStep.INITIAL_CRONS,
+                current_step=OnboardingStep.Q10_LATENT_WISH,
                 responses={
                     "introduction": "Hi!",
-                    "communication_style": "Casual and concise",
-                    "daily_routines": "Morning person, gym at 6am",
-                    "professional_context": "Software engineer",
-                    "personal_context": "Likes hiking",
+                    "q1_identity": "Scott, product lead",
+                    "q2_chronotype": "Morning, US/Central",
+                    "q3_detail_level": "Bottom line first",
+                    "q4_directness": "Blunt",
+                    "q5_autonomy": "4 — mostly just do it",
+                    "q6_interrupts": "Queue unless truly urgent",
+                    "q7_disagreement": "Point it out",
+                    "q8_current_focus": "Launch v1",
+                    "q9_hard_nos": "No flowery prose",
                 },
             )
         )
         service._save_state = AsyncMock()
-        service._generate_soul = AsyncMock(return_value="# Soul\nCasual tone")
+        service._generate_user_profile = AsyncMock(
+            return_value="## Identity\nScott, product lead"
+        )
 
         result = await service.advance_onboarding(
             user_id="test_user",
-            response="Set up a morning briefing at 8am.",
+            response="I wish you'd proactively clear my inbox each morning.",
         )
         assert result["step"] == "complete"
         assert result["completed"] is True
-        service._generate_soul.assert_called_once()
+        service._generate_user_profile.assert_called_once()
 
 
-class TestGenerateSoul:
+class TestGenerateUserProfile:
     @pytest.mark.asyncio
     async def test_sends_responses_through_orchestrator(
         self, service, mock_agent_runner
     ):
-        """Soul generation sends all responses to the orchestrator."""
+        """Profile generation sends all responses to the orchestrator."""
         mock_agent_runner.run.return_value = MagicMock(
-            text="# Soul Profile\n\n- Casual communication\n- Morning person"
+            text="## Identity\n\nScott, product lead\n\n## Working style\nMorning, US/Central"
         )
         responses = {
-            "communication_style": "Casual",
-            "daily_routines": "Morning person",
-            "professional_context": "Engineer",
-            "personal_context": "Hiker",
+            "q1_identity": "Scott, product lead",
+            "q2_chronotype": "Morning, US/Central",
+            "q3_detail_level": "Bottom line first",
+            "q4_directness": "Blunt",
         }
-        soul = await service._generate_soul("test_user", responses)
-        assert "Soul" in soul
+        profile = await service._generate_user_profile("test_user", responses)
+        assert "Identity" in profile
         mock_agent_runner.run.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_captures_soul_to_memory_bank(
+    async def test_captures_profile_to_memory_bank(
         self, service, mock_agent_runner, mock_memory_service
     ):
-        """Generated soul should be captured to Memory Bank."""
+        """Generated profile should be captured to Memory Bank."""
         mock_agent_runner.run.return_value = MagicMock(
-            text="# Soul\nContent"
+            text="## Identity\nContent"
         )
-        responses = {"communication_style": "Casual"}
-        await service._generate_soul("test_user", responses)
+        responses = {"q1_identity": "Scott, product lead"}
+        await service._generate_user_profile("test_user", responses)
         mock_memory_service.capture.assert_called()

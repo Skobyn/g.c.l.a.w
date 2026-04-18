@@ -64,7 +64,7 @@ describe("OnboardingPage", () => {
       step: "complete",
       message: "Done!",
       completed: true,
-      soul_preview: "# Soul\nCasual tone",
+      user_profile_preview: "## Identity\nScott, product lead",
     });
 
     render(<OnboardingPage />);

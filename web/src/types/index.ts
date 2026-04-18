@@ -315,6 +315,8 @@ export interface OnboardingStepResponse {
   step: string;
   message: string;
   completed: boolean;
+  user_profile_preview?: string;
+  /** @deprecated renamed to user_profile_preview */
   soul_preview?: string;
 }
 

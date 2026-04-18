@@ -1,14 +1,21 @@
-"""Onboarding service — conversational interview and soul generation.
+"""Onboarding service — conversational interview and user-profile generation.
 
-The onboarding flow is driven by the orchestrator agent. This service
-tracks state, stores responses, and triggers soul file generation by
-sending the collected interview through the orchestrator.
+The orchestrator conducts a 10-question interview grounded in validated
+psychological frameworks (Big Five / TIPI, Horne-Östberg chronotype,
+Self-Determination Theory, Schwartz values, jobs-to-be-done). At the
+end, the collected responses are distilled into ``user.md`` — the
+shared profile injected into every agent's system prompt.
+
+The distinction from agent soul files: soul = agent personality (how
+the agent behaves), user profile = who the user is (what every agent
+should know about them).
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
@@ -38,56 +45,123 @@ logger = logging.getLogger(__name__)
 # that only conducts the interview.
 _DEFAULT_TURN_TIMEOUT_S = 90.0
 
-# System prompts for each interview step
+# System prompts for each interview step. Each tells the orchestrator
+# what to ask next; the orchestrator translates into its own voice so
+# the interview feels conversational, not scripted. The underlying
+# design is research-backed — see models/onboarding.py docstring.
 _STEP_PROMPTS: dict[OnboardingStep, str] = {
     OnboardingStep.INTRODUCTION: (
-        "You are onboarding a new user. Introduce yourself as GClaw, "
-        "their personal AI assistant. Explain your capabilities briefly "
-        "(task management, scheduling, research, smart home, etc.) and "
-        "ask if they're ready to get started with a quick interview to "
-        "personalize the experience."
+        "You are onboarding a new user to GClaw, their personal AI "
+        "assistant. Greet them briefly and warmly. Explain that you'd "
+        "like to ask 10 short questions to personalize how every agent "
+        "in the system interacts with them — the answers populate a "
+        "shared profile, not stored anywhere external. Mention this "
+        "is a one-time setup (~3 minutes) and they can skip any "
+        "question. Ask if they're ready to start."
     ),
-    OnboardingStep.COMMUNICATION_STYLE: (
-        "Ask the user about their communication preferences: "
-        "Do they prefer casual or formal tone? Concise or detailed responses? "
-        "Any specific style preferences (e.g., use of emoji, humor, etc.)?"
+    OnboardingStep.Q1_IDENTITY: (
+        "Question 1 of 10 — Identity. Ask: what should I call you, "
+        "what do you do, and what's the domain that takes up most of "
+        "your work brain? Invite a single sentence — don't probe yet."
     ),
-    OnboardingStep.DAILY_ROUTINES: (
-        "Ask about the user's daily routines and priorities: "
-        "What does a typical day look like? When do they wake up? "
-        "What are their most important daily tasks or habits?"
+    OnboardingStep.Q2_CHRONOTYPE: (
+        "Question 2 of 10 — Chronotype and working hours. Ask: what "
+        "timezone are you usually in, and when is your 'sharp-edge' "
+        "time — morning, afternoon, late night? (This is grounded in "
+        "the Horne-Östberg morningness-eveningness research; don't "
+        "cite that — just ask the plain question.)"
     ),
-    OnboardingStep.PROFESSIONAL_CONTEXT: (
-        "Ask about the user's professional context: "
-        "What is their role? What tools do they use daily? "
-        "What workflows could benefit from automation?"
+    OnboardingStep.Q3_DETAIL_LEVEL: (
+        "Question 3 of 10 — Detail level. Ask: when you ask me "
+        "something complex, which shape do you want back? "
+        "(a) the bottom line in one sentence, then details only if "
+        "you ask; (b) a short summary with key reasoning; "
+        "(c) the full context so you can reason alongside me."
     ),
-    OnboardingStep.PERSONAL_CONTEXT: (
-        "Ask about personal context: interests, family, smart home setup, "
-        "hobbies. Only what they're comfortable sharing — this helps "
-        "personalize reminders and suggestions."
+    OnboardingStep.Q4_DIRECTNESS: (
+        "Question 4 of 10 — Directness. Ask: when I give you feedback "
+        "or pushback, should I be blunt ('that's a bad idea because X'), "
+        "soften it ('have you considered Y?'), or somewhere in between? "
+        "A 1–5 scale is fine if they prefer that."
     ),
-    OnboardingStep.INITIAL_CRONS: (
-        "Based on what you've learned, suggest 2-3 initial automated routines "
-        "(crons) that would be useful. Examples: morning briefing, inbox triage, "
-        "end-of-day summary. Ask the user which ones they'd like to set up."
+    OnboardingStep.Q5_AUTONOMY: (
+        "Question 5 of 10 — Autonomy. Explain: I'll often hit tasks "
+        "where there's an obvious reasonable default — e.g. you ask "
+        "me to reply to an email, and I can either draft it for your "
+        "review or send it straight. On a 1–5 scale, where 1 = always "
+        "ask first, 5 = just do the sensible thing and tell me after, "
+        "where are you? Invite nuance (e.g. 'depends on reversibility')."
+    ),
+    OnboardingStep.Q6_INTERRUPTS: (
+        "Question 6 of 10 — Interruption tolerance. Ask: when I spot "
+        "something important while you're heads-down — inbox emergency, "
+        "deadline shift, a task blocker — should I interrupt you, or "
+        "queue it for when you next surface?"
+    ),
+    OnboardingStep.Q7_DISAGREEMENT: (
+        "Question 7 of 10 — Disagreement style. Ask: when I think "
+        "you're wrong about something, which do you want? "
+        "(a) point it out clearly; (b) ask a question that makes you "
+        "re-check your own thinking; (c) just do what you asked; "
+        "(d) depends on how risky the call is. Invite them to combine."
+    ),
+    OnboardingStep.Q8_CURRENT_FOCUS: (
+        "Question 8 of 10 — Current focus. Ask: what 2–3 projects or "
+        "priorities are owning most of your attention right now? "
+        "Short phrases are fine — this anchors future suggestions."
+    ),
+    OnboardingStep.Q9_HARD_NOS: (
+        "Question 9 of 10 — Hard-nos. Ask: what kind of task, tone, "
+        "or output drains you or that I should never do? Think: the "
+        "behavior that would make you wish you'd never turned me on."
+    ),
+    OnboardingStep.Q10_LATENT_WISH: (
+        "Question 10 of 10 — Latent wish. Ask: if you had a perfectly "
+        "competent chief-of-staff, what's the one thing you'd want "
+        "them to do without ever being asked? Thank them for finishing "
+        "the interview and let them know the profile is being compiled."
     ),
 }
 
-_SOUL_GENERATION_PROMPT = """\
-Based on the following onboarding interview responses, generate a soul \
-profile for this user. The soul profile should be a markdown document \
-that captures:
+_USER_PROFILE_GENERATION_PROMPT = """\
+You are compiling a shared user-profile markdown document from a \
+10-question onboarding interview. This document becomes ``user.md`` \
+and is injected into every agent's system prompt as "# About the \
+User" — so every word should be actionable context about *who this \
+person is*, not about *how the agent behaves*.
 
-- Communication style preferences
-- Daily routines and priorities
-- Professional context and workflows
-- Personal interests and context
-- General personality traits and preferences
+Structure the output with these sections (omit a section if the \
+answers don't support it — don't invent):
 
-Format it as a clean markdown document suitable for use as a base soul \
-file (soul/base.md). Be specific and actionable — this will be injected \
-into agent system prompts.
+## Identity
+# Name, role, domain of focus (from Q1).
+
+## Working style
+# Timezone and sharp-edge hours (from Q2). Keep it concrete.
+
+## Communication preferences
+# Detail level, tone/directness (from Q3, Q4). Use clear directives
+# like "Default to the bottom line first; expand only on request"
+# rather than descriptive prose.
+
+## Autonomy & escalation
+# When to act vs ask, interrupt vs queue, how to challenge (Q5, Q6, Q7).
+
+## Context agents should carry
+# Current projects and priorities (Q8).
+
+## Hard-nos
+# Things to never do; drains to avoid (Q9).
+
+## What the user most wants
+# The latent wish, framed as an opportunity agents should watch for (Q10).
+
+Rules:
+- Write in third person ("The user prefers…" NOT "I prefer…").
+- Be specific and directive. Avoid hedges like "seems to" or "maybe".
+- Never fabricate — if a question was skipped or vague, drop the
+  corresponding bullet rather than guess.
+- Output ONLY the markdown document, no preamble.
 
 Interview responses:
 {responses}
@@ -107,11 +181,24 @@ class OnboardingService:
         agent_runner: AgentRunner,
         memory_service: MemoryService | None = None,
         turn_timeout_s: float = _DEFAULT_TURN_TIMEOUT_S,
+        user_profile_path: str | None = None,
     ) -> None:
         self._db = db
         self._agent_runner = agent_runner
         self._memory_service = memory_service
         self._turn_timeout_s = turn_timeout_s
+        # Where the generated user.md is written on completion. When
+        # None, the service writes to ``<GCLAW_CONFIG_DIR>/user.md`` if
+        # that env var is set, otherwise skips disk writes (the
+        # profile still lives in Firestore onboarding state). Cloud
+        # Run's filesystem is ephemeral per revision, so durability
+        # depends on the Firestore copy, not the disk file.
+        if user_profile_path is None:
+            cfg_dir = os.environ.get("GCLAW_CONFIG_DIR")
+            user_profile_path = (
+                os.path.join(cfg_dir, "user.md") if cfg_dir else None
+            )
+        self._user_profile_path = user_profile_path
 
     async def _run_with_timeout(self, **kwargs):
         """Invoke agent_runner.run with a wall-clock timeout.
@@ -238,21 +325,22 @@ class OnboardingService:
         state.updated_at = datetime.now(timezone.utc)
 
         if new_step == OnboardingStep.COMPLETE:
-            # Generate soul from all responses
-            soul_content = await self._generate_soul(
+            # Compile user.md profile from all responses
+            profile_content = await self._generate_user_profile(
                 user_id, state.responses
             )
-            state.soul_content = soul_content
+            state.user_profile_content = profile_content
             state.completed = True
             await self._save_state(state)
             return {
                 "step": "complete",
                 "message": (
-                    "Onboarding complete! Your soul profile has been "
-                    "generated and saved."
+                    "Onboarding complete. Your shared user profile "
+                    "(user.md) has been compiled and is now injected "
+                    "into every agent's prompt."
                 ),
                 "completed": True,
-                "soul_preview": soul_content[:500],
+                "user_profile_preview": profile_content[:500],
             }
 
         await self._save_state(state)
@@ -271,50 +359,76 @@ class OnboardingService:
             "completed": False,
         }
 
-    async def _generate_soul(
+    async def _generate_user_profile(
         self,
         user_id: str,
         responses: dict[str, str],
     ) -> str:
-        """Generate soul file content from interview responses.
+        """Compile ``user.md`` markdown from the 10-question interview.
 
-        Sends all collected responses through the orchestrator to
-        produce the soul profile markdown.
+        Runs the collected responses through the orchestrator with a
+        template prompt that forces a structured, third-person profile
+        suitable for direct injection into agent system prompts.
+
+        Best-effort writes the content to
+        ``<GCLAW_CONFIG_DIR>/user.md`` so the loader picks it up on
+        the next prompt build. Disk write failures are non-fatal —
+        the profile always persists in Firestore onboarding state.
         """
         formatted_responses = "\n\n".join(
             f"**{step}:** {answer}"
             for step, answer in responses.items()
         )
-        prompt = _SOUL_GENERATION_PROMPT.format(
+        prompt = _USER_PROFILE_GENERATION_PROMPT.format(
             responses=formatted_responses
         )
 
         result = await self._run_with_timeout(
             user_id=user_id,
             message=prompt,
-            session_id=f"onboarding_{user_id}_soul",
+            session_id=f"onboarding_{user_id}_profile",
         )
-        soul_content = result.text
+        profile_content = result.text.strip()
 
-        # Capture soul content to Memory Bank
+        # Mirror to disk so ConfigLoader.load_user_profile() picks it
+        # up on the next request in this revision. Non-fatal: the
+        # Firestore onboarding state is the canonical copy.
+        if self._user_profile_path:
+            try:
+                with open(self._user_profile_path, "w") as f:
+                    f.write(profile_content)
+                logger.info(
+                    "onboarding: wrote generated user profile to %s (%d bytes)",
+                    self._user_profile_path,
+                    len(profile_content),
+                )
+            except Exception:
+                logger.warning(
+                    "onboarding: failed to write user profile to %s",
+                    self._user_profile_path,
+                    exc_info=True,
+                )
+
+        # Capture to Memory Bank so evolving preferences can later
+        # supplement the static profile.
         if self._memory_service is not None:
             try:
                 await self._memory_service.capture(
                     user_id=user_id,
                     conversation_text=(
-                        f"Onboarding interview completed. "
-                        f"Soul profile generated:\n\n{soul_content}"
+                        "Onboarding interview completed. Generated "
+                        f"user profile:\n\n{profile_content}"
                     ),
                     topics=["USER_PREFERENCES", "EXPLICIT_INSTRUCTIONS"],
                 )
             except Exception:
                 logger.warning(
-                    "Failed to capture soul to memory bank for %s",
+                    "Failed to capture user profile to memory bank for %s",
                     user_id,
                     exc_info=True,
                 )
 
-        return soul_content
+        return profile_content
 
     async def get_status(self, user_id: str) -> dict:
         """Get onboarding completion status.
