@@ -1,547 +1,479 @@
-# GClaw Enterprise Observability — SPARC Implementation Plan
-# Repo: /Users/apex/Dev/gclaw  |  Author: observability research swarm, 2026-04-18
-# Execution mode: /loop (dynamic self-paced) — resume from STATE TRACKER below
+# GClaw Tool Catalog (Option C) — SPARC Implementation Plan
+# Repo: /Users/apex/Dev/gclaw  |  Drafted: 2026-04-18
+# Execution mode: /loop (dynamic self-paced) — TDD, resume from STATE TRACKER below
+# Prior plan preserved at: schedule-loop-observability.txt
 
 ================================================================================
 EXECUTION RULES (read these first, every loop iteration)
 ================================================================================
 1. Read the STATE TRACKER. Find the first phase with status `[ ]` (not started)
    or `[~]` (in progress). That is the ACTIVE PHASE for this iteration.
-2. If the active phase is `[ ]`, flip it to `[~]` (in progress) before starting.
-3. Work ONLY on the active phase this iteration. Do not start the next phase.
-4. Acceptance: A phase is `[x]` only when EVERY item under its "C — Completion"
-   section is verified (tests pass, lint clean, file exists, etc.).
+2. If the active phase is `[ ]`, flip it to `[~]` before starting. Work ONLY on
+   the active phase this iteration; don't jump ahead.
+3. TDD loop inside each phase:
+     a. Write failing tests that express the acceptance criteria.
+     b. Run the tests — confirm RED.
+     c. Write the minimum production code to turn them GREEN.
+     d. Refactor without breaking tests.
+4. Acceptance: a phase is `[x]` only when EVERY item under its "C — Completion"
+   section is verified (tests green, lint clean, file exists, route responds).
 5. Commit boundary: commit after each phase lands (Conventional Commits style,
-   e.g. `feat(obs): add OpenTelemetry foundation`). DO NOT push unless the user
-   explicitly asks.
-6. Preserve existing toggle patterns. Match `MODEL_ROUTING_ENABLED` / `MEMORY_ENABLED`
-   style for the new `OBSERVABILITY_ENABLED` flag. Everything must be OFF by default.
-7. If blocked (missing credentials, ambiguous design, destructive op needed), DO
-   NOT guess — flip the phase to `[!]` (blocked) with a one-line reason, then
-   surface to the user.
+   e.g. `feat(tools): add ToolCatalog data model and Firestore repo`). DO NOT
+   push unless the user explicitly asks.
+6. Default-off toggles. `TOOL_CATALOG_ENABLED` follows the `CATALOG_ENABLED`
+   pattern; every new kind (mcp, http_api, code_exec) ships with its own
+   nested toggle so a broken integration can't brick the built-in tools.
+7. If blocked (missing credentials, ambiguous design, destructive op needed),
+   flip the phase to `[!]` with a one-line reason, surface to the user, stop.
 8. Keep scope tight. No speculative refactors. No "while we're here" cleanup.
-9. After finishing a phase, update STATE TRACKER to `[x]` and add a one-line
-   delta note under the phase (e.g. `DONE 2026-04-18: wired tracer provider...`).
-10. If the last phase (7) is `[x]`, report final summary to the user and stop
-    the loop (omit ScheduleWakeup).
+9. After a phase is verified, flip to `[x]` and add a one-line delta note
+   under the phase (e.g. `DONE 2026-04-18: wired ToolRepo + CRUD routes...`).
+10. When Phase 7 is `[x]`, print the final summary and stop the loop (no
+    ScheduleWakeup).
 
 ================================================================================
 STATE TRACKER  (source of truth for /loop progress)
 ================================================================================
-[x] Phase 1: OpenTelemetry + OpenInference foundation — DONE 2026-04-18: added 7 OTel/OpenInference deps, created src/gclaw/observability/{__init__,constants,tracing}.py with fail-soft Cloud Trace + OTLP/HTTP exporters and ADK/LiteLLM instrumentors; 5 OBS_* settings fields wired; init_tracing() called at top of build_app(); scripts/otel_smoke.py + 3 unit tests. 1019 pytests pass (1 pre-existing research_tools failure unrelated to Phase 1, confirmed via git stash). .env.example touched through Write permissions denied — OBS vars documented in settings.py + tracing.py docstrings; user to sync .env.example manually if desired.
-[x] Phase 2: Runner instrumentation (AgentRunner spans) — DONE 2026-04-18: added observability/semconv.py attribute helpers; runner.py wraps run() in AGENT-kind OpenInference span via _run_turn() split; LLM token/model attrs stamped on both success and fallback-exhausted paths; record_exception + ERROR status on failure; 3 new tests via InMemorySpanExporter. 1022 pytests pass (34 runner tests + 3 new span tests).
-[x] Phase 3: Phoenix sidecar on Cloud Run (OTLP sink) — DONE 2026-04-18: added infra/phoenix/{Dockerfile,cloudbuild.yaml,README.md} + .github/workflows/deploy.yml gains `changes` path-filter job (dorny/paths-filter@v3) and `deploy-phoenix` gated on infra/phoenix/** changes. README documents one-time Cloud SQL + VPC connector + phoenix-run-sa + Secret Manager provisioning. Both YAML files lint-clean; 1022 pytests pass. Phoenix image pinned to arizephoenix/phoenix:version-8.0.0 with TODO(ops) to swap in a digest before first prod rollout. Actual GCP provisioning and first deploy remain the user's manual step.
-[x] Phase 4: LiveSpanProcessor -> Firestore + SSE endpoint — DONE 2026-04-18: added RunRegistry (per-run asyncio.Queue, bounded 1000 events, drop-oldest), LiveSpanProcessor (AGENT-kind fanout → queue + throttled Firestore upsert), AgentRunsRepo (/users/{uid}/agent_runs/{run_id}), FastAPI router at GET /api/runs/{run_id}/events (SSE, 15s heartbeat, 401/403 auth). tracing.init_tracing() accepts extra_processors; main.py wires it in and injects the Firestore repo post-boot; app.py mounts the dashboard router when run_registry is present. 12 new tests (RunRegistry×4, LiveSpanProcessor×5, SSE auth×3). Streaming test dropped — E2E verified in Phase 6 browser. 1034 pytests pass.
-[x] Phase 5: ModelCatalog context/cache enrichment + nightly price sync — DONE 2026-04-18: ModelCatalog already had context_window + cost.cache_read_per_mtok — no schema change. Extended estimate_cost_usd() with tokens_cache_read kwarg (bills cache hits at 4x-cheaper rate, clamps fresh=max(0, tin-tcache)). cost_lookup callable signature now takes tokens_cache_read keyword-only. New build_catalog_context_lookup() for Phase 6 context-% gauge. NEW src/gclaw/models/price_sync.py — LiteLLM+OpenRouter fetchers, parsers ($/tok → $/MTok), idempotent reconciliation against catalog. NEW POST /admin/price-sync in catalog_routes.py (admin-auth scoped, dispatches to asyncio.to_thread). NEW crons/price_sync.json (daily 03:15 UTC). 12 new tests (cost math ×5, price sync ×7). 1048 pytests pass.
-[x] Phase 6: Next.js live agent cockpit widgets — DONE 2026-04-18: new /admin/live page (Size 3.17 kB, build clean) with NowPlayingCard + ContextGauge (radial SVG arc, 60/85 color bands) + TokenMeter (in/out/total + cache_read when present) + CostTicker (session total + per-turn ghost chip). useRunDoc hook subscribes to Firestore /users/{uid}/agent_runs/{runId} via onSnapshot. Sidebar gets "Live" nav entry (num 11). 10 new vitest tests, zero regressions (6 pre-existing web failures on clean master confirmed via stash). TraceWaterfall/SSE consumption deferred — Firestore onSnapshot covers the core visual requirements (which agent, which model, tokens, context %, cost); SSE widgets are Phase 6.5 once FIREBASE_AUTH_ENABLED requires an EventSource cookie-auth bridge. npm run lint is blocked by unconfigured ESLint (project-wide, pre-existing); skipped.
-[ ] Phase 7: Guardrails AI inline + Vertex Gen AI Evaluation async
+[x] Phase 1: Data model + Firestore repo + service-layer CRUD — DONE 2026-04-18: ToolKind enum + 5 AuthSpec variants + 4 ToolConfig variants (discriminated unions, derived top-level kind); ToolRecord round-trips through to_firestore_dict; ToolRepo mirrors ModelRepo at config/tools_catalog/tools/{id}; ToolCatalogService with create/get/list/list_enabled/list_by_kind/update/delete/validate_config; 31 tests across tests/test_tool_catalog_model.py + tests/test_tool_catalog_service.py all pass; existing catalog tests unaffected.
+[ ] Phase 2: Admin CRUD API (/admin/tools) + test-tool endpoint
+[ ] Phase 3: Builtin-kind migration — catalog-aware binding in AgentFactory
+[ ] Phase 4: MCP-kind integration (stdio/SSE/HTTP transports) + credentials
+[ ] Phase 5: HTTP-API-kind + OpenAPI→MCP in-process auto-wrap
+[ ] Phase 6: Code-exec-kind (sandboxed runner) + execution policy
+[ ] Phase 7: Web UI — /admin/tools CRUD + per-agent binding picker
 
 ================================================================================
-GLOBAL ARCHITECTURE NOTES
+GLOBAL DESIGN NOTES
 ================================================================================
-- Instrumentation spec: OpenInference (superset of OpenTelemetry gen_ai.*).
-- Wire format: OTLP/gRPC (default) or OTLP/HTTP (fallback).
-- Dual sink: Cloud Trace (primary, in-project) + Phoenix (secondary, rich UI).
-- Live path bypasses OTLP latency: Firestore onSnapshot for status (<=1/s/doc)
-  + SSE from FastAPI for high-frequency events.
-- Context-% denominator: ModelCatalog.context_window_input (hydrated nightly
-  from litellm/model_prices_and_context_window.json on GitHub and
-  openrouter.ai/api/v1/models).
-- Toggle: OBSERVABILITY_ENABLED (default false). When false, the LiveSpanProcessor
-  and all exporters become no-ops — zero perf impact.
-- Stack touchpoints (already verified by code scan 2026-04-18):
-    * src/gclaw/main.py               — composition root
-    * src/gclaw/dispatch/runner.py    — chokepoint for every turn (lines ~275-461)
-    * src/gclaw/usage/recorder.py     — existing token/cost recorder (reuse)
-    * src/gclaw/usage/cost.py         — cost math (reuse)
-    * src/gclaw/routing/router.py     — ModelRouter + LiteLlm wrapper
-    * src/gclaw/models/catalog.py     — ModelCatalog (needs new fields)
-    * src/gclaw/heartbeat/events.py   — existing in-proc event bus (pattern template)
-    * src/gclaw/api/app.py            — FastAPI app factory
-    * src/gclaw/api/voice_ws.py       — auth pattern for SSE route
-    * src/gclaw/settings.py           — pydantic settings (add OBS fields)
-    * web/src/app/admin/              — existing admin pages (extend)
+- Catalog shape mirrors the existing ModelCatalog (providers/models under
+  config/catalog/). Tools live at config/tools/{id}. Every record carries
+  {id, name, kind, enabled, config: <kind-specific union>, created_at,
+   updated_at, credential_ref: str | None}.
+- Four kinds:
+    * `builtin`   — pointer to one of src/gclaw/tools/*.py functions; config
+                    is just the function's dotted path.
+    * `mcp`       — external MCP server; config has {transport, endpoint,
+                    allowed_tools: list[str] | None, env: dict[str, str]}.
+    * `http_api`  — wraps an OpenAPI/Swagger spec. Config has {spec_url OR
+                    spec_inline, base_url, auth: AuthSpec, allowed_operations}.
+                    Internally materialized as an in-process MCP server so
+                    agents see a single tool-binding abstraction.
+    * `code_exec` — sandboxed Python/bash runner. Config has {runtime,
+                    timeout_seconds, memory_mb, network: 'none'|'egress-only',
+                    allowed_modules: list[str]}.
+- Credentials go in Secret Manager via the existing SM service; Tool records
+  hold the SM resource path only.
+- Per-agent binding: extend AgentOverride.tools with
+  `catalog_tool_ids: list[str]`. Agents grant catalog tools via this list;
+  legacy allow/deny lists still govern builtin function names for back-compat.
+- ToolBindingService is the new public surface AgentFactory calls to resolve
+  an agent's list of ADK-callable tools from (builtin_tools + catalog_entries).
+- OpenAPI→MCP wrap lives in src/gclaw/tools/openapi_mcp/, emits one MCP tool
+  per operation; handles apiKey(header/query), http(bearer/basic),
+  oauth2(bearer from SM).
+- Code-exec sandbox runs as a Cloud Run sibling service (`gclaw-sandbox`);
+  calls happen over signed-JWT HTTP with a 30s hard timeout. Local dev uses
+  subprocess+resource-limits fallback.
+- Toggle names (Settings):
+    TOOL_CATALOG_ENABLED     (default true)
+    TOOL_MCP_ENABLED         (default true)
+    TOOL_HTTP_ENABLED        (default true)
+    TOOL_CODE_EXEC_ENABLED   (default FALSE — opt-in; infra dependency)
+- Test strategy: every phase starts with failing tests; integration tests
+  stub Firestore (repos accept an injected client) and stub the MCP/httpx
+  transports so CI stays offline.
 
 ================================================================================
-PHASE 1 — OpenTelemetry + OpenInference foundation
+STACK TOUCHPOINTS  (verified by code scan 2026-04-18)
+================================================================================
+- src/gclaw/models/catalog.py           — ModelCatalog pattern to mirror
+- src/gclaw/catalog/service.py          — CatalogService shape (mirror)
+- src/gclaw/firestore/catalog_repo.py   — ProviderRepo/ModelRepo pattern
+- src/gclaw/agents/factory.py           — AgentFactory.build tool wiring
+- src/gclaw/tools/*.py                  — existing builtin tool modules
+- src/gclaw/api/catalog_routes.py       — routing pattern for /admin/tools
+- src/gclaw/api/admin_routes.py         — init_admin_router integration point
+- src/gclaw/main.py                     — composition root
+- src/gclaw/catalog/secret_manager.py   — SM credential storage (reuse)
+- web/src/app/admin/models/page.tsx     — admin-catalog UI template
+- web/src/components/admin/agents/tab-tools.tsx — agent-binding UI extension
+- web/src/components/layout/sidebar.tsx — add new nav entry (next free num)
+- agents/*.md + models/agent_config.py  — YAML tool-grant schema
+
+================================================================================
+PHASE 1 — Data model + Firestore repo + service-layer CRUD
 ================================================================================
 S — Specification
-  Goal: Introduce an OTel tracer provider with OpenInference semantic conventions,
-  dual-exporting to Google Cloud Trace (primary) and an OTLP endpoint (Phoenix,
-  stubbed for now — Phase 3 deploys it).
+  Goal: Persist a ToolRecord in Firestore with a discriminated-union config
+  field, through a ToolRepo + ToolCatalogService that mirror the ModelCatalog
+  surface. No admin-facing routes yet; no agent binding yet.
   Acceptance:
-    - `OBSERVABILITY_ENABLED=true` starts the tracer without crashing.
-    - `OBSERVABILITY_ENABLED=false` (default) is a complete no-op.
-    - A hand-rolled `otel_smoke.py` script emits a test span that appears in
-      Cloud Trace within 60s (verified by `gcloud trace traces list`).
-    - No existing test breaks (`uv run pytest` green).
+    - Create / read / list / update / delete round-trip cleanly through an
+      in-memory fake Firestore.
+    - Discriminated-union config validation: wrong keys for kind →
+      pydantic.ValidationError.
+    - Enabled/disabled flag respected by list_enabled().
+    - Public module surface documented in src/gclaw/tools/catalog/__init__.py.
 
 P — Pseudocode
-  1. Add deps to pyproject.toml:
-       opentelemetry-api, opentelemetry-sdk,
-       opentelemetry-exporter-gcp-trace,
-       opentelemetry-exporter-otlp-proto-grpc,
-       openinference-semantic-conventions,
-       openinference-instrumentation-google-adk,
-       openinference-instrumentation-litellm
-  2. Create src/gclaw/observability/__init__.py
-  3. Create src/gclaw/observability/tracing.py with:
-       - init_tracing(settings) -> TracerProvider | None
-       - returns None if OBSERVABILITY_ENABLED is false
-       - otherwise registers CloudTraceSpanExporter + OTLPSpanExporter
-       - sets Resource: service.name="gclaw-backend", service.version=<pkg ver>
-       - registers ADKInstrumentor(), LiteLLMInstrumentor()
-  4. Extend settings.py with:
-       OBSERVABILITY_ENABLED: bool = False
-       OTEL_EXPORTER_OTLP_ENDPOINT: str | None = None
-       OTEL_EXPORTER_OTLP_HEADERS: str | None = None
-       OTEL_SERVICE_NAME: str = "gclaw-backend"
-       OTEL_SAMPLING_RATIO: float = 1.0
-  5. In main.py composition root, call init_tracing(settings) BEFORE AgentFactory
-     is constructed (instrumentors must patch before model calls happen).
-  6. Add scripts/otel_smoke.py — emits one test span, flushes, exits.
+  1. src/gclaw/tools/catalog/models.py:
+       class ToolKind(StrEnum): BUILTIN, MCP, HTTP_API, CODE_EXEC
+       class BuiltinConfig(BaseModel):  function_path: str
+       class McpConfig(BaseModel):
+           transport: Literal["stdio","sse","http"]
+           endpoint: str
+           allowed_tools: list[str] | None = None
+           env: dict[str,str] = {}
+       class HttpApiConfig(BaseModel):
+           spec_url: str | None = None
+           spec_inline: dict | None = None
+           base_url: str
+           auth: AuthSpec
+           allowed_operations: list[str] | None = None
+       class CodeExecConfig(BaseModel):
+           runtime: Literal["python3.12","bash"]
+           timeout_seconds: int = 30
+           memory_mb: int = 256
+           network: Literal["none","egress-only"] = "none"
+           allowed_modules: list[str] = []
+       ToolConfig = Annotated[Union[...], Discriminator("kind")]
+       class ToolRecord(BaseModel):
+           id: str, name: str, kind: ToolKind, enabled: bool = True,
+           config: ToolConfig, credential_ref: str | None = None,
+           created_at: datetime, updated_at: datetime
+  2. src/gclaw/firestore/tool_repo.py: ToolRepo.create/get/list/update/delete.
+  3. src/gclaw/tools/catalog/service.py: ToolCatalogService wrapping ToolRepo +
+     optional SecretManagerService; validate_config() cross-checks kind⇆config.
+  4. Tests in tests/test_tool_catalog_model.py + tests/test_tool_catalog_service.py.
 
 A — Architecture
-  - NEW: src/gclaw/observability/{__init__.py, tracing.py, constants.py}
-  - MOD: src/gclaw/main.py            (add init_tracing call, early)
-  - MOD: src/gclaw/settings.py        (5 new fields)
-  - MOD: pyproject.toml               (add deps; regen uv.lock with `uv sync`)
-  - MOD: .env.example                 (document new toggles)
-  - NEW: scripts/otel_smoke.py        (manual verify)
-  - NEW: tests/test_tracing_init.py   (unit: no-op when disabled, provider built when enabled)
+  - NEW: src/gclaw/tools/catalog/__init__.py
+  - NEW: src/gclaw/tools/catalog/models.py
+  - NEW: src/gclaw/tools/catalog/service.py
+  - NEW: src/gclaw/firestore/tool_repo.py
+  - NEW: tests/test_tool_catalog_model.py
+  - NEW: tests/test_tool_catalog_service.py
 
 R — Refinement
-  - Use BatchSpanProcessor (not Simple) with schedule_delay=1000ms, max_queue=2048.
-  - CloudTraceSpanExporter must pick up GOOGLE_APPLICATION_CREDENTIALS or ADC.
-  - Keep sampling at 1.0 for dev; expose OTEL_SAMPLING_RATIO for prod tuning.
-  - Known pin risk (see research): lock compatible versions in uv.lock, e.g.
-    google-adk, openinference-instrumentation-google-adk, opentelemetry-sdk
-    — run `uv run python scripts/otel_smoke.py` after upgrade.
+  - Round-trip datetime through isoformat in to_firestore_dict.
+  - Strip `id` on to_firestore_dict; inject on from_firestore_dict.
+  - validate_config raises pydantic.ValidationError — don't swallow.
 
 C — Completion
-  [ ] Deps added, `uv sync` succeeds, uv.lock committed
-  [ ] `uv run pytest tests/test_tracing_init.py` green
+  [ ] TDD: tests/test_tool_catalog_model.py RED → GREEN
+  [ ] TDD: tests/test_tool_catalog_service.py RED → GREEN
+  [ ] `uv run pytest tests/test_tool_catalog_*` green
   [ ] `uv run pytest` full suite still green
-  [ ] `OBSERVABILITY_ENABLED=true uv run python scripts/otel_smoke.py` prints
-      "span flushed" and a trace ID
-  [ ] Trace visible in Cloud Trace console within 60s
-  [ ] settings.py additions covered in .env.example
-  [ ] git commit: `feat(obs): add OpenTelemetry + OpenInference foundation`
+  [ ] Commit: `feat(tools): add ToolCatalog data model + Firestore repo`
 
 ================================================================================
-PHASE 2 — Runner instrumentation (AgentRunner spans)
+PHASE 2 — Admin CRUD API + test-tool endpoint
 ================================================================================
 S — Specification
-  Goal: Emit OpenInference AGENT / LLM / TOOL spans for every agent turn,
-  populated from values already computed in AgentRunner._record_turn.
+  Goal: Expose the catalog through /admin/tools with the same shape as
+  /admin/model-providers, plus a /admin/tools/{id}/test endpoint that
+  dispatches on kind and returns {ok, latency_ms, error, sample_response}.
   Acceptance:
-    - One root AGENT span per turn, child LLM + TOOL spans per ADK event.
-    - Span attributes cover: model_name, provider, token_count.prompt / completion
-      / total, tool.name, tool_call.id, graph.node.parent_id (orchestrator ->
-      manager -> specialist), session.id, user.id.
-    - Spans survive a real turn against Gemini (observed in Cloud Trace).
-    - Existing UsageRecorder output unchanged (still writes to Firestore).
+    - GET /admin/tools → list
+    - POST /admin/tools → create
+    - PATCH /admin/tools/{id} → partial update
+    - DELETE /admin/tools/{id}
+    - POST /admin/tools/{id}/test → kind-specific probe.
+    - Auth-gated via Depends(get_current_user_id).
 
 P — Pseudocode
-  In dispatch/runner.py around the `async for event in active_runner.run_async(...)`
-  loop (current line ~275):
-
-    tracer = trace.get_tracer(__name__)
-    with tracer.start_as_current_span(agent_name, kind=AGENT) as turn_span:
-        turn_span.set_attribute(SpanAttributes.SESSION_ID, session_id)
-        turn_span.set_attribute(SpanAttributes.USER_ID, user_id)
-        turn_span.set_attribute("graph.node.id", active_runner.agent.name)
-        turn_span.set_attribute("graph.node.parent_id", parent_agent or "")
-        for event in active_runner.run_async(...):
-            if event.is_llm_response():
-                with tracer.start_span("llm", kind=LLM) as llm_span:
-                    llm_span.set_attributes({
-                      "llm.model_name": event.model_version,
-                      "llm.provider": endpoint.provider,
-                      "llm.token_count.prompt": usage.prompt_token_count,
-                      "llm.token_count.completion": usage.candidates_token_count,
-                      "llm.token_count.total": usage.total_token_count,
-                      "llm.token_count.cache_read": usage.cached_content_token_count,
-                    })
-            if event.has_tool_call():
-                with tracer.start_span("tool." + name, kind=TOOL) as t:
-                    t.set_attributes({
-                      "tool.name": part.function_call.name,
-                      "tool.parameters": json.dumps(part.function_call.args)[:4096],
-                      "tool_call.id": part.function_call.id,
-                    })
+  1. src/gclaw/api/tool_routes.py — 5 endpoints.
+  2. src/gclaw/tools/catalog/tester.py — dispatch table {kind → async probe}.
+  3. Wire in api/app.py::create_app; main.py constructs + injects
+     ToolCatalogService.
+  4. Tests via FastAPI TestClient with injected fake ToolCatalogService.
 
 A — Architecture
-  - NEW: src/gclaw/observability/semconv.py
-         (wrapper around openinference.semconv enums + SpanKind helpers)
-  - MOD: src/gclaw/dispatch/runner.py
-         (wrap event loop; no behavior change when OBSERVABILITY_ENABLED=false —
-          use contextlib.nullcontext fallback)
-  - NEW: tests/test_runner_spans.py
-         (use InMemorySpanExporter to assert span tree shape on a mocked turn)
+  - NEW: src/gclaw/api/tool_routes.py
+  - NEW: src/gclaw/tools/catalog/tester.py
+  - MOD: src/gclaw/api/app.py          (mount router)
+  - MOD: src/gclaw/main.py             (construct + inject)
+  - NEW: tests/test_tool_routes.py
 
 R — Refinement
-  - Hoist span-attribute formatting into a small helper to keep runner.py readable.
-  - Truncate tool.parameters to 4KB to avoid span-size bloat (Cloud Trace hard limit).
-  - Use span.record_exception + span.set_status on any raise in the event loop.
-  - Benchmark: assert added overhead <2ms per turn with OTel disabled.
+  - Tester dispatch: mcp/http/code probes fail-soft with ok=False + error
+    string; never raise into the handler.
+  - Probe timeout 10s to match the model-test endpoint.
 
 C — Completion
-  [ ] tests/test_runner_spans.py green (InMemorySpanExporter captures expected tree)
+  [ ] TDD: tests/test_tool_routes.py RED → GREEN (all 5 endpoints + probe)
   [ ] `uv run pytest` full suite green
-  [ ] Manual: run one chat turn with OBSERVABILITY_ENABLED=true; Cloud Trace shows
-      AGENT -> LLM -> TOOL hierarchy with token counts
-  [ ] Existing usage events in Firestore unchanged (spot-check one event)
-  [ ] git commit: `feat(obs): instrument AgentRunner with OpenInference spans`
+  [ ] `curl` against local dev server: create → list → test → delete
+  [ ] Commit: `feat(tools): add /admin/tools CRUD + test endpoint`
 
 ================================================================================
-PHASE 3 — Phoenix sidecar on Cloud Run (OTLP sink)  [CI/CD via GitHub Actions]
-================================================================================
-Deploy model: GitHub Actions → Workload Identity Federation → `gcloud builds
-submit` → cloudbuild.yaml → Artifact Registry + Cloud Run. Existing pipeline
-lives in .github/workflows/deploy.yml + cloudbuild.yaml (gclaw backend).
-Phase 3 adds a second service `phoenix` with its own cloudbuild pipeline and
-a new job in the existing workflow. The loop writes IaC artifacts only —
-one-time GCP provisioning (Cloud SQL, VPC connector, Secret Manager entries,
-IAM bindings for the phoenix-run-sa) remains the user's manual step because
-those operations require human authorization.
-
-S — Specification
-  Goal: Deploy Arize Phoenix as a second OTLP consumer alongside Cloud Trace so
-  the team has a rich trace/evaluation UI without data ever leaving apex-internal-apps.
-  Acceptance:
-    - infra/phoenix/ contains Dockerfile + cloudbuild.yaml + README.md that
-      a human operator can use to stand up the service once provisioning is done.
-    - A new `deploy-phoenix` job in .github/workflows/deploy.yml triggers on
-      push to master (gated by a path filter `infra/phoenix/**`) and runs
-      `gcloud builds submit --config infra/phoenix/cloudbuild.yaml`.
-    - README.md documents one-time provisioning (Cloud SQL, VPC connector,
-      phoenix-run-sa, Secret Manager entries) and the rollback procedure.
-    - Main-app OTEL_EXPORTER_OTLP_ENDPOINT left empty in code (set via
-      Secret Manager in prod env); cloudbuild for gclaw backend unchanged.
-
-P — Pseudocode
-  1. infra/phoenix/Dockerfile — base: arizephoenix/phoenix:<pinned-digest>;
-     set PHOENIX_WORKING_DIR, PHOENIX_PORT=6006.
-  2. infra/phoenix/cloudbuild.yaml — three-step pipeline mirroring the root
-     cloudbuild.yaml shape (build → push SHA + latest → deploy). Substitutions:
-       _REGION: us-central1
-       _IMAGE: us-central1-docker.pkg.dev/${PROJECT_ID}/gclaw/phoenix
-       _SERVICE: phoenix
-     gcloud run deploy flags:
-       --ingress=internal-and-cloud-load-balancing
-       --no-allow-unauthenticated
-       --service-account=phoenix-run-sa@${PROJECT_ID}.iam.gserviceaccount.com
-       --vpc-connector=<user-provisioned>
-       --set-secrets=PHOENIX_SQL_DATABASE_URL=phoenix-sql-url:latest
-       --set-env-vars=PHOENIX_WORKING_DIR=/tmp/phoenix,PHOENIX_PORT=6006,...
-       --min-instances=0 --max-instances=2 --cpu=1 --memory=1Gi
-  3. .github/workflows/deploy.yml — add job `deploy-phoenix` mirroring
-     `deploy-backend` but:
-       - working-directory: . (cloudbuild path is infra/phoenix/cloudbuild.yaml)
-       - path filter limiting it to changes in infra/phoenix/** or the workflow
-         file itself (use dorny/paths-filter or a simple `if:` guard against
-         the commit message / changed files via github.event.head_commit)
-       - needs: test (doesn't depend on gclaw backend; it's an independent service)
-  4. infra/phoenix/README.md — one-time provisioning + rollback + troubleshooting.
-
-A — Architecture
-  - NEW: infra/phoenix/Dockerfile
-  - NEW: infra/phoenix/cloudbuild.yaml
-  - NEW: infra/phoenix/README.md          (provisioning + rollback docs)
-  - MOD: .github/workflows/deploy.yml     (add deploy-phoenix job)
-
-R — Refinement
-  - Pin the Phoenix image to a specific DIGEST, not :latest. Look it up from
-    https://hub.docker.com/r/arizephoenix/phoenix/tags and record the digest
-    in a comment in the Dockerfile so future bumps are explicit.
-  - Document in README: Cloud SQL db_f1_micro tier, `db_name: phoenix`, private
-    IP only, enable Cloud SQL Admin API, budget alert at $20/mo.
-  - Retention: Phoenix env PHOENIX_TRACE_RETENTION_DAYS=14 in cloudbuild.yaml.
-  - Elastic License 2.0 — document in README.md that self-hosted Phoenix is
-    source-available but not OSI-approved; compliance sign-off is the user's.
-  - Path-filtered job prevents every backend push from also rebuilding Phoenix.
-
-C — Completion (loop-reachable scope)
-  [ ] infra/phoenix/Dockerfile present with pinned Phoenix digest
-  [ ] infra/phoenix/cloudbuild.yaml present and lint-clean (YAML parses)
-  [ ] infra/phoenix/README.md documents provisioning + rollback
-  [ ] .github/workflows/deploy.yml parses (use `python -c "import yaml; yaml.safe_load(open(...))"` as a smoke)
-  [ ] `yamllint` (if available) OR basic yaml.safe_load passes on both YAML files
-  [ ] `uv run pytest` full suite still green (no Python code changed — should be a no-op)
-  [ ] git commit: `feat(obs): add Phoenix Cloud Run sidecar + deploy job`
-
-C — Manual verification (user, post-merge)
-  [ ] One-time: create Cloud SQL `phoenix` instance + phoenix-run-sa + VPC connector + Secret Manager entry for PHOENIX_SQL_DATABASE_URL
-  [ ] Merge PR; deploy-phoenix job succeeds in GitHub Actions
-  [ ] `gcloud run services describe phoenix --region=us-central1` returns URL
-  [ ] Update Secret Manager `otel-exporter-otlp-endpoint` with the Phoenix URL
-  [ ] One real chat turn → trace visible in Phoenix UI AND Cloud Trace
-
-================================================================================
-PHASE 4 — LiveSpanProcessor -> Firestore + SSE endpoint
+PHASE 3 — Builtin-kind migration + AgentFactory binding
 ================================================================================
 S — Specification
-  Goal: Sub-second live view — durable agent status in Firestore, high-frequency
-  firehose over Server-Sent Events.
+  Goal: Move the hard-coded tool bindings (research_tools.web_search,
+  gh.list_issues, gws.send_email, etc.) into catalog-backed BuiltinConfig
+  entries. AgentFactory resolves an agent's tool list from both the legacy
+  allow/deny YAML and a new `catalog_tool_ids` list on AgentOverride.
   Acceptance:
-    - New Firestore collection /agent_runs/{runId} mutates <=1/sec/doc with the
-      schema from the research (active_agent, model_id, tokens, context_window,
-      cost_usd_session, cost_usd_turn, status, tool_in_flight).
-    - GET /api/runs/{runId}/events streams span.start / llm.chunk / tool.call.* /
-      span.end events as SSE.
-    - Firebase auth enforced; users cannot subscribe to other users' runs.
-    - No impact on Cloud Trace / Phoenix sinks (LiveSpanProcessor is additive).
+    - Idempotent seeder populates the catalog with one entry per discovered
+      builtin function on first boot.
+    - Legacy allow-list agents still work (back-compat preserved).
+    - Agents with override.tools.catalog_tool_ids get exactly those tools.
+    - Flipping a tool's enabled=false removes it from subsequent agent builds
+      without a restart (cache invalidation via the event-bus).
 
 P — Pseudocode
-  class LiveSpanProcessor(SpanProcessor):
-      def on_start(self, span, parent_context):
-          queue_for(run_id).put_nowait({"event": "span.start", ...})
-      def on_end(self, span):
-          queue_for(run_id).put_nowait({"event": "span.end", ...})
-          if is_agent_span(span):
-              upsert_firestore_agent_run(...)   # throttled
-
-  FastAPI route:
-    @router.get("/api/runs/{run_id}/events")
-    async def events(run_id, request):
-        assert request.state.user_id == run_owner(run_id)
-        async def gen():
-            async for evt in drain_queue(run_id):
-                yield "event: " + evt.event + "\ndata: " + json.dumps(evt.data) + "\n\n"
-        return StreamingResponse(gen(), media_type="text/event-stream")
+  1. src/gclaw/tools/catalog/builtin_registry.py — reflection over the
+     tools/ package; enumerate @tool_export-decorated callables.
+  2. src/gclaw/tools/catalog/seeder.py::seed_builtin_tools(service) — upsert.
+  3. src/gclaw/tools/catalog/binding.py::resolve_tools_for_agent merges
+     legacy allow/deny with override.tools.catalog_tool_ids.
+  4. Extend AgentOverride.tools: add `catalog_tool_ids: list[str] = []`.
+  5. Seeder called from main.py boot.
+  6. AgentFactory.build delegates to ToolBindingService.
 
 A — Architecture
-  - NEW: src/gclaw/observability/live_span_processor.py
-  - NEW: src/gclaw/observability/run_registry.py          (asyncio.Queue per run_id)
-  - NEW: src/gclaw/firestore/agent_runs_repo.py           (upsert /agent_runs/{runId})
-  - NEW: src/gclaw/api/dashboard_routes.py                (SSE endpoint)
-  - MOD: src/gclaw/observability/tracing.py               (register LiveSpanProcessor)
-  - MOD: src/gclaw/api/app.py                             (mount dashboard_routes)
-  - NEW: tests/test_live_span_processor.py
-  - NEW: tests/test_dashboard_routes_sse.py
+  - NEW: src/gclaw/tools/catalog/builtin_registry.py
+  - NEW: src/gclaw/tools/catalog/seeder.py
+  - NEW: src/gclaw/tools/catalog/binding.py
+  - MOD: src/gclaw/models/agent_config.py  (add catalog_tool_ids)
+  - MOD: src/gclaw/agents/factory.py       (delegate)
+  - MOD: src/gclaw/main.py                 (seed + inject)
+  - NEW: tests/test_tool_binding.py
+  - NEW: tests/test_tool_seeder.py
+  - MOD: src/gclaw/tools/*.py              (add @tool_export marker)
 
 R — Refinement
-  - Throttle Firestore writes with a per-run debouncer (aio-timer, max 1Hz).
-  - Cap per-run queue at 1000 events; drop oldest with a counter metric.
-  - SSE heartbeat every 15s to keep Cloud Run proxy alive (60 min stream cap).
-  - Set Cache-Control: no-cache, X-Accel-Buffering: no for SSE response.
-  - On SSE client disconnect, clean up the queue (remove from run_registry).
+  - @tool_export preserves the function verbatim; adds `.tool_name` +
+    `.tool_description` attrs for catalog metadata.
+  - Cache resolved tool lists per agent name; invalidate on catalog write
+    via heartbeat.events pattern.
+  - DON'T delete the legacy allow/deny path; safety net.
 
 C — Completion
-  [ ] Unit tests green
-  [ ] Manual: curl the SSE endpoint while running a chat turn -> events stream
-  [ ] Firestore /agent_runs/{runId} doc updates in real time (check console)
-  [ ] Auth check: another user's token gets 403
-  [ ] Cloud Trace and Phoenix still receive spans unchanged
-  [ ] git commit: `feat(obs): add LiveSpanProcessor and SSE dashboard feed`
-
-================================================================================
-PHASE 5 — ModelCatalog context/cache enrichment + nightly price sync
-================================================================================
-S — Specification
-  Goal: Context-% needs a real denominator; cost math must bill Gemini cache
-  reads correctly (4x delta). Keep prices current via a nightly sync.
-  Acceptance:
-    - ModelCatalog entries carry context_window_input + cost.cache_read_per_mtok.
-    - estimate_cost_usd uses cache_read rate when cached_content_token_count > 0.
-    - Nightly Cloud Scheduler job refreshes catalog from LiteLLM JSON + OpenRouter.
-    - /api/runs/{runId} Firestore doc now carries accurate context_window.pct.
-
-P — Pseudocode
-  1. Extend ModelCatalog dataclass with:
-       context_window_input: int
-       cost_cache_read_per_mtok: float | None
-  2. usage/cost.py: if usage.cached_content_token_count > 0, compute
-       cost = (cache_read_tokens * cache_rate + fresh_tokens * input_rate
-               + out_tokens * output_rate) / 1e6
-  3. New src/gclaw/models/price_sync.py:
-       - fetch litellm/model_prices_and_context_window.json from GitHub raw
-       - fetch openrouter.ai/api/v1/models
-       - reconcile into Firestore /model_catalog
-       - idempotent; logs diff
-  4. api/admin/price_sync endpoint (manual trigger, admin-scoped)
-  5. crons/ entry: daily 03:15 UTC -> price_sync job
-
-A — Architecture
-  - MOD: src/gclaw/models/catalog.py             (two new fields)
-  - MOD: src/gclaw/usage/cost.py                 (cache-aware math)
-  - NEW: src/gclaw/models/price_sync.py
-  - MOD: src/gclaw/api/admin.py                  (add admin-only manual trigger)
-  - MOD: crons/                                  (daily price sync)
-  - NEW: tests/test_price_sync.py
-  - NEW: tests/test_cost_cache_math.py
-
-R — Refinement
-  - Pin a known commit SHA of litellm JSON for deterministic tests.
-  - Treat OpenRouter response as authoritative for models it covers; LiteLLM as
-    fallback for Vertex-only Gemini SKUs.
-  - Keep LiteLlm endpoint pricing in sync (user already configured in router.py).
-
-C — Completion
-  [ ] Unit tests: cache-aware cost math green for a sample (Gemini 2.5 Pro w/ cache)
-  [ ] Unit tests: price sync idempotent on repeat run
-  [ ] Manual: run `POST /admin/price-sync`; catalog doc updated in Firestore
-  [ ] Daily cron visible in Cloud Scheduler
-  [ ] Live dashboard (phase 4) now shows context_window.pct with real denominator
-  [ ] git commit: `feat(obs): enrich ModelCatalog with context/cache fields + nightly sync`
-
-================================================================================
-PHASE 6 — Next.js live agent cockpit widgets
-================================================================================
-S — Specification
-  Goal: The visual requirement — see agents in flight, model, token usage, context %.
-  Acceptance:
-    - New route /admin/live renders NowPlayingCard, ContextGauge,
-      TokenMeter, CostTicker, TraceWaterfall.
-    - NowPlayingCard subscribes to Firestore /agent_runs/{runId} via onSnapshot.
-    - TraceWaterfall consumes SSE via useRunEvents(runId) hook.
-    - All widgets render a plausible live state during a real chat turn.
-    - Zero regressions on /admin/usage or /admin/heartbeat.
-
-P — Pseudocode
-  // web/src/hooks/useRunDoc.ts
-  export function useRunDoc(runId) {
-      const [data, setData] = useState(null);
-      useEffect(() => onSnapshot(doc(db, "agent_runs", runId), s => setData(s.data())), [runId]);
-      return data;
-  }
-
-  // web/src/hooks/useRunEvents.ts
-  export function useRunEvents(runId) {
-      const store = useZustandRunStore();
-      useEffect(() => {
-          const es = new EventSource("/api/runs/" + runId + "/events");
-          es.addEventListener("span.start", e => store.onSpanStart(JSON.parse(e.data)));
-          // ...
-          return () => es.close();
-      }, [runId]);
-      return store;
-  }
-
-  // Components:
-  //   NowPlayingCard       agent name, model badge, pulse on update
-  //   ContextGauge         radial arc, color bands 0-60/60-85/85-100
-  //   TokenMeter           in/out counters + 60s sparkline
-  //   CostTicker           session total with per-turn ghost delta
-  //   TraceWaterfall       horizontal flame-graph by agent lane
-
-A — Architecture
-  - NEW: web/src/app/admin/live/page.tsx
-  - NEW: web/src/hooks/useRunDoc.ts
-  - NEW: web/src/hooks/useRunEvents.ts
-  - NEW: web/src/stores/runStore.ts                 (Zustand)
-  - NEW: web/src/components/admin/live/NowPlayingCard.tsx
-  - NEW: web/src/components/admin/live/ContextGauge.tsx
-  - NEW: web/src/components/admin/live/TokenMeter.tsx
-  - NEW: web/src/components/admin/live/CostTicker.tsx
-  - NEW: web/src/components/admin/live/TraceWaterfall.tsx
-  - MOD: web/src/app/admin/layout.tsx               (add nav link for /admin/live)
-  - NEW: web/src/components/admin/live/__tests__/*.test.tsx
-
-R — Refinement
-  - Keep components dumb; all state in the Zustand store.
-  - Color bands match design: #22c55e / #f59e0b / #ef4444.
-  - TraceWaterfall persists last N=500 events to IndexedDB for replay.
-  - SSR-safe: hooks guarded with 'use client' and typeof window checks.
-  - Reuse existing PWA Firebase client from web/src/lib/firebase.ts.
-
-C — Completion
-  [ ] `cd web && npm run test` green
-  [ ] `cd web && npm run lint` green
-  [ ] `cd web && npm run build` succeeds
-  [ ] Dev server: open /admin/live while running a chat turn — widgets animate
-  [ ] Cross-user test: non-owner gets empty state (auth respected)
-  [ ] Existing admin pages unchanged
-  [ ] git commit: `feat(web): live agent cockpit at /admin/live`
-
-================================================================================
-PHASE 7 — Guardrails AI inline + Vertex Gen AI Evaluation async
-================================================================================
-S — Specification
-  Goal: Two-tier quality — (a) cheap inline guardrails block obvious violations,
-  (b) nightly Vertex Gen AI Evaluation Service scores sampled spans for
-  groundedness / coherence / tool-use correctness.
-  Acceptance:
-    - Guardrails AI wrapper in dispatch/runner.py runs PII + toxicity + groundedness
-      on agent output before returning to caller. <200ms p95 overhead.
-    - Authority-scoped strictness: Workspace/Comms writes STRICT, research chat LOOSE.
-    - Nightly Cloud Scheduler job triggers evaluation on >=100 sampled spans/day,
-      writes scores back to Firestore + Phoenix span attributes.
-    - Guardrail violations surface as span attributes (guardrail.* namespace).
-
-P — Pseudocode
-  # Inline guardrails
-  class GuardrailService:
-      def __init__(self, authority_profile):
-          self.validators = build_validators_for(authority_profile)
-      async def check_output(self, text, context) -> GuardrailResult:
-          results = await asyncio.gather(*[v.check(text, context) for v in self.validators])
-          return merge(results)
-
-  # In AgentRunner, after event drain:
-  result = await guardrail_service.check_output(final_text, retrieved_context)
-  turn_span.set_attributes({
-      "guardrail.outcome": result.outcome,    # pass | warn | block
-      "guardrail.violations": json.dumps(result.violations),
-  })
-  if result.outcome == "block": raise GuardrailBlockedError(result)
-
-  # Nightly async scoring
-  # Cloud Scheduler -> /admin/eval/run
-  async def run_nightly_scoring():
-      spans = sample_recent_spans(n=100)
-      scorer = GenAIEvaluationClient(project=settings.gcp_project)
-      for span in spans:
-          metrics = await scorer.score(
-              responses=[span.attributes["output.value"]],
-              contexts=[span.attributes.get("retrieval.context")],
-              metrics=["groundedness", "coherence", "tool_use_quality"],
-          )
-          firestore.write("eval_results/" + span.span_id, metrics)
-
-A — Architecture
-  - NEW: src/gclaw/guardrails/__init__.py
-  - NEW: src/gclaw/guardrails/service.py
-  - NEW: src/gclaw/guardrails/validators.py        (pii, toxicity, provenance_llm)
-  - MOD: src/gclaw/dispatch/runner.py              (inline guardrail check)
-  - NEW: src/gclaw/eval/vertex_scoring_service.py
-  - NEW: src/gclaw/api/eval_routes.py              (admin trigger endpoint)
-  - MOD: crons/                                    (nightly scoring job)
-  - MOD: pyproject.toml                            (add guardrails-ai, google-cloud-aiplatform>=1.60)
-  - NEW: tests/test_guardrails_service.py
-  - NEW: tests/test_vertex_scoring.py
-
-R — Refinement
-  - Guardrails AI validators executed in parallel with asyncio.gather.
-  - Fail-open on validator errors (log + warn span attribute); never crash the turn.
-  - Authority profile pulled from existing agents/*.md tool grants.
-  - Vertex scoring: use adaptive rubrics (cheaper, newer feature); cap $10/day budget
-    alert; sample strategy = stratified by agent name.
-  - HHEM-2.1-Open as optional local scorer (flag: OBS_HHEM_ENABLED). Skip if infra
-    memory tight.
-
-C — Completion
-  [ ] Unit tests green
+  [ ] TDD: tests/test_tool_seeder.py + tests/test_tool_binding.py RED → GREEN
+  [ ] Existing agent tests still green
+  [ ] Manual: boot the app, check Firestore config/tools has N builtin rows
+  [ ] Manual: flip one tool's enabled=false; next chat turn doesn't list it
   [ ] `uv run pytest` full suite green
-  [ ] Manual turn: guardrail.outcome="pass" span attribute visible in Phoenix
-  [ ] Synthetic PII prompt triggers outcome="block" without crashing
-  [ ] Nightly scoring cron: `POST /admin/eval/run` writes scores to Firestore
-  [ ] Scoring results visible in Phoenix span attributes
-  [ ] Budget alert configured on Vertex scoring cost
-  [ ] git commit: `feat(obs): inline guardrails + nightly Vertex Gen AI scoring`
+  [ ] Commit: `feat(tools): migrate builtin tools into the catalog`
+
+================================================================================
+PHASE 4 — MCP-kind integration (stdio/SSE/HTTP transports)
+================================================================================
+S — Specification
+  Goal: Let admins add external MCP servers, fetch their tool manifest, and
+  expose the resulting tools to selected agents.
+  Acceptance:
+    - McpConfig with transport stdio|sse|http works against a local test MCP
+      server (fixture used only in tests).
+    - Test-tool endpoint returns the server's tool list when probed.
+    - allowed_tools filter whitelists which tools get exposed (null → all).
+    - Env vars (incl. credential_ref → SM) are injected into the MCP
+      subprocess environment for stdio transport.
+    - Agents bound to an MCP tool can invoke it end-to-end.
+
+P — Pseudocode
+  1. src/gclaw/tools/mcp/client.py — async wrapper over
+     google.adk.tools.mcp_tool.McpToolset.
+  2. src/gclaw/tools/catalog/binding.py extended to yield MCP tool lists.
+  3. Connection lifecycle: lazy connect on first use, cached, ref-counted
+     close on agent teardown.
+  4. credential_ref → SM read → injected as env var under McpConfig.env.
+  5. Tester probe: list_tools(), return first 10 names.
+
+A — Architecture
+  - NEW: src/gclaw/tools/mcp/__init__.py
+  - NEW: src/gclaw/tools/mcp/client.py
+  - NEW: src/gclaw/tools/mcp/manager.py   (connection cache)
+  - MOD: src/gclaw/tools/catalog/binding.py
+  - MOD: src/gclaw/tools/catalog/tester.py
+  - NEW: tests/fixtures/fake_mcp_server.py
+  - NEW: tests/test_mcp_client.py
+  - NEW: tests/test_mcp_binding_e2e.py
+
+R — Refinement
+  - 10s hard timeout on first connect; cache sentinel "failed" state.
+  - McpConfig validation surfaces missing required env vars at CREATE time.
+  - Never log env-var values, even at DEBUG.
+
+C — Completion
+  [ ] TDD: tests/test_mcp_client.py + tests/test_mcp_binding_e2e.py RED → GREEN
+  [ ] Fake MCP server fixture verified against real google-adk McpToolset
+  [ ] Manual: add an MCP tool via admin API; agent bound to it can call it
+  [ ] `uv run pytest` full suite green
+  [ ] Commit: `feat(tools): MCP-kind integration with stdio/SSE/HTTP transports`
+
+================================================================================
+PHASE 5 — HTTP-API-kind + OpenAPI→MCP in-process wrap
+================================================================================
+S — Specification
+  Goal: Admin pastes an OpenAPI spec URL + base URL + auth config. The
+  catalog generates one MCP-style tool per operation, in-process, no
+  subprocess. Agents see it as just another MCP toolset.
+  Acceptance:
+    - Valid OpenAPI 3.0 or 3.1 spec → N tools materialized.
+    - Auth schemes: apiKey(header|query), http(bearer|basic),
+      oauth2(bearer from SM).
+    - allowed_operations filter whitelists operation IDs.
+    - Request bodies, path params, query params correctly serialized from
+      the LLM's tool args (derived from JSON Schema).
+    - Upstream errors surface as structured tool errors, not raises.
+
+P — Pseudocode
+  1. src/gclaw/tools/openapi_mcp/__init__.py
+  2. src/gclaw/tools/openapi_mcp/loader.py
+       load_spec(HttpApiConfig) -> list[OperationDef]
+  3. src/gclaw/tools/openapi_mcp/tool_builder.py
+       build_tool(op, auth, base_url) -> async Callable
+  4. Binding dispatch on http_api routes through tool_builder.
+  5. Tester probe: fetch spec, return first 10 operation IDs.
+
+A — Architecture
+  - NEW: src/gclaw/tools/openapi_mcp/__init__.py
+  - NEW: src/gclaw/tools/openapi_mcp/loader.py
+  - NEW: src/gclaw/tools/openapi_mcp/tool_builder.py
+  - NEW: src/gclaw/tools/openapi_mcp/auth.py
+  - MOD: src/gclaw/tools/catalog/binding.py
+  - MOD: src/gclaw/tools/catalog/tester.py
+  - MOD: pyproject.toml   (add openapi-core OR jsonschema validator)
+  - NEW: tests/fixtures/sample_openapi.yaml      (petstore)
+  - NEW: tests/test_openapi_loader.py
+  - NEW: tests/test_openapi_tool_builder.py
+  - NEW: tests/test_openapi_e2e.py               (httpx MockTransport)
+
+R — Refinement
+  - Cap response body returned to LLM at 16 KB; truncate with a note.
+  - Honor operation.deprecated: auto-skip with a warning.
+  - Support path templating {id}; missing required param → structured error.
+  - apiKey → dict merge; bearer/basic → Authorization header; oauth2 via SM.
+
+C — Completion
+  [ ] TDD: the three openapi_*.py tests RED → GREEN
+  [ ] Round-trip: petstore sample → 4+ tools → invoke GET /pets/{id} stub
+  [ ] Auth matrix exercised: apiKey header, bearer, basic, oauth2
+  [ ] `uv run pytest` full suite green
+  [ ] Commit: `feat(tools): OpenAPI spec → in-process MCP tool wrap`
+
+================================================================================
+PHASE 6 — Code-exec-kind (sandboxed runner)
+================================================================================
+S — Specification
+  Goal: Safe code execution as a tool. Agents submit Python/bash; a
+  sandboxed runner executes with resource limits; stdout/stderr/exit_code
+  returned. Default disabled because infra setup is non-trivial.
+  Acceptance:
+    - Local dev path: subprocess with ulimit (CPU, memory, no network).
+    - Prod path: Cloud Run sibling service `gclaw-sandbox` reached via
+      signed JWT; adapter hits POST /execute.
+    - Policy enforcement: memory cap, timeout, no network egress (unless
+      network='egress-only'), allowed_modules whitelist for Python.
+    - Tool output: {stdout, stderr, exit_code, duration_ms, truncated}.
+
+P — Pseudocode
+  1. src/gclaw/tools/code_exec/__init__.py
+  2. src/gclaw/tools/code_exec/local_runner.py
+       - subprocess.run with preexec_fn setting RLIMIT_CPU + RLIMIT_AS
+       - tight umask, temp-dir scratch, stdout/stderr capture with cap
+  3. src/gclaw/tools/code_exec/remote_runner.py
+       - httpx.AsyncClient to the sandbox service URL
+       - signed JWT via google-auth service-account identity token
+  4. Selector: if settings.tool_code_exec_remote_url → remote; else local.
+  5. Binding: code_exec kind → Callable forwarding to selected runner.
+  6. Infra: infra/sandbox/Dockerfile + cloudbuild (manual provisioning).
+
+A — Architecture
+  - NEW: src/gclaw/tools/code_exec/__init__.py
+  - NEW: src/gclaw/tools/code_exec/local_runner.py
+  - NEW: src/gclaw/tools/code_exec/remote_runner.py
+  - NEW: src/gclaw/tools/code_exec/policy.py
+  - MOD: src/gclaw/tools/catalog/binding.py
+  - MOD: src/gclaw/tools/catalog/tester.py
+  - NEW: infra/sandbox/Dockerfile + cloudbuild.yaml + README.md
+  - MOD: src/gclaw/settings.py   (TOOL_CODE_EXEC_ENABLED + TOOL_CODE_EXEC_REMOTE_URL)
+  - NEW: tests/test_code_exec_local.py
+  - NEW: tests/test_code_exec_remote.py  (httpx MockTransport)
+
+R — Refinement
+  - Local runner: lightweight AST scan rejecting socket/urllib/requests
+    when network='none' (catches obvious attempts; not a real sandbox).
+  - Remote runner adds caller-identity claim to the JWT for attribution.
+  - Surface truncation clearly: first/last 2KB of stdout when over cap.
+
+C — Completion
+  [ ] TDD: local + remote tests RED → GREEN
+  [ ] Manual (local): catalog entry runs `print("hi")` → stdout="hi", exit 0
+  [ ] Manual (local): infinite loop terminates at timeout
+  [ ] Manual (local): `import socket` attempt → refused tool error
+  [ ] infra/sandbox/ docs: README covers one-time Cloud Run provisioning
+  [ ] `uv run pytest` full suite green
+  [ ] Commit: `feat(tools): code-exec-kind with local + remote sandbox runners`
+
+================================================================================
+PHASE 7 — Web UI — /admin/tools CRUD + per-agent binding picker
+================================================================================
+S — Specification
+  Goal: Close the loop in the UI so the tool catalog is editable end-to-end
+  and agents can be bound to catalog tools without YAML.
+  Acceptance:
+    - /admin/tools page: list, create (per-kind form), edit, delete, test.
+    - Kind-specific form panels: Builtin (function picker), MCP (transport +
+      endpoint + allowed_tools chip input), HTTP-API (spec URL + base URL +
+      auth fields + allowed_operations), Code-Exec (runtime + limits).
+    - Sidebar entry: "TOOLS" at the next free num (sidebar currently uses
+      01–13; claim 14 unless it's since been taken — the phase must read
+      sidebar.tsx and pick the first unused slot).
+    - /admin/agents/[name] Tools tab gains a "Catalog tools" multi-select
+      populated from enabled catalog entries; selections save to
+      AgentOverride.tools.catalog_tool_ids.
+    - Test-tool button reuses the existing Model-catalog test affordance.
+
+P — Pseudocode
+  1. web/src/app/admin/tools/page.tsx — list + new/edit modal.
+  2. web/src/components/admin/tools/ToolKindForm.tsx — discriminated form
+     renderer switching on kind.
+  3. web/src/lib/api-client.ts — CRUD + test methods for tools.
+  4. web/src/types/index.ts — ToolRecord union mirroring backend.
+  5. web/src/components/admin/agents/tab-tools.tsx — add catalog picker row.
+  6. web/src/components/layout/sidebar.tsx — add TOOLS entry (next free num).
+  7. Tests: RTL component smoke tests.
+
+A — Architecture
+  - NEW: web/src/app/admin/tools/page.tsx
+  - NEW: web/src/components/admin/tools/ToolKindForm.tsx
+  - NEW: web/src/components/admin/tools/ToolTable.tsx
+  - NEW: web/src/components/admin/tools/TestToolButton.tsx
+  - MOD: web/src/components/admin/agents/tab-tools.tsx
+  - MOD: web/src/lib/api-client.ts
+  - MOD: web/src/types/index.ts
+  - MOD: web/src/components/layout/sidebar.tsx
+  - NEW: web/src/__tests__/tools-admin.test.tsx
+
+R — Refinement
+  - Default all boolean toggles to false on the create form (least-privilege).
+  - Match the /admin/models page's visual language.
+  - Hydration-safe: gate any clock/Intl use behind useEffect (same rule
+    the chat + user pages already follow).
+
+C — Completion
+  [ ] `npm run test` in web/ green (new + existing suites)
+  [ ] `npm run lint` green
+  [ ] `npm run build` succeeds
+  [ ] Dev-server walkthrough: create builtin → create MCP → create http_api →
+      create code_exec → bind two to orchestrator → chat uses one
+  [ ] Regression: /admin/models, /admin/agents, /admin/usage unchanged
+  [ ] Commit: `feat(web): /admin/tools CRUD + agent catalog binding`
 
 ================================================================================
 FINAL REPORT TEMPLATE (print after Phase 7 is [x])
 ================================================================================
 - Total phases: 7/7 complete
-- Commits landed: <list of commit SHAs>
-- New Cloud resources: <phoenix Cloud Run URL, Cloud SQL instance, Scheduler jobs>
-- Toggles to enable in prod:
-    OBSERVABILITY_ENABLED=true
-    OTEL_EXPORTER_OTLP_ENDPOINT=<phoenix URL>
-    OBS_HHEM_ENABLED=<bool>
-- Known follow-ups / gotchas: <e.g. Langfuse Gemini token mismatch bug, ADK
-  version pins, Phoenix Elastic License, Vertex scoring rate limits>
-- Next recommended work: Datadog APM correlation, prompt registry integration,
-  A/B experiments via Braintrust when volume justifies spend.
+- Commits landed: <list of SHAs>
+- New env vars / settings: TOOL_CATALOG_ENABLED, TOOL_MCP_ENABLED,
+  TOOL_HTTP_ENABLED, TOOL_CODE_EXEC_ENABLED, TOOL_CODE_EXEC_REMOTE_URL
+- Cloud resources touched: infra/sandbox/* (manual Cloud Run provisioning)
+- Known follow-ups: cost metering per tool call, MCP auth refresh loop,
+  OpenAPI 2.0 (Swagger) back-compat, per-tool rate limits, prompt-injection
+  inspection on tool outputs.
+- Next recommended work: shared "Actions" marketplace pattern once 10+ users
+  are loading catalogs; revisit code_exec isolation (Firecracker / gVisor).
