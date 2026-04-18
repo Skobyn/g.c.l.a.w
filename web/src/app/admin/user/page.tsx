@@ -90,12 +90,18 @@ function TimezoneCard() {
   const [saved, setSaved] = useState(false);
   const [clock, setClock] = useState<string>("");
 
-  const zones = useMemo(() => allTimezones(), []);
-  const browserTz = useMemo(() => {
+  // Zones and the browser-detected TZ are computed after mount so the
+  // server-rendered HTML (which has no browser Intl) matches the
+  // first client render. Populating them in a useEffect avoids React
+  // hydration mismatch errors (#418 / #425) on this page.
+  const [zones, setZones] = useState<string[]>(FALLBACK_TIMEZONES);
+  const [browserTz, setBrowserTz] = useState<string | null>(null);
+  useEffect(() => {
+    setZones(allTimezones());
     try {
-      return Intl.DateTimeFormat().resolvedOptions().timeZone;
+      setBrowserTz(Intl.DateTimeFormat().resolvedOptions().timeZone);
     } catch {
-      return null;
+      setBrowserTz(null);
     }
   }, []);
 
@@ -120,6 +126,9 @@ function TimezoneCard() {
     };
   }, [api]);
 
+  // Clock starts empty so the server-side HTML (no Date) matches the
+  // first client render, then populates after mount and updates every
+  // 30s while the tab is visible.
   useEffect(() => {
     setClock(formatLocalClock(selected));
     const id = setInterval(() => setClock(formatLocalClock(selected)), 30_000);

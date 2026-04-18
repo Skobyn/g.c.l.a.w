@@ -57,6 +57,9 @@ export function ChatView() {
   const [error, setError] = useState<string | null>(null);
   const [activeEntry, setActiveEntry] = useState<AgentListEntry | null>(null);
   const [sessionId, setSessionId] = useState<string>("");
+  // Rendered only after mount so the server-side HTML (no Date) matches
+  // the first client render — avoids React hydration mismatch (#425/#418).
+  const [headerDatestamp, setHeaderDatestamp] = useState<string>("");
   const clientRef = useRef(createApiClient(getIdToken));
 
   useEffect(() => {
@@ -65,6 +68,15 @@ export function ChatView() {
 
   useEffect(() => {
     setSessionId(getBaseSessionId());
+    setHeaderDatestamp(
+      formatDatestamp(new Date(), { withTime: true, withDay: true }),
+    );
+    const id = setInterval(() => {
+      setHeaderDatestamp(
+        formatDatestamp(new Date(), { withTime: true, withDay: true }),
+      );
+    }, 60_000);
+    return () => clearInterval(id);
   }, []);
 
   const messages = useMemo(
@@ -193,8 +205,11 @@ export function ChatView() {
               A conversation with{" "}
               <span className="not-italic text-signal">{activeAgent}</span>
             </h1>
-            <p className="mt-2 font-mono text-[10px] uppercase tracking-[0.16em] text-paper-40">
-              {formatDatestamp(new Date(), { withTime: true, withDay: true })}
+            <p
+              className="mt-2 font-mono text-[10px] uppercase tracking-[0.16em] text-paper-40"
+              suppressHydrationWarning
+            >
+              {headerDatestamp || "\u00A0"}
             </p>
           </div>
           <button

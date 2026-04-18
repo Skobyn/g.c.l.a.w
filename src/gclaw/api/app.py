@@ -119,18 +119,32 @@ def create_app(
 
     app = FastAPI(title="GClaw", version="0.4.0", lifespan=lifespan)
 
-    # CORS: ``allow_origins=["*"]`` + ``allow_credentials=True`` is
-    # invalid per the CORS spec — Starlette silently drops the
-    # Access-Control-Allow-Origin header in that combo, which is the
-    # root cause of the browser's "No 'Access-Control-Allow-Origin'
-    # header is present" error when the web app hits this backend.
+    # Middleware ordering: Starlette applies add_middleware in reverse,
+    # so the LAST one added is the OUTERMOST. CORS must be outermost
+    # so its headers are attached to error responses (500s) too,
+    # otherwise browsers report "No Access-Control-Allow-Origin" on
+    # backend exceptions and the real error stays invisible in the
+    # browser console.
     #
-    # Resolution:
-    #   - If CORS_ORIGINS is set (comma-separated list) → exact-match
-    #     allow-list (tightest, production default once you know the
-    #     web domain).
-    #   - Otherwise → allow_origin_regex=".*" which echoes back the
-    #     caller's Origin header verbatim and IS credential-compatible.
+    # Also: allow_origins=["*"] + allow_credentials=True is invalid per
+    # the CORS spec — Starlette silently drops the ACAO header in that
+    # combo. Use allow_origin_regex=".*" (echoes caller's Origin,
+    # credential-compatible) as the permissive default, with
+    # CORS_ORIGINS env as an exact-match tightening for prod.
+    if enable_auth:
+        app.add_middleware(FirebaseAuthMiddleware)
+    else:
+        # Dev mode: set a default user_id so auth dependencies work
+        from starlette.middleware.base import BaseHTTPMiddleware
+
+        class DevUserMiddleware(BaseHTTPMiddleware):
+            async def dispatch(self, request, call_next):
+                import os
+                request.state.user_id = os.environ.get("GCLAW_USER_ID", "default_user")
+                return await call_next(request)
+
+        app.add_middleware(DevUserMiddleware)
+
     import os as _os
     cors_env = _os.environ.get("CORS_ORIGINS", "").strip()
     if cors_env:
@@ -150,20 +164,6 @@ def create_app(
             allow_methods=["*"],
             allow_headers=["*"],
         )
-
-    if enable_auth:
-        app.add_middleware(FirebaseAuthMiddleware)
-    else:
-        # Dev mode: set a default user_id so auth dependencies work
-        from starlette.middleware.base import BaseHTTPMiddleware
-
-        class DevUserMiddleware(BaseHTTPMiddleware):
-            async def dispatch(self, request, call_next):
-                import os
-                request.state.user_id = os.environ.get("GCLAW_USER_ID", "default_user")
-                return await call_next(request)
-
-        app.add_middleware(DevUserMiddleware)
 
     # Prefer the multi-agent registry when wired; fall back to the single
     # runner for legacy callers (tests, eval harness).
