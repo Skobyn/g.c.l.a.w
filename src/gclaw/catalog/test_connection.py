@@ -125,19 +125,31 @@ async def _test_openai_compat(
         latency = (time.perf_counter() - start) * 1000
         return _result(False, latency_ms=latency, error="No base_url configured")
 
-    url = base_url.rstrip("/") + "/chat/completions"
     headers = {"Content-Type": "application/json", **provider.default_headers}
     if key:
         headers["Authorization"] = f"Bearer {key}"
 
-    body = {
+    chat_url = base_url.rstrip("/") + "/chat/completions"
+    chat_body = {
         "model": model.model_id,
         "messages": [{"role": "user", "content": "ping"}],
         "max_tokens": 5,
     }
 
     async with httpx.AsyncClient(timeout=_TIMEOUT_SECONDS) as client:
-        resp = await client.post(url, json=body, headers=headers)
+        resp = await client.post(chat_url, json=chat_body, headers=headers)
+        # Some models (notably GitHub Copilot's codex family) reject
+        # /chat/completions with unsupported_api_for_model and require the
+        # Responses API. Retry transparently on that signal.
+        if resp.status_code == 400 and "unsupported_api_for_model" in resp.text:
+            resp_url = base_url.rstrip("/") + "/responses"
+            resp_body = {
+                "model": model.model_id,
+                "input": "ping",
+                "max_output_tokens": 16,
+            }
+            resp = await client.post(resp_url, json=resp_body, headers=headers)
+
     latency = (time.perf_counter() - start) * 1000
     if resp.status_code >= 400:
         return _result(
