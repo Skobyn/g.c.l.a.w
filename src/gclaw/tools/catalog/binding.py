@@ -33,6 +33,7 @@ class ToolBindingService:
         mcp_manager: Any | None = None,
         secret_resolver: Any | None = None,
         http_transport: Any | None = None,
+        code_exec_runner: Any | None = None,
     ) -> None:
         self._catalog = catalog_service
         # Optional MCP manager (Phase 4). When absent, MCP-kind records
@@ -45,6 +46,10 @@ class ToolBindingService:
         # skip auth — useful for NoAuth configurations.
         self._secret_resolver = secret_resolver
         self._http_transport = http_transport
+        # Phase 6: code-exec runner (LocalRunner or RemoteRunner).
+        # None disables the kind entirely — records still list but
+        # bind to nothing, matching the pre-Phase-6 stub behavior.
+        self._code_exec_runner = code_exec_runner
 
     def resolve_catalog_tools(
         self, tool_ids: list[str] | None
@@ -105,11 +110,15 @@ class ToolBindingService:
         if kind == ToolKind.HTTP_API:
             return self._resolve_http_api(record)
         if kind == ToolKind.CODE_EXEC:
-            logger.debug(
-                "tool_binding: code_exec not wired yet; skipping %s",
-                record.id,
+            if self._code_exec_runner is None:
+                logger.debug(
+                    "tool_binding: code_exec runner not wired; skipping %s",
+                    record.id,
+                )
+                return None
+            return _build_code_exec_callable(
+                record=record, runner=self._code_exec_runner
             )
-            return None
         logger.warning(
             "tool_binding: unknown tool kind %r on %s; skipping",
             kind,
@@ -184,3 +193,48 @@ class ToolBindingService:
             )
             return None
         return fn
+
+
+def _build_code_exec_callable(*, record: Any, runner: Any) -> Callable[..., Any]:
+    """Wrap a code-exec runner into a single ADK-ready tool callable.
+
+    The callable takes a ``code`` kwarg and routes to the runner's
+    ``execute`` method, stamping the record's CodeExecConfig onto
+    every call. The returned structured dict is rendered to a
+    compact text summary the LLM can reason about.
+    """
+    config = record.config
+    name = record.name or f"code_exec_{record.id}"
+
+    async def _call(code: str) -> str:
+        try:
+            out = await runner.execute(code=code, config=config)
+        except Exception as e:
+            return f"code-exec error: {e}"
+        return _render_code_exec_result(out)
+
+    _call.__name__ = name.replace("-", "_").replace(" ", "_")
+    _call.__doc__ = (
+        f"Execute {config.runtime} code in a sandboxed runner "
+        f"(timeout={config.timeout_seconds}s, memory={config.memory_mb}MB, "
+        f"network={config.network})."
+    )
+    return _call
+
+
+def _render_code_exec_result(out: dict) -> str:
+    parts = [f"exit_code={out.get('exit_code', -1)}"]
+    parts.append(f"duration_ms={out.get('duration_ms', 0)}")
+    if out.get("error"):
+        parts.append(f"error={out['error']}")
+    stdout = out.get("stdout") or ""
+    stderr = out.get("stderr") or ""
+    head = " ".join(parts)
+    sections = [head]
+    if stdout:
+        sections.append(f"STDOUT:\n{stdout}")
+    if stderr:
+        sections.append(f"STDERR:\n{stderr}")
+    if out.get("truncated"):
+        sections.append("(output truncated)")
+    return "\n".join(sections)

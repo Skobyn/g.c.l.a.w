@@ -204,6 +204,19 @@ class Settings:
             "OAUTH_REFRESH_CHECK_INTERVAL_SECONDS", "300"
         ))
     )
+    # Tool Catalog — code-exec kind toggle + remote sandbox URL.
+    # Off by default because the sandbox Cloud Run service is a
+    # separate one-time provisioning step (see infra/sandbox/).
+    tool_code_exec_enabled: bool = field(
+        default_factory=lambda: os.environ.get(
+            "TOOL_CODE_EXEC_ENABLED", "false"
+        ).lower() == "true"
+    )
+    tool_code_exec_remote_url: str = field(
+        default_factory=lambda: os.environ.get(
+            "TOOL_CODE_EXEC_REMOTE_URL", ""
+        )
+    )
     # Secret Manager bootstrap — loads GH_TOKEN, gws credentials file, etc.
     # at startup from configured secrets. Defaults on; set to "false" only
     # when running locally with the env vars already set another way.

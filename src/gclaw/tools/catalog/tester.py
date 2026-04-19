@@ -34,6 +34,7 @@ _TIMEOUT_SECONDS = 10.0
 _mcp_manager: Any = None
 _openapi_secret_resolver: Any = None
 _openapi_http_transport: Any = None
+_code_exec_runner: Any = None
 
 
 def set_mcp_manager(manager: Any) -> None:
@@ -55,6 +56,12 @@ def set_openapi_deps(
     global _openapi_secret_resolver, _openapi_http_transport
     _openapi_secret_resolver = secret_resolver
     _openapi_http_transport = http_transport
+
+
+def set_code_exec_runner(runner: Any) -> None:
+    """Install (or clear) the shared code-exec runner used for probes."""
+    global _code_exec_runner
+    _code_exec_runner = runner
 
 
 def _result(
@@ -88,7 +95,7 @@ async def probe_tool(record: ToolRecord) -> dict:
         if record.kind == ToolKind.HTTP_API:
             return await _probe_http_api(record, start)
         if record.kind == ToolKind.CODE_EXEC:
-            return _not_yet(start, "Code-exec probe will be wired in Phase 6")
+            return await _probe_code_exec(record, start)
     except Exception as e:  # noqa: BLE001 — user-facing summary
         latency = (time.perf_counter() - start) * 1000
         return _result(False, latency_ms=latency, error=str(e))
@@ -200,3 +207,26 @@ async def _probe_builtin(record: ToolRecord, start: float) -> dict:
             "summary": summary,
         },
     )
+
+
+async def _probe_code_exec(record: ToolRecord, start: float) -> dict:
+    if _code_exec_runner is None:
+        return _not_yet(
+            start, "Code-exec probe: runner not wired (Phase 6 dep missing)"
+        )
+    try:
+        out = await _code_exec_runner.execute(
+            code="print('ok')", config=record.config
+        )
+    except Exception as e:
+        latency = (time.perf_counter() - start) * 1000
+        return _result(False, latency_ms=latency, error=str(e))
+    latency = (time.perf_counter() - start) * 1000
+    if out.get("exit_code", -1) != 0:
+        return _result(
+            False,
+            latency_ms=latency,
+            error=out.get("error") or out.get("stderr") or "non-zero exit code",
+            sample_response=out,
+        )
+    return _result(True, latency_ms=latency, sample_response=out)

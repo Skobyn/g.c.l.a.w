@@ -492,8 +492,51 @@ def build_app():
         # endpoint. Reuses the same Secret-Manager-backed resolver
         # so HTTP_API tools become testable without any additional
         # per-request plumbing.
-        from gclaw.tools.catalog.tester import set_openapi_deps
+        from gclaw.tools.catalog.tester import (
+            set_code_exec_runner,
+            set_openapi_deps,
+        )
         set_openapi_deps(_secret_resolver, None)
+
+        # Phase 6: code-exec runner. Off by default; enable via
+        # TOOL_CODE_EXEC_ENABLED. Selects the remote sandbox when
+        # TOOL_CODE_EXEC_REMOTE_URL is set (production), else falls
+        # back to the local subprocess runner (dev).
+        if settings.tool_code_exec_enabled:
+            from gclaw.tools.code_exec import LocalRunner, RemoteRunner
+            remote_url = (settings.tool_code_exec_remote_url or "").strip()
+            if remote_url:
+                def _identity_token_provider(audience: str) -> str | None:
+                    try:
+                        import google.auth
+                        import google.auth.transport.requests
+                        from google.oauth2 import id_token as _id_token
+
+                        request = google.auth.transport.requests.Request()
+                        return _id_token.fetch_id_token(request, audience)
+                    except Exception:
+                        logger.warning(
+                            "code-exec: identity token fetch failed for %s",
+                            audience,
+                            exc_info=True,
+                        )
+                        return None
+
+                code_runner = RemoteRunner(
+                    sandbox_url=remote_url,
+                    identity_token_provider=_identity_token_provider,
+                )
+                logger.info("code-exec runner: remote → %s", remote_url)
+            else:
+                code_runner = LocalRunner()
+                logger.info("code-exec runner: local subprocess")
+            set_code_exec_runner(code_runner)
+            tool_binding_service = ToolBindingService(
+                catalog_service=tool_catalog_service,
+                mcp_manager=mcp_client_manager,
+                secret_resolver=_secret_resolver,
+                code_exec_runner=code_runner,
+            )
     except Exception:
         logger.warning("tool catalog: init failed", exc_info=True)
 
