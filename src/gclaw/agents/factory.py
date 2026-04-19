@@ -82,13 +82,25 @@ class AgentFactory:
         resolved = self._tool_binding.resolve_catalog_tools(ids)
         if not resolved:
             return merged
-        seen = {self._tool_name(t) for t in merged}
+        seen_names: set[str] = set()
+        seen_ids: set[int] = set()
+        for t in merged:
+            seen_ids.add(id(t))
+            n = self._tool_name(t)
+            # Skip generic class-name fallbacks (e.g. "McpToolset") —
+            # they're not stable identifiers for dedupe purposes.
+            if n and not n.startswith("McpToolset"):
+                seen_names.add(n)
         for t in resolved:
-            name = self._tool_name(t)
-            if name in seen:
+            if id(t) in seen_ids:
+                continue
+            n = self._tool_name(t)
+            if n and n in seen_names and not n.startswith("McpToolset"):
                 continue
             merged.append(t)
-            seen.add(name)
+            seen_ids.add(id(t))
+            if n:
+                seen_names.add(n)
         return merged
 
     @staticmethod

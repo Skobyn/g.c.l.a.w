@@ -17,7 +17,7 @@ from pydantic import BaseModel, ValidationError
 from gclaw.auth.dependencies import get_current_user_id
 from gclaw.tools.catalog.models import ToolRecord
 from gclaw.tools.catalog.service import ToolCatalogService
-from gclaw.tools.catalog.tester import test_tool
+from gclaw.tools.catalog.tester import probe_tool
 
 logger = logging.getLogger(__name__)
 
@@ -134,4 +134,4 @@ async def test_tool_endpoint(
     record = svc.get_tool(tool_id)
     if record is None:
         raise HTTPException(status_code=404, detail=f"tool {tool_id!r} not found")
-    return await test_tool(record)
+    return await probe_tool(record)

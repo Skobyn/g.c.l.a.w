@@ -26,8 +26,18 @@ logger = logging.getLogger(__name__)
 
 
 class ToolBindingService:
-    def __init__(self, *, catalog_service: Any) -> None:
+    def __init__(
+        self,
+        *,
+        catalog_service: Any,
+        mcp_manager: Any | None = None,
+    ) -> None:
         self._catalog = catalog_service
+        # Optional MCP manager (Phase 4). When absent, MCP-kind records
+        # are silently skipped — binding stays safe without the
+        # additional dependency. Phase 5 / 6 will add http / code-exec
+        # runtimes here in the same shape.
+        self._mcp_manager = mcp_manager
 
     def resolve_catalog_tools(
         self, tool_ids: list[str] | None
@@ -59,13 +69,29 @@ class ToolBindingService:
                 out.append(resolved)
         return out
 
-    def _resolve_one(self, record: Any) -> Callable[..., Any] | None:
+    def _resolve_one(self, record: Any) -> Any | None:
         kind = record.kind
         if kind == ToolKind.BUILTIN and isinstance(record.config, BuiltinConfig):
             return self._resolve_builtin(record.config.function_path)
-        if kind in (ToolKind.MCP, ToolKind.HTTP_API, ToolKind.CODE_EXEC):
+        if kind == ToolKind.MCP:
+            if self._mcp_manager is None:
+                logger.debug(
+                    "tool_binding: MCP manager not wired; skipping %s",
+                    record.id,
+                )
+                return None
+            try:
+                return self._mcp_manager.get_toolset(record)
+            except Exception:
+                logger.warning(
+                    "tool_binding: failed to build MCP toolset for %s",
+                    record.id,
+                    exc_info=True,
+                )
+                return None
+        if kind in (ToolKind.HTTP_API, ToolKind.CODE_EXEC):
             logger.debug(
-                "tool_binding: kind %s not wired in Phase 3; skipping %s",
+                "tool_binding: kind %s not wired yet; skipping %s",
                 kind.value,
                 record.id,
             )

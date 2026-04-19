@@ -435,11 +435,14 @@ def build_app():
     # callables at build time.
     tool_catalog_service = None
     tool_binding_service = None
+    mcp_client_manager = None
     try:
         from gclaw.firestore.tool_repo import ToolRepo
         from gclaw.tools.catalog.binding import ToolBindingService
         from gclaw.tools.catalog.seeder import seed_builtin_tools
         from gclaw.tools.catalog.service import ToolCatalogService
+        from gclaw.tools.catalog.tester import set_mcp_manager
+        from gclaw.tools.mcp.manager import McpClientManager
 
         # Importing the tools package triggers @tool_export
         # registration as a side effect of module load — keep this
@@ -458,8 +461,30 @@ def build_app():
         except Exception:
             logger.warning("tool catalog: seed failed", exc_info=True)
 
+        # MCP manager — resolves credential_ref via Secret Manager at
+        # build time. When no SM service is wired (local dev without
+        # creds) the resolver returns None and the ${CREDENTIAL}
+        # sentinel is left in place for the server to reject
+        # explicitly.
+        def _secret_resolver(ref: str) -> str | None:
+            if secret_manager_service is None:
+                return None
+            try:
+                client = secret_manager_service._get_client()  # type: ignore[attr-defined]
+                resp = client.access_secret_version(name=ref)
+                return resp.payload.data.decode("utf-8")
+            except Exception:
+                logger.warning(
+                    "mcp: SM read failed for %s", ref, exc_info=True
+                )
+                return None
+
+        mcp_client_manager = McpClientManager(secret_resolver=_secret_resolver)
+        set_mcp_manager(mcp_client_manager)
+
         tool_binding_service = ToolBindingService(
-            catalog_service=tool_catalog_service
+            catalog_service=tool_catalog_service,
+            mcp_manager=mcp_client_manager,
         )
     except Exception:
         logger.warning("tool catalog: init failed", exc_info=True)
