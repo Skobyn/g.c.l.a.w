@@ -485,7 +485,15 @@ def build_app():
         tool_binding_service = ToolBindingService(
             catalog_service=tool_catalog_service,
             mcp_manager=mcp_client_manager,
+            secret_resolver=_secret_resolver,
         )
+
+        # Phase 5: wire the OpenAPI probe path on the admin test
+        # endpoint. Reuses the same Secret-Manager-backed resolver
+        # so HTTP_API tools become testable without any additional
+        # per-request plumbing.
+        from gclaw.tools.catalog.tester import set_openapi_deps
+        set_openapi_deps(_secret_resolver, None)
     except Exception:
         logger.warning("tool catalog: init failed", exc_info=True)
 

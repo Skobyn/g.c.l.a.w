@@ -32,12 +32,29 @@ _TIMEOUT_SECONDS = 10.0
 # dependency is None the corresponding branch returns its Phase-2
 # stub response so the dispatch shape stays stable.
 _mcp_manager: Any = None
+_openapi_secret_resolver: Any = None
+_openapi_http_transport: Any = None
 
 
 def set_mcp_manager(manager: Any) -> None:
     """Install (or clear) the shared McpClientManager used for probes."""
     global _mcp_manager
     _mcp_manager = manager
+
+
+def set_openapi_deps(
+    secret_resolver: Any | None,
+    http_transport: Any | None = None,
+) -> None:
+    """Install Phase-5 HTTP-API probe dependencies.
+
+    Passing ``None`` for the resolver turns the HTTP_API branch back
+    into a Phase-2 stub response; useful for tests that want to
+    verify the dispatch shape without the real loader in scope.
+    """
+    global _openapi_secret_resolver, _openapi_http_transport
+    _openapi_secret_resolver = secret_resolver
+    _openapi_http_transport = http_transport
 
 
 def _result(
@@ -69,7 +86,7 @@ async def probe_tool(record: ToolRecord) -> dict:
         if record.kind == ToolKind.MCP:
             return await _probe_mcp(record, start)
         if record.kind == ToolKind.HTTP_API:
-            return _not_yet(start, "HTTP-API probe will be wired in Phase 5")
+            return await _probe_http_api(record, start)
         if record.kind == ToolKind.CODE_EXEC:
             return _not_yet(start, "Code-exec probe will be wired in Phase 6")
     except Exception as e:  # noqa: BLE001 — user-facing summary
@@ -87,6 +104,29 @@ async def probe_tool(record: ToolRecord) -> dict:
 def _not_yet(start: float, message: str) -> dict:
     latency = (time.perf_counter() - start) * 1000
     return _result(False, latency_ms=latency, error=message)
+
+
+async def _probe_http_api(record: ToolRecord, start: float) -> dict:
+    if _openapi_secret_resolver is None:
+        return _not_yet(
+            start, "HTTP-API probe: loader deps not wired (Phase 5 missing)"
+        )
+    try:
+        from gclaw.tools.openapi_mcp.loader import load_spec
+    except Exception as e:
+        return _not_yet(start, f"HTTP-API probe: openapi_mcp unavailable ({e})")
+    try:
+        ops = load_spec(record.config, http_transport=_openapi_http_transport)
+    except Exception as e:
+        latency = (time.perf_counter() - start) * 1000
+        return _result(False, latency_ms=latency, error=str(e))
+    op_ids = [op.operation_id for op in ops][:10]
+    latency = (time.perf_counter() - start) * 1000
+    return _result(
+        True,
+        latency_ms=latency,
+        sample_response={"operations": op_ids, "total": len(ops)},
+    )
 
 
 async def _probe_mcp(record: ToolRecord, start: float) -> dict:

@@ -1,0 +1,61 @@
+openapi: 3.0.3
+info:
+  title: Petstore
+  version: 1.0.0
+servers:
+  - url: https://petstore.example.com/v2
+paths:
+  /pets:
+    get:
+      operationId: findPetsByStatus
+      summary: Finds Pets by status
+      parameters:
+        - name: status
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: ok
+    post:
+      operationId: addPet
+      summary: Add a new pet
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: {type: string}
+                tag: {type: string}
+      responses:
+        '201':
+          description: created
+  /pets/{petId}:
+    get:
+      operationId: getPetById
+      summary: Find pet by ID
+      parameters:
+        - name: petId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: ok
+    delete:
+      operationId: deletePet
+      summary: Delete a pet
+      deprecated: true
+      parameters:
+        - name: petId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '204':
+          description: no content
