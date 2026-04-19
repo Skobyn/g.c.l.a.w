@@ -20,9 +20,10 @@
 # The Elastic License 2.0 governs self-host redistribution — see
 # infra/phoenix/README.md for the compliance note.
 
-FROM arizephoenix/phoenix:version-8.0.0
-# TODO(ops): pin to digest — e.g.
-#   FROM arizephoenix/phoenix:version-8.0.0@sha256:<put-digest-here>
+FROM arizephoenix/phoenix:version-8.0.0@sha256:c047635fd0d8e96a702359eb85d1197237e3cf82116d8643666fb759142b180e
+# Digest pinned 2026-04-18 from docker.io/arizephoenix/phoenix:version-8.0.0.
+# Refresh on bump: curl the manifest for a new tag and paste the
+# `docker-content-digest` header value.
 
 # Phoenix reads these at startup. PHOENIX_SQL_DATABASE_URL is injected
 # at deploy time by Cloud Run via Secret Manager (see cloudbuild.yaml

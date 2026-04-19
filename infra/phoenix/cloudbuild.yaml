@@ -16,7 +16,10 @@ substitutions:
   _IMAGE: us-central1-docker.pkg.dev/apex-internal-apps/gclaw/phoenix
   _SERVICE: phoenix
   _SERVICE_ACCOUNT: phoenix-run-sa@apex-internal-apps.iam.gserviceaccount.com
-  _VPC_CONNECTOR: gclaw-connector
+  # Reusing the existing n8n-vpc connector (default network, 10.8.0.0/28)
+  # instead of standing up a dedicated gclaw-connector. Cloud Run
+  # supports many services per connector, and the saving is ~$10/mo.
+  _VPC_CONNECTOR: n8n-vpc
 
 steps:
   - id: build
