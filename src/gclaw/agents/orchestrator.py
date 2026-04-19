@@ -23,6 +23,7 @@ from gclaw.tools import (
     home_tools,
     postiz_tools,
     research_tools,
+    user_profile_tools,
     workspace_tools,
 )
 
@@ -280,6 +281,11 @@ def build_managers(
         research_tools.fetch_url,
     ] + board_tools + ctx_tools
 
+    pf_tools = [
+        user_profile_tools.read_user_profile,
+        user_profile_tools.update_user_profile,
+    ] + ctx_tools
+
     def _recall_cb(agent_id: str) -> Any:
         if memory_service is None:
             return None
@@ -335,6 +341,18 @@ def build_managers(
                 "single best tool. Router — does not synthesize."
             ),
             before_agent_callback=_recall_cb("research-mgr"),
+        ),
+        "profile_mgr": factory.build(
+            agent_name="profile-mgr",
+            soul_overlay="profile",
+            tools=pf_tools,
+            description=(
+                "Owns user.md. Runs onboarding when the profile is blank, "
+                "updates it when the user reveals stable new facts, and "
+                "answers 'what do you know about me?' questions. Always "
+                "confirms with the user before writing."
+            ),
+            before_agent_callback=_recall_cb("profile-mgr"),
         ),
     }
 
@@ -404,8 +422,10 @@ def build_orchestrator(
         agent_tool.AgentTool(agent=managers["home_mgr"]),
         agent_tool.AgentTool(agent=managers["comms_mgr"]),
         agent_tool.AgentTool(agent=managers["research_mgr"]),
+        agent_tool.AgentTool(agent=managers["profile_mgr"]),
         agent_tool.AgentTool(agent=morning_brief),
         agent_tool.AgentTool(agent=commit_msg),
+        user_profile_tools.read_user_profile,
         *board_tools,
     ]
 

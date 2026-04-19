@@ -18,6 +18,17 @@ if TYPE_CHECKING:
 
 _FRONTMATTER_DELIM = "---"
 
+# Agents that receive the shared user.md profile by default when neither
+# an override nor a frontmatter key pins the value. The orchestrator is
+# the conversational front door, so it always sees the user. The profile
+# manager maintains user.md and therefore also needs it. Everyone else
+# stays opt-in so managers and specialist tool-routers don't waste
+# context on personal history they won't use.
+_USER_KNOWLEDGE_DEFAULT_ON: frozenset[str] = frozenset({
+    "orchestrator",
+    "profile-mgr",
+})
+
 
 def _split_frontmatter(text: str) -> tuple[dict[str, Any] | None, str]:
     """Split optional YAML frontmatter from a markdown document.
@@ -176,6 +187,35 @@ class ConfigLoader:
         with open(path) as f:
             return f.read().strip()
 
+    def user_profile_path(self) -> str:
+        """Return the absolute path of the shared user profile file."""
+        return os.path.join(self._config_dir, "user.md")
+
+    def user_profile_is_blank(self) -> bool:
+        """True when user.md is missing, empty, or whitespace-only."""
+        return not self.load_user_profile()
+
+    def resolve_user_knowledge(self, agent_name: str) -> bool:
+        """Resolve whether ``agent_name`` receives the shared user.md.
+
+        Resolution order (first match wins):
+          1. Firestore-backed AgentOverride ``user_knowledge`` flag.
+          2. Agent-file frontmatter key ``user_knowledge``.
+          3. Per-agent default: on for orchestrator + profile-mgr,
+             off for everyone else.
+        """
+        override = self._get_override(agent_name)
+        if override is not None and override.user_knowledge is not None:
+            return bool(override.user_knowledge)
+        fm = self.load_agent_frontmatter(agent_name)
+        if fm is not None and "user_knowledge" in fm:
+            raw = fm.get("user_knowledge")
+            if isinstance(raw, bool):
+                return raw
+            if isinstance(raw, str):
+                return raw.strip().lower() in {"1", "true", "yes", "on"}
+        return agent_name in _USER_KNOWLEDGE_DEFAULT_ON
+
     def load_soul(self, base: str, overlay: str | None = None) -> str:
         base_path = os.path.join(self._config_dir, "soul", f"{base}.md")
         if not os.path.isfile(base_path):
@@ -333,12 +373,23 @@ class ConfigLoader:
         # to guess "what time is it" or silently assume UTC.
         parts.append(f"# Current time\n\n{self.current_time_block()}")
 
-        # User profile — shared context about who the user is. Injected
-        # once at the top of every agent prompt (after the role) so agents
-        # don't rediscover it from memory each call.
-        user_profile = self.load_user_profile()
-        if user_profile:
-            parts.append(f"# About the User\n\n{user_profile}")
+        # User profile — shared context about who the user is. Only
+        # injected for agents whose resolved ``user_knowledge`` flag is
+        # True (orchestrator + profile-mgr by default; everyone else
+        # opt-in via agent frontmatter or Firestore override). Agents
+        # that don't need personal context stay lean.
+        if self.resolve_user_knowledge(agent_name):
+            user_profile = self.load_user_profile()
+            if user_profile:
+                parts.append(f"# About the User\n\n{user_profile}")
+            else:
+                parts.append(
+                    "# About the User\n\n"
+                    "The user's profile is blank — we don't know them yet. "
+                    "If this is the orchestrator or profile-mgr: gently "
+                    "offer to run onboarding so we can fill it in. "
+                    "Otherwise: proceed without assuming anything personal."
+                )
 
         # Soul — agent-specific personality / behavior, distinct from user
         # context.

@@ -772,6 +772,13 @@ def build_app():
         tool_binding_service=tool_binding_service,
     )
 
+    # User-profile tools (read/update user.md) resolve their config
+    # loader via a module-level setter — same pattern as context_tools.
+    from gclaw.tools.user_profile_tools import (
+        set_config_loader as set_user_profile_loader,
+    )
+    set_user_profile_loader(loader)
+
     # Orchestrator
     orchestrator = build_orchestrator(
         factory=factory,
