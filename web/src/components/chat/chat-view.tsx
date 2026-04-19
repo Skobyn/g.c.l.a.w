@@ -203,7 +203,9 @@ export function ChatView() {
             <div className="label-caps mb-1.5">§ 01 · CHANNEL</div>
             <h1 className="font-display text-[28px] leading-none italic">
               A conversation with{" "}
-              <span className="not-italic text-signal">{activeAgent}</span>
+              <span className="not-italic text-signal">
+                {activeEntry?.display_name || activeAgent}
+              </span>
             </h1>
             <p
               className="mt-2 font-mono text-[10px] uppercase tracking-[0.16em] text-paper-40"
