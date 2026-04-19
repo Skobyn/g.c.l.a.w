@@ -24,7 +24,7 @@ def tmp_config_dir(tmp_path):
     soul = tmp_path / "soul"
     soul.mkdir()
     (soul / "base.md").write_text("base\n")
-    for name in ("workspace", "dev", "home", "comms", "research"):
+    for name in ("workspace", "dev", "home", "comms", "research", "profile"):
         (soul / f"{name}.md").write_text(f"{name} overlay\n")
 
     agents = tmp_path / "agents"
@@ -36,6 +36,7 @@ def tmp_config_dir(tmp_path):
         "home-mgr",
         "comms-mgr",
         "research-mgr",
+        "profile-mgr",
     ):
         (agents / f"{name}.md").write_text(f"{name} role\n")
 

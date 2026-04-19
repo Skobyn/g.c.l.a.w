@@ -71,6 +71,7 @@ def test_build_orchestrator(board_service, tmp_path):
         "home-mgr",
         "comms-mgr",
         "research-mgr",
+        "profile-mgr",
     ]:
         (agents_dir / f"{name}.md").write_text(f"You are {name}.\n")
 
@@ -83,10 +84,11 @@ def test_build_orchestrator(board_service, tmp_path):
     agent = build_orchestrator(factory=factory, board_service=board_service)
     assert agent.name == "orchestrator"
 
-    # New shape: 5 manager AgentTools + 2 workflow AgentTools + 4 board tools = 11
-    assert len(agent.tools) >= 11
+    # New shape: 6 manager AgentTools + 2 workflow AgentTools
+    # + 4 board tools + 1 user-profile tool = 13
+    assert len(agent.tools) >= 13
     # Core invariant: orchestrator never uses sub_agents
     assert not agent.sub_agents
     # All managers and workflows are wrapped as AgentTools
     agent_tools = [t for t in agent.tools if isinstance(t, agent_tool.AgentTool)]
-    assert len(agent_tools) == 7  # 5 managers + 2 workflows
+    assert len(agent_tools) == 8  # 6 managers + 2 workflows

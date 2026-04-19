@@ -29,6 +29,7 @@ def tmp_config_dir(tmp_path):
     (soul / "home.md").write_text("Home overlay.\n")
     (soul / "comms.md").write_text("Comms overlay.\n")
     (soul / "research.md").write_text("Research overlay.\n")
+    (soul / "profile.md").write_text("Profile overlay.\n")
 
     agents = tmp_path / "agents"
     agents.mkdir()
@@ -39,6 +40,7 @@ def tmp_config_dir(tmp_path):
         "home-mgr",
         "comms-mgr",
         "research-mgr",
+        "profile-mgr",
     ):
         (agents / f"{name}.md").write_text(f"{name} role description.\n")
 
@@ -80,6 +82,7 @@ def test_orchestrator_wraps_all_five_managers_as_agenttools(orchestrator):
         "home_mgr",
         "comms_mgr",
         "research_mgr",
+        "profile_mgr",
     }
     assert expected_managers.issubset(tool_agent_names), (
         f"Missing manager AgentTools. Got: {tool_agent_names}"

@@ -26,11 +26,18 @@ def config_dir(tmp_path):
     soul_dir = tmp_path / "soul"
     soul_dir.mkdir()
     (soul_dir / "base.md").write_text("Base personality.\n")
-    for overlay in ("workspace", "dev", "home", "comms", "research"):
+    for overlay in ("workspace", "dev", "home", "comms", "research", "profile"):
         (soul_dir / f"{overlay}.md").write_text(f"{overlay} overlay.\n")
     agents_dir = tmp_path / "agents"
     agents_dir.mkdir()
-    for mgr in ("workspace-mgr", "dev-mgr", "home-mgr", "comms-mgr", "research-mgr"):
+    for mgr in (
+        "workspace-mgr",
+        "dev-mgr",
+        "home-mgr",
+        "comms-mgr",
+        "research-mgr",
+        "profile-mgr",
+    ):
         (agents_dir / f"{mgr}.md").write_text(f"{mgr} role.\n")
     return tmp_path
 
@@ -151,7 +158,14 @@ def test_build_managers_installs_callbacks_when_memory_service_provided(
         memory_service=memory_service,
     )
 
-    expected = {"workspace_mgr", "dev_mgr", "home_mgr", "comms_mgr", "research_mgr"}
+    expected = {
+        "workspace_mgr",
+        "dev_mgr",
+        "home_mgr",
+        "comms_mgr",
+        "research_mgr",
+        "profile_mgr",
+    }
     assert set(managers.keys()) == expected
 
     for mgr in managers.values():

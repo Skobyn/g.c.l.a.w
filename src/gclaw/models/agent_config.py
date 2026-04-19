@@ -81,6 +81,10 @@ class AgentOverride(BaseModel):
     subagents: AgentSubagentsSpec = Field(default_factory=AgentSubagentsSpec)
     skills: list[str] | None = None  # None = inherit; list = allowlist
     heartbeat: HeartbeatConfig | None = None  # None = inherit from .md or off
+    # Whether this agent receives the shared user.md profile in its
+    # system prompt. ``None`` = inherit (frontmatter, else per-agent
+    # default — on for the orchestrator, off for everyone else).
+    user_knowledge: bool | None = None
     system_prompt_override: str | None = None
     body_override: str | None = None
     soul_overlay: str | None = None  # full soul overlay markdown
