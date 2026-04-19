@@ -51,17 +51,23 @@ steps:
       - --region=${_REGION}
       - --platform=managed
       - --port=6006
-      # Private ingress only — Phoenix is reached from the gclaw backend
-      # over the shared VPC connector, never from the public internet.
+      # Ingress is restricted to internal-and-cloud-load-balancing, so
+      # public internet can't reach Phoenix. Dropped IAM invoker auth
+      # (--no-allow-unauthenticated) because the backend's OTLP exporter
+      # sends plain HTTP without an ID token — Cloud Run was 404'ing
+      # every ingestion attempt. With internal ingress the attack
+      # surface is still the VPC, and we can layer Phoenix-native auth
+      # on later by creating an API key + setting OTEL_EXPORTER_OTLP_HEADERS.
       - --ingress=internal-and-cloud-load-balancing
-      - --no-allow-unauthenticated
+      - --allow-unauthenticated
       - --service-account=${_SERVICE_ACCOUNT}
       - --vpc-connector=${_VPC_CONNECTOR}
       - --vpc-egress=private-ranges-only
       # PHOENIX_SQL_DATABASE_URL is the full Cloud SQL connection URL
       # (e.g. postgresql+psycopg://user:pass@/phoenix?host=/cloudsql/<instance>).
+      # PHOENIX_SECRET is still wired (required if we re-enable auth).
       - --set-secrets=PHOENIX_SQL_DATABASE_URL=phoenix-sql-url:latest,PHOENIX_SECRET=phoenix-auth-secret:latest
-      - --set-env-vars=PHOENIX_WORKING_DIR=/tmp/phoenix,PHOENIX_PORT=6006,PHOENIX_HOST=0.0.0.0,PHOENIX_ENABLE_AUTH=true,PHOENIX_TRACE_RETENTION_DAYS=14
+      - --set-env-vars=PHOENIX_WORKING_DIR=/tmp/phoenix,PHOENIX_PORT=6006,PHOENIX_HOST=0.0.0.0,PHOENIX_ENABLE_AUTH=false,PHOENIX_TRACE_RETENTION_DAYS=14
       - --min-instances=0
       - --max-instances=2
       - --cpu=1

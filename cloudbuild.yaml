@@ -58,6 +58,13 @@ steps:
       # the default compute SA so other Cloud Run services in this project
       # aren't broadened when we grant GClaw new permissions.
       - --service-account=gclaw-run-sa@apex-internal-apps.iam.gserviceaccount.com
+      # VPC connector + all-traffic egress so the backend's OTLP exporter
+      # can reach Phoenix's internal-ingress Cloud Run URL. Without
+      # egress=all-traffic, *.run.app DNS resolves to public IPs and
+      # Phoenix's `internal-and-cloud-load-balancing` ingress 404s the
+      # request before the container sees it.
+      - --vpc-connector=n8n-vpc
+      - --vpc-egress=all-traffic
       # GOOGLE_GENAI_USE_VERTEXAI + GOOGLE_CLOUD_PROJECT + GOOGLE_CLOUD_LOCATION
       # route ADK's google.genai client through Vertex AI (auth via ADC from
       # the Cloud Run service account) rather than the public Gemini API path
