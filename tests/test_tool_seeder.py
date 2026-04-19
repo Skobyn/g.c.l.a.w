@@ -11,7 +11,7 @@ from gclaw.tools.catalog.builtin_registry import (
 from gclaw.tools.catalog.models import ToolKind
 from gclaw.tools.catalog.seeder import seed_builtin_tools
 from gclaw.tools.catalog.service import ToolCatalogService
-from tests._tool_catalog_fakes import FakeToolRepo
+from _tool_catalog_fakes import FakeToolRepo
 
 
 @pytest.fixture(autouse=True)

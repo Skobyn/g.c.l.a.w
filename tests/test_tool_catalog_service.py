@@ -13,7 +13,7 @@ from gclaw.tools.catalog.models import (
     ToolRecord,
 )
 from gclaw.tools.catalog.service import ToolCatalogService
-from tests._tool_catalog_fakes import FakeToolRepo
+from _tool_catalog_fakes import FakeToolRepo
 
 
 @pytest.fixture
