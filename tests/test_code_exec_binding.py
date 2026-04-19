@@ -8,7 +8,7 @@ from gclaw.tools.catalog.binding import ToolBindingService
 from gclaw.tools.catalog.models import CodeExecConfig
 from gclaw.tools.catalog.service import ToolCatalogService
 from gclaw.tools.catalog.tester import probe_tool, set_code_exec_runner
-from tests._tool_catalog_fakes import FakeToolRepo
+from _tool_catalog_fakes import FakeToolRepo
 
 
 class _FakeRunner:

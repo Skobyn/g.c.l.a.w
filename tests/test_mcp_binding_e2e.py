@@ -11,7 +11,7 @@ from gclaw.tools.catalog.models import McpConfig
 from gclaw.tools.catalog.service import ToolCatalogService
 from gclaw.tools.catalog.tester import probe_tool, set_mcp_manager
 from gclaw.tools.mcp.manager import McpClientManager
-from tests._tool_catalog_fakes import FakeToolRepo
+from _tool_catalog_fakes import FakeToolRepo
 
 
 @pytest.fixture

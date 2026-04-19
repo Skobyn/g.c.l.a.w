@@ -17,7 +17,7 @@ from gclaw.tools.catalog.models import (
 )
 from gclaw.tools.catalog.service import ToolCatalogService
 from gclaw.tools.catalog.tester import probe_tool, set_openapi_deps
-from tests._tool_catalog_fakes import FakeToolRepo
+from _tool_catalog_fakes import FakeToolRepo
 
 FIXTURE = Path(__file__).parent / "fixtures" / "sample_openapi.yaml"
 
