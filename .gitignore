@@ -9,3 +9,17 @@ node_modules/
 .env.local
 web/.env.local
 tmp/
+
+# Agent / orchestration tool artifacts
+.claude-flow/
+web/.claude-flow/
+.swarm/*.db
+.swarm/*.db-shm
+.swarm/*.db-wal
+.swarm/schema.sql
+.mcp.json
+ruvector.db
+
+# Local debugging screenshots
+/chat-page-screenshot.png
+/schedule-loop*.txt
