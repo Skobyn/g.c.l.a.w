@@ -60,7 +60,7 @@ steps:
       - --vpc-egress=private-ranges-only
       # PHOENIX_SQL_DATABASE_URL is the full Cloud SQL connection URL
       # (e.g. postgresql+psycopg://user:pass@/phoenix?host=/cloudsql/<instance>).
-      - --set-secrets=PHOENIX_SQL_DATABASE_URL=phoenix-sql-url:latest
+      - --set-secrets=PHOENIX_SQL_DATABASE_URL=phoenix-sql-url:latest,PHOENIX_SECRET=phoenix-auth-secret:latest
       - --set-env-vars=PHOENIX_WORKING_DIR=/tmp/phoenix,PHOENIX_PORT=6006,PHOENIX_HOST=0.0.0.0,PHOENIX_ENABLE_AUTH=true,PHOENIX_TRACE_RETENTION_DAYS=14
       - --min-instances=0
       - --max-instances=2
