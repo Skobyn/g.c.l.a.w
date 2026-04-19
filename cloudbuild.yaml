@@ -63,7 +63,12 @@ steps:
       # the Cloud Run service account) rather than the public Gemini API path
       # (which requires GOOGLE_API_KEY). Without these, every /chat request
       # fails at the first LLM call with "No API key was provided".
-      - --set-env-vars=GCP_PROJECT_ID=apex-internal-apps,GCP_LOCATION=us-central1,FIRESTORE_DATABASE=(default),GOOGLE_GENAI_USE_VERTEXAI=TRUE,GOOGLE_CLOUD_PROJECT=apex-internal-apps,GOOGLE_CLOUD_LOCATION=us-central1,MODEL_ROUTING_ENABLED=false,MEMORY_ENABLED=true,MEMORY_BANK_REASONING_ENGINE_ID=1568060811371347968,FIREBASE_AUTH_ENABLED=false,GWS_IMPERSONATE_USER=sbenson@getapexinsights.com
+      - --set-env-vars=GCP_PROJECT_ID=apex-internal-apps,GCP_LOCATION=us-central1,FIRESTORE_DATABASE=(default),GOOGLE_GENAI_USE_VERTEXAI=TRUE,GOOGLE_CLOUD_PROJECT=apex-internal-apps,GOOGLE_CLOUD_LOCATION=us-central1,MODEL_ROUTING_ENABLED=false,MEMORY_ENABLED=true,MEMORY_BANK_REASONING_ENGINE_ID=1568060811371347968,FIREBASE_AUTH_ENABLED=false,GWS_IMPERSONATE_USER=sbenson@getapexinsights.com,OBSERVABILITY_ENABLED=true,OTEL_SERVICE_NAME=gclaw-backend,OTEL_SAMPLING_RATIO=1.0,GUARDRAILS_ENABLED=true,GUARDRAILS_DEFAULT_PROFILE=loose,VERTEX_SCORING_ENABLED=true
+      # OTEL_EXPORTER_OTLP_ENDPOINT is Secret-Manager-backed: the
+      # initial placeholder value is swapped in post-Phoenix-deploy to
+      # the real `<phoenix URL>/v1/traces`. Fail-soft OTLP exporter
+      # means the backend boots clean even while the placeholder is live.
+      - --set-secrets=OTEL_EXPORTER_OTLP_ENDPOINT=otel-exporter-otlp-endpoint:latest
       - --quiet
     waitFor: [push-sha]
 
