@@ -342,6 +342,45 @@ export class ApiClient {
     });
   }
 
+  // --- Admin: Tool Catalog ---
+
+  async listTools(): Promise<import("@/types").ToolRecord[]> {
+    return this.request<import("@/types").ToolRecord[]>("/admin/tools");
+  }
+
+  async createTool(
+    req: import("@/types").ToolCreateRequest,
+  ): Promise<import("@/types").ToolRecord> {
+    return this.request<import("@/types").ToolRecord>("/admin/tools", {
+      method: "POST",
+      body: JSON.stringify(req),
+    });
+  }
+
+  async updateTool(
+    toolId: string,
+    req: import("@/types").ToolUpdateRequest,
+  ): Promise<import("@/types").ToolRecord> {
+    return this.request<import("@/types").ToolRecord>(
+      `/admin/tools/${toolId}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify(req),
+      },
+    );
+  }
+
+  async deleteTool(toolId: string): Promise<void> {
+    await this.request<void>(`/admin/tools/${toolId}`, { method: "DELETE" });
+  }
+
+  async testTool(toolId: string): Promise<import("@/types").TestToolResult> {
+    return this.request<import("@/types").TestToolResult>(
+      `/admin/tools/${toolId}/test`,
+      { method: "POST" },
+    );
+  }
+
   // --- Admin: System ---
 
   async getSystemTimezone(): Promise<{ timezone: string }> {

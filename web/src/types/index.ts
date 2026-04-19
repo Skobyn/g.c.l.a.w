@@ -464,6 +464,44 @@ export interface TestModelResult {
   sample_response: string | null;
 }
 
+// ---------- Tool Catalog ----------
+
+export type ToolKind = "builtin" | "mcp" | "http_api" | "code_exec";
+
+export interface ToolRecord {
+  id: string;
+  name: string;
+  enabled: boolean;
+  kind: ToolKind;
+  // Config is a discriminated union on `kind`; the UI treats it as
+  // opaque metadata and delegates to the per-kind form component.
+  config: Record<string, unknown>;
+  credential_ref: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ToolCreateRequest {
+  name: string;
+  config: Record<string, unknown>;
+  enabled?: boolean;
+  credential_ref?: string | null;
+}
+
+export interface ToolUpdateRequest {
+  name?: string;
+  config?: Record<string, unknown>;
+  enabled?: boolean;
+  credential_ref?: string | null;
+}
+
+export interface TestToolResult {
+  ok: boolean;
+  latency_ms: number;
+  error: string | null;
+  sample_response: unknown;
+}
+
 // ---------- Usage / Observability ----------
 
 export type UsageKind = "model" | "agent" | "skill" | "tool";
@@ -515,6 +553,7 @@ export interface AgentToolsSpec {
   profile: string | null;
   allow: string[];
   deny: string[];
+  catalog_tool_ids: string[];
 }
 
 export interface AgentSubagentsSpec {
