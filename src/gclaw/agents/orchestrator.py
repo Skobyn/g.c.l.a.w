@@ -49,7 +49,8 @@ def create_board_task_tool(board_service: BoardService) -> Callable:
         Args:
             title: Short description of what needs to be done.
             assignee: Which manager should handle this.
-                One of: workspace-mgr, dev-mgr, home-mgr, comms-mgr, research-mgr.
+                One of: workspace-mgr, dev-mgr, home-mgr, comms-mgr,
+                research-mgr, content-mgr.
             description: Detailed context for the assigned agent.
             priority: Task priority — high, medium, or low.
             source_origin: Which agent created this task.
@@ -274,7 +275,9 @@ def build_managers(
     cm_tools = [
         comms_tools.list_chat_spaces,
         comms_tools.post_chat_message,
-    ] + pz_tools + img_tools + board_tools + ctx_tools
+    ] + board_tools + ctx_tools
+
+    ct_tools = pz_tools + img_tools + board_tools + ctx_tools
 
     rs_tools = [
         research_tools.web_search,
@@ -354,6 +357,18 @@ def build_managers(
             ),
             before_agent_callback=_recall_cb("profile-mgr"),
         ),
+        "content_mgr": factory.build(
+            agent_name="content-mgr",
+            soul_overlay="content",
+            tools=ct_tools,
+            description=(
+                "Runs the social-content pipeline end-to-end: humanize, "
+                "generate image, upload, create Postiz draft, stage in "
+                "shared-context, return summary to the orchestrator. "
+                "Executes tools — never simulates them."
+            ),
+            before_agent_callback=_recall_cb("content-mgr"),
+        ),
     }
 
 
@@ -423,6 +438,7 @@ def build_orchestrator(
         agent_tool.AgentTool(agent=managers["comms_mgr"]),
         agent_tool.AgentTool(agent=managers["research_mgr"]),
         agent_tool.AgentTool(agent=managers["profile_mgr"]),
+        agent_tool.AgentTool(agent=managers["content_mgr"]),
         agent_tool.AgentTool(agent=morning_brief),
         agent_tool.AgentTool(agent=commit_msg),
         user_profile_tools.read_user_profile,

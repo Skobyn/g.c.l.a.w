@@ -61,6 +61,7 @@ SECRETS: tuple[SecretSpec, ...] = (
         "watson-gemini-api-key",
         "Gemini API direct (generativelanguage.googleapis.com).",
         "GEMINI_API_KEY",
+        bootstrap="env",
     ),
     SecretSpec(
         "watson-anthropic-api-key",
