@@ -1,7 +1,33 @@
 [project]
 name = "gclaw"
-version = "0.1.0"
-description = "Personal AI agent platform on Google stack"
+version = "0.4.0"
+description = "Multi-agent AI orchestration platform built on Google ADK + Gemini, with kanban board coordination, Memory Bank long-term recall, and a tool/skill registry."
+authors = [
+    { name = "Scott Benson" },
+]
+# `readme = "README.md"` and `license = { file = "LICENSE" }` are wired
+# in a follow-up PR once those files land (see #10) to keep hatchling
+# build validation passing on this branch.
+keywords = [
+    "ai-agents",
+    "llm-orchestration",
+    "google-adk",
+    "gemini",
+    "vertex-ai",
+    "firestore",
+    "fastapi",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 requires-python = ">=3.10"
 dependencies = [
     "google-adk[extensions]>=1.0.0",
@@ -30,6 +56,11 @@ dev = [
     "pytest-asyncio>=0.24.0",
     "httpx>=0.28.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/Skobyn/gclaw"
+Repository = "https://github.com/Skobyn/gclaw"
+Issues = "https://github.com/Skobyn/gclaw/issues"
 
 [build-system]
 requires = ["hatchling"]
