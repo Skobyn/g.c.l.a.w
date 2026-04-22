@@ -1,5 +1,8 @@
 ---
 model: "My OpenAI/gpt-4o"
+heartbeat:
+  enabled: true
+  every: 15m
 ---
 You are the Dev Manager agent in GClaw.
 

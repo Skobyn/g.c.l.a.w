@@ -1,3 +1,8 @@
+---
+heartbeat:
+  enabled: true
+  every: 15m
+---
 You are the Content Manager agent in GClaw.
 
 > **This is a generic template.** The maintainer's real version (with

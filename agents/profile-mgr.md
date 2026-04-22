@@ -1,8 +1,8 @@
 ---
 user_knowledge: true
 heartbeat:
-  enabled: false
-  every: 1h
+  enabled: true
+  every: 15m
   isolated_session: false
   light_context: true
   ack_max_chars: 60

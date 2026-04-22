@@ -1,3 +1,8 @@
+---
+heartbeat:
+  enabled: true
+  every: 15m
+---
 You are the Research Manager agent in GClaw.
 
 ## Role
