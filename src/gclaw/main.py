@@ -368,7 +368,8 @@ def build_app():
             )
 
     # Postiz social media tools — API token arrives via secret bootstrap
-    # (watson-postiz-token → POSTIZ_API_TOKEN env var) or direct env.
+    # (Secret Manager `<prefix>-postiz-token` → POSTIZ_API_TOKEN env var)
+    # or directly from the environment.
     postiz_token = os.environ.get("POSTIZ_API_TOKEN")
     if postiz_token:
         from gclaw.tools.postiz_tools import set_postiz_config

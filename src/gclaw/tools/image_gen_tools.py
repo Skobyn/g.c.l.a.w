@@ -4,8 +4,10 @@ Wraps the Gemini 3 Pro Image API (aka Nano Banana Pro) as agent-callable
 tool functions. Content agents chain this with postiz_upload_image to
 create LinkedIn posts with images.
 
-The GEMINI_API_KEY env var (bootstrapped from watson-gemini-api-key at
-startup) is used for auth. If unavailable, tools return an error string.
+The GEMINI_API_KEY env var (bootstrapped from the configured Secret
+Manager entry — typically `<prefix>-gemini-api-key`, see
+docs/SECRETS_MIGRATION.md) is used for auth. If unavailable, tools
+return an error string.
 """
 
 from __future__ import annotations
@@ -46,7 +48,7 @@ async def generate_image(
     """
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
-        return "generate_image failed: GEMINI_API_KEY not set. Bootstrap watson-gemini-api-key first."
+        return "generate_image failed: GEMINI_API_KEY not set. Bootstrap the configured `<prefix>-gemini-api-key` secret first."
 
     if not prompt.strip():
         return "generate_image failed: prompt is empty."
