@@ -69,20 +69,23 @@ for f in "${FILES_TO_EXTRACT[@]}"; do
   fi
 done
 
-# Directories
+# Directories.
+# Using a while-read loop for bash-3 compatibility (macOS default
+# /bin/bash is 3.2 — no `mapfile`). Counts via a trailing wc.
 for d in "${DIRS_TO_EXTRACT[@]}"; do
-  mapfile -t paths < <(
-    git ls-tree -r --name-only "${SOURCE_REF}" -- "${d}" 2>/dev/null
-  )
-  if [[ ${#paths[@]} -eq 0 ]]; then
-    echo "  - ${d}/ (not present at ${SOURCE_REF}, skipping)"
-    continue
-  fi
-  for f in "${paths[@]}"; do
+  count=0
+  while IFS= read -r f; do
+    [[ -z "$f" ]] && continue
     mkdir -p "${OVERLAY_DIR}/$(dirname "${f}")"
     git show "${SOURCE_REF}:${f}" > "${OVERLAY_DIR}/${f}"
-  done
-  echo "  + ${d}/ (${#paths[@]} files)"
+    count=$((count + 1))
+  done < <(git ls-tree -r --name-only "${SOURCE_REF}" -- "${d}" 2>/dev/null)
+
+  if [[ "$count" -eq 0 ]]; then
+    echo "  - ${d}/ (not present at ${SOURCE_REF}, skipping)"
+  else
+    echo "  + ${d}/ (${count} files)"
+  fi
 done
 
 # Drop a starter README + .gitignore so the overlay is push-ready
