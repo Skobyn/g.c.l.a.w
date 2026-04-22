@@ -15,6 +15,7 @@ UI can show an actionable banner.
 from __future__ import annotations
 
 import logging
+import os
 import re
 from datetime import datetime, timezone
 from typing import Any
@@ -23,7 +24,11 @@ logger = logging.getLogger(__name__)
 
 
 _NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
-_NAME_PREFIX = "watson-"
+# Secret name prefix. Defaults to ``watson-`` for the upstream maintainer's
+# legacy resources; forks should set ``SECRET_NAME_PREFIX`` to their own
+# project namespace (e.g. ``gclaw-``) before bootstrapping. See
+# ``docs/SECRETS_MIGRATION.md`` for the migration recipe.
+_NAME_PREFIX = os.environ.get("SECRET_NAME_PREFIX", "watson-")
 _INVALID_CHARS = re.compile(r"[^a-z0-9-]")
 _MAX_NAME_LEN = 255
 
@@ -73,7 +78,11 @@ class SecretManagerService:
 
     @staticmethod
     def normalize_name(raw: str) -> str:
-        """Lowercase, strip invalid chars, ensure ``watson-`` prefix."""
+        """Lowercase, strip invalid chars, ensure the configured prefix.
+
+        The prefix comes from ``SECRET_NAME_PREFIX`` env (default
+        ``watson-`` for backwards compat).
+        """
         if not raw:
             raise ValueError("secret name is required")
         s = raw.strip().lower()
@@ -218,17 +227,17 @@ class SecretManagerService:
         """List secrets GClaw has visibility into.
 
         Union of:
-          - secrets labelled ``app=watson`` (canonical) or ``app=gclaw``
-            (legacy — newly created by older GClaw versions), and
-          - any secret whose name starts with ``watson-`` (picks up
-            secrets created outside GClaw that we share read access to).
+          - secrets labelled ``app=watson`` (legacy) or ``app=gclaw``
+            (canonical for newer deployments), and
+          - any secret whose name starts with the configured
+            ``SECRET_NAME_PREFIX`` (default ``watson-``).
 
         Names + latest-version timestamps only.
         """
         client = self._get_client()
 
         # Page through all secrets once; filter in memory. A single-label
-        # server-side filter would miss unlabelled watson-* secrets, and
+        # server-side filter would miss unlabelled prefixed secrets, and
         # a label=(watson OR gclaw) filter isn't expressible in the SM
         # list filter syntax.
         try:
