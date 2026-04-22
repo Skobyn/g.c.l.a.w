@@ -11,19 +11,28 @@ web/.env.local
 .firebaserc.local
 tmp/
 
-# Agent / orchestration tool artifacts
+# Agent / orchestration tool artifacts (claude-flow, ruv-swarm, MCP)
 .claude-flow/
 web/.claude-flow/
-.swarm/*.db
-.swarm/*.db-shm
-.swarm/*.db-wal
-.swarm/schema.sql
+.swarm/
 .mcp.json
 ruvector.db
 
+# Dev-time Claude/SPARC working files
+/schedule-loop*.txt
+
 # Local debugging screenshots
 /chat-page-screenshot.png
-/schedule-loop*.txt
+
+# Optional overlay repo co-located with the framework
+/overlay/
+/gclaw-overlay/
+
+# IDE and OS
+.vscode/
+.idea/
+.DS_Store
+*.log
 
 # Credentials and key material — never commit
 *.pem
