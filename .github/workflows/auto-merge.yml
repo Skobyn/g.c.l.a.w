@@ -4,6 +4,13 @@ name: Auto-merge
 # submits one when the rubric passes). Uses `--auto` so GitHub finalizes the
 # merge only after all required status checks pass. PRs that touch sensitive
 # paths are skipped here — those require a human to merge manually.
+#
+# NOTE on the post-merge dispatch step: pushes created by the default
+# GITHUB_TOKEN do NOT trigger downstream `push:`-event workflows (GitHub's
+# built-in guard against recursive workflow runs). That would leave Deploy
+# idle after every auto-merge. The exception is workflow_dispatch — it
+# DOES run even when invoked via GITHUB_TOKEN. So this workflow waits for
+# the PR to actually merge, then explicitly dispatches Deploy.
 
 on:
   pull_request_review:
@@ -16,6 +23,7 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+      actions: write  # needed for post-merge dispatch of the Deploy workflow
 
     steps:
       - name: Checkout repository
@@ -53,3 +61,27 @@ jobs:
           # --auto: GitHub waits for required checks before merging.
           # If branch protection is not configured, GitHub will merge immediately.
           gh pr merge "$PR_NUMBER" --auto --squash --delete-branch
+
+      # Poll up to 10 minutes for the PR to actually merge, then explicitly
+      # dispatch Deploy. See the top-of-file comment for why this is needed.
+      - name: Wait for merge and dispatch Deploy
+        if: steps.sensitive.outputs.sensitive == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 60); do
+            state=$(gh pr view "$PR_NUMBER" --json state -q .state)
+            if [ "$state" = "MERGED" ]; then
+              echo "PR #$PR_NUMBER merged on attempt $i — dispatching Deploy"
+              gh workflow run Deploy --ref master
+              exit 0
+            fi
+            if [ "$state" = "CLOSED" ]; then
+              echo "::warning::PR #$PR_NUMBER was closed without merging — skipping Deploy dispatch"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::warning::PR #$PR_NUMBER did not merge within 10 minutes — Deploy not dispatched. Trigger manually from the Actions tab if needed."

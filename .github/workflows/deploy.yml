@@ -18,6 +18,11 @@ on:
   # status check. Deploy jobs are skipped on PR events (see `if:` guards).
   pull_request:
     branches: [master]
+  # workflow_dispatch lets the Auto-merge workflow (which uses the default
+  # GITHUB_TOKEN and therefore can't trigger `push:`-event workflows)
+  # explicitly re-trigger Deploy after it lands a merge on master.
+  # Also useful for manual re-deploys from the Actions tab.
+  workflow_dispatch:
 
 concurrency:
   # Distinct concurrency groups for PR checks vs. master deploys — a PR test
@@ -35,7 +40,7 @@ jobs:
   # infra/phoenix/** or this workflow actually changed.
   changes:
     name: Detect changed paths
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     outputs:
       phoenix: ${{ steps.filter.outputs.phoenix }}
@@ -75,7 +80,7 @@ jobs:
   deploy-backend:
     name: Deploy Backend
     needs: test
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -128,7 +133,7 @@ jobs:
   deploy-web:
     name: Deploy Web
     needs: deploy-backend  # backend must be live before web builds (API URL baked in)
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -169,7 +174,7 @@ jobs:
   deploy-phoenix:
     name: Deploy Phoenix
     needs: [test, changes]
-    if: github.event_name == 'push' && needs.changes.outputs.phoenix == 'true'
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && needs.changes.outputs.phoenix == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
