@@ -93,7 +93,36 @@ jobs:
       - uses: google-github-actions/setup-gcloud@v2
 
       - name: Build & deploy backend
-        run: gcloud builds submit --project $GCP_PROJECT --config cloudbuild.yaml --quiet
+        # PR #9 stripped personal defaults from cloudbuild.yaml; all
+        # deployment-specific values now come via substitutions. Sourced
+        # from GitHub secrets so they stay out of git history.
+        env:
+          MEMORY_ENGINE_ID: ${{ secrets.MEMORY_ENGINE_ID }}
+          GWS_USER: ${{ secrets.GWS_USER }}
+          VPC_CONNECTOR: ${{ secrets.VPC_CONNECTOR }}
+          POSTIZ_BASE_URL: ${{ secrets.POSTIZ_BASE_URL }}
+          POSTIZ_REVIEWER_URL: ${{ secrets.POSTIZ_REVIEWER_URL }}
+          POSTIZ_CHANNEL_PRIMARY: ${{ secrets.POSTIZ_CHANNEL_PRIMARY }}
+          POSTIZ_CHANNEL_SECONDARY: ${{ secrets.POSTIZ_CHANNEL_SECONDARY }}
+          SECRET_NAME_PREFIX: ${{ secrets.SECRET_NAME_PREFIX }}
+        run: |
+          SUBS="_PROJECT_ID=${GCP_PROJECT}"
+          SUBS+=",_REGION=${GCP_REGION}"
+          SUBS+=",_IMAGE=${GCP_REGION}-docker.pkg.dev/${GCP_PROJECT}/gclaw/gclaw"
+          SUBS+=",_SERVICE_ACCOUNT=gclaw-run-sa@${GCP_PROJECT}.iam.gserviceaccount.com"
+          [[ -n "$MEMORY_ENGINE_ID" ]] && SUBS+=",_MEMORY_ENGINE_ID=${MEMORY_ENGINE_ID}"
+          [[ -n "$GWS_USER" ]] && SUBS+=",_GWS_USER=${GWS_USER}"
+          [[ -n "$VPC_CONNECTOR" ]] && SUBS+=",_VPC_CONNECTOR=${VPC_CONNECTOR}"
+          [[ -n "$POSTIZ_BASE_URL" ]] && SUBS+=",_POSTIZ_BASE_URL=${POSTIZ_BASE_URL}"
+          [[ -n "$POSTIZ_REVIEWER_URL" ]] && SUBS+=",_POSTIZ_REVIEWER_URL=${POSTIZ_REVIEWER_URL}"
+          [[ -n "$POSTIZ_CHANNEL_PRIMARY" ]] && SUBS+=",_POSTIZ_CHANNEL_PRIMARY=${POSTIZ_CHANNEL_PRIMARY}"
+          [[ -n "$POSTIZ_CHANNEL_SECONDARY" ]] && SUBS+=",_POSTIZ_CHANNEL_SECONDARY=${POSTIZ_CHANNEL_SECONDARY}"
+          [[ -n "$SECRET_NAME_PREFIX" ]] && SUBS+=",_SECRET_NAME_PREFIX=${SECRET_NAME_PREFIX}"
+          gcloud builds submit \
+            --project "$GCP_PROJECT" \
+            --config cloudbuild.yaml \
+            --substitutions "$SUBS" \
+            --quiet
 
   # ── Deploy web (Next.js → Cloud Run: gclaw-web) ───────────────────
   deploy-web:
@@ -118,7 +147,21 @@ jobs:
 
       - name: Build & deploy web
         working-directory: web
-        run: gcloud builds submit --project $GCP_PROJECT --config cloudbuild.yaml . --quiet
+        # _API_URL is the backend Cloud Run URL — resolved dynamically
+        # post-backend-deploy so we bake the live URL into the JS bundle.
+        run: |
+          API_URL=$(gcloud run services describe gclaw \
+            --region="${GCP_REGION}" --project="${GCP_PROJECT}" \
+            --format='value(status.url)')
+          SUBS="_PROJECT_ID=${GCP_PROJECT}"
+          SUBS+=",_REGION=${GCP_REGION}"
+          SUBS+=",_IMAGE=${GCP_REGION}-docker.pkg.dev/${GCP_PROJECT}/gclaw/gclaw-web"
+          SUBS+=",_API_URL=${API_URL}"
+          gcloud builds submit \
+            --project "$GCP_PROJECT" \
+            --config cloudbuild.yaml \
+            --substitutions "$SUBS" \
+            --quiet .
 
   # ── Deploy Phoenix (observability OTLP sink → Cloud Run: phoenix) ──
   # Path-filtered: only runs when infra/phoenix/** or this workflow
@@ -144,7 +187,19 @@ jobs:
       - uses: google-github-actions/setup-gcloud@v2
 
       - name: Build & deploy phoenix
-        run: gcloud builds submit --project $GCP_PROJECT --config infra/phoenix/cloudbuild.yaml --quiet
+        env:
+          VPC_CONNECTOR: ${{ secrets.VPC_CONNECTOR }}
+        run: |
+          SUBS="_PROJECT_ID=${GCP_PROJECT}"
+          SUBS+=",_REGION=${GCP_REGION}"
+          SUBS+=",_IMAGE=${GCP_REGION}-docker.pkg.dev/${GCP_PROJECT}/gclaw/phoenix"
+          SUBS+=",_SERVICE_ACCOUNT=phoenix-run-sa@${GCP_PROJECT}.iam.gserviceaccount.com"
+          [[ -n "$VPC_CONNECTOR" ]] && SUBS+=",_VPC_CONNECTOR=${VPC_CONNECTOR}"
+          gcloud builds submit \
+            --project "$GCP_PROJECT" \
+            --config infra/phoenix/cloudbuild.yaml \
+            --substitutions "$SUBS" \
+            --quiet
 
 # ─────────────────────────────────────────────────────────────────────
 # ONE-TIME SETUP (run these gcloud commands once to enable WIF)
