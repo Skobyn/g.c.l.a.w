@@ -61,7 +61,7 @@ The Dockerfile also installs the `gh` and `gws` (Google Workspace) CLIs — the 
 
 1. **User Layer** — PWA web app (`web/`), Gemini Live voice (`src/gclaw/voice/`, `api/voice_ws.py`), Firebase Auth.
 2. **Orchestration Layer** (custom) — Agent hierarchy, kanban project board, cron scheduler, session router. The differentiating layer.
-3. **Agent Layer** (ADK) — Specialist and manager agents with Gemini, tool bindings, instructions. Agents communicate through the project board, not directly.
+3. **Agent Layer** (ADK) — Specialist and manager agents with Gemini, tool bindings, instructions. Managers are wrapped as ADK `AgentTool`s on the orchestrator (not `sub_agents=`); async hand-offs between agents go through the project board, not direct messaging.
 4. **Memory Layer** — Firestore (sessions, board, config), Vertex AI Memory Bank (long-term recall), `soul/*.md` profiles.
 5. **Integration Layer** — Extensible tool modules in `src/gclaw/tools/` (Google Workspace, GitHub, comms, home, research).
 
@@ -75,8 +75,8 @@ System prompt for an agent = its `agent.md` + matching `soul.md` + injected memo
 
 ### Hierarchy
 
-- **Root Orchestrator (Soul)** — Single entry point. Intent classification, session continuity, personality, escalation handling. Built in `src/gclaw/agents/orchestrator.py`.
-- **Managers** (fixed tier) — Domain owners: Workspace, Dev, Home, Comms, Research. Read/write the project board, can spawn specialists. Definitions in `agents/*-mgr.md`.
+- **Root Orchestrator (Soul)** — Single entry point. Intent classification, session continuity, personality, escalation handling. Built in `src/gclaw/agents/orchestrator.py`. Managers are attached as `AgentTool`s, not `sub_agents=` — the orchestrator's docstring enforces this.
+- **Managers** (fixed tier) — Seven domain owners: **Workspace, Dev, Home, Comms, Research, Profile, Content**. Read/write the project board, can spawn specialists. Definitions in `agents/*-mgr.md`. `profile-mgr` owns `user.md`; `content-mgr` runs the social-content pipeline.
 - **Specialists** (dynamic tier) — Short-lived ADK agents spawned by managers for single tasks. Bound to specific tools.
 
 ### Wiring (where to start reading)
@@ -92,7 +92,7 @@ Key packages under `src/gclaw/`:
 - `heartbeat/` — Periodic context/consolidation service.
 - `cron/` — Scheduled job service (pairs with `crons/` at repo root).
 - `skill/` — Skill discovery/loader/registry for the `skills/` directory.
-- `tools/` — Tool implementations bound to managers: `gws.py`, `gh.py`, `comms_tools.py`, `dev_tools.py`, `home_tools.py`, `research_tools.py`, `workspace_tools.py`, plus `governance.py`.
+- `tools/` — Tool implementations bound to managers: `gws.py`, `gh.py`, `comms_tools.py`, `dev_tools.py`, `home_tools.py`, `research_tools.py`, `workspace_tools.py`, `postiz_tools.py`, `image_gen_tools.py`, `user_profile_tools.py`, `context_tools.py`, plus `governance.py`. `tools/catalog/` reflects `@tool_export`-decorated callables into Firestore; `tools/mcp/` hosts MCP client integration; `tools/code_exec/` holds the local + remote sandbox runners.
 - `auth/middleware.py` — `FirebaseAuthMiddleware`. When auth is disabled (`FIREBASE_AUTH_ENABLED=false`), `app.py` swaps in a `DevUserMiddleware` that pins `request.state.user_id` to `GCLAW_USER_ID` (default `default_user`). Route handlers always read `user_id` off `request.state`.
 - `dispatch/runner.py` — `AgentRunner` wrapping ADK's runner with session + memory + board services.
 
@@ -100,9 +100,9 @@ Key packages under `src/gclaw/`:
 
 - **Hybrid architecture (Approach B)**: ADK agents handle tool use, Gemini integration, and context management. The custom orchestration layer owns the hierarchy, board, cron, and inter-agent communication.
 - **Board-based communication**: Agents don't talk to each other directly — they write tasks and status to the kanban project board in Firestore. Anything that looks like direct agent-to-agent messaging is a bug.
-- **Model routing is opt-in**: Controlled by `MODEL_ROUTING_ENABLED`. When off, every agent uses `GEMINI_FLASH_MODEL`. When on, `_build_model_router` in `main.py` is the single place that registers endpoints and maps task profiles to models.
+- **Model routing is opt-in**: Controlled by `MODEL_ROUTING_ENABLED`. When off, every agent uses `GEMINI_FLASH_MODEL`. When on, the router is built from the Firestore model catalog when populated, otherwise from `_build_model_router` in `main.py`. Non-Gemini providers are wrapped with ADK's `LiteLlm` adapter inside the router, not at call sites.
 - **Soul inheritance**: Base soul flows down the hierarchy. Each agent gets a domain-specific overlay. Dynamic specialists inherit from their parent manager.
-- **A2A protocol**: Used for cross-user agent communication. Internal communication uses custom protocol through the board.
+- **Cross-user A2A** (roadmap): Planned for cross-user agent coordination. Not yet implemented — no A2A code path exists today. All current inter-agent coordination is board-mediated.
 
 ## GCP footprint
 
@@ -118,10 +118,12 @@ Configuration is centralized in `src/gclaw/settings.py` (pydantic-settings). `.e
 
 ## Skills
 
-Skills are packaged capabilities that agents can execute — like playbooks. They live in `skills/<skill-name>/` with a `SKILL.md` entry point and supporting files. Existing skills:
+Skills are packaged capabilities that agents can execute — like playbooks. They live in `skills/<skill-name>/` with a `SKILL.md` entry point (or `instructions.md`) and supporting files. Built-in skills ship in `skills/` and are loaded into the Firestore `SkillRegistry` at startup. Highlights:
 
-- **`gcp-audit/`** — Comprehensive GCP infrastructure audit against CIS benchmarks, security best practices, cost optimization, and operational excellence. `SKILL.md` is the entry point; `spec.md` holds the full 11-phase checklist with gcloud commands. Intended to be executed by the Dev Manager or a spawned specialist agent.
-- **`email-drafter/`**
-- **`morning-briefing/`**
+- **`gcp-audit/`** — GCP infrastructure audit against CIS benchmarks, security best practices, cost, and operational excellence. Intended to run under the Dev Manager.
+- **`dev-pipeline/`**, **`code-review/`**, **`debug/`** — developer workflows.
+- **`morning-briefing/`**, **`email-drafter/`** — workspace routines.
+- **`content-quality-gate/`**, **`humanizer/`**, **`nano-banana-pro/`**, **`nano-banana-prompting/`**, **`ui-ux-designer/`** — content pipeline (driven by `content-mgr`). Brand-specific content skills live in your private overlay, not the public repo.
+- **`devils-advocate/`**, **`handoff/`**, **`skill-audit/`** — meta/process skills.
 
 Discovery and loading go through `src/gclaw/skill/` (`discovery.py`, `loader.py`, `registry.py`).

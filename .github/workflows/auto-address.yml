@@ -1,0 +1,105 @@
+name: Auto-address review
+
+# When Claude's review (or a human) requests changes on a PR, spawn Claude
+# Code on the PR branch to apply the minimal fix and push it back. The push
+# re-triggers claude-code-review.yml -> a clean run -> auto-merge.yml.
+
+on:
+  pull_request_review:
+    types: [submitted]
+
+concurrency:
+  group: auto-address-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  auto-address:
+    if: github.event.review.state == 'changes_requested'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: read
+      actions: read
+      id-token: write
+
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
+      # Write the review body to a file via env var — never interpolate
+      # untrusted strings into a run: step.
+      - name: Persist review body for Claude
+        env:
+          REVIEW_BODY: ${{ github.event.review.body }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/review
+          printf '%s\n' "$REVIEW_BODY" > /tmp/review/body.md
+          echo "--- Review body (first 40 lines) ---"
+          head -40 /tmp/review/body.md || true
+
+      - name: Configure git identity
+        run: |
+          git config user.name  "claude-autofix[bot]"
+          git config user.email "claude-autofix@users.noreply.github.com"
+
+      - name: Run Claude Code to address review
+        uses: anthropics/claude-code-action@v1
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          additional_permissions: |
+            actions: read
+          claude_args: '--allowed-tools "Edit,Write,Read,Grep,Glob,Bash(uv *),Bash(git add:*),Bash(git commit:*),Bash(git diff:*),Bash(git log:*),Bash(git status),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(cat /tmp/review/body.md),Bash(tail /tmp/review/body.md)"'
+          prompt: |
+            A code review on PR #$PR_NUMBER requested changes. The review body is at
+            `/tmp/review/body.md` -- read it first.
+
+            Project context: read `CLAUDE.md`. gclaw is a multi-agent AI orchestration
+            platform; merging to master triggers a production Cloud Run deploy, so fixes
+            must be correct, minimal, and tested.
+
+            Your job:
+              1. Read /tmp/review/body.md to understand what the reviewer flagged.
+              2. Review the current PR diff:    gh pr diff "$PR_NUMBER"
+              3. Apply the MINIMAL fix for each blocking concern. Do NOT refactor beyond
+                 what the reviewer asked for. Do NOT add unrelated improvements.
+              4. Verify by running the project's CI command:
+                    GCP_PROJECT_ID=test-project uv run pytest tests/ -q --ignore=tests/test_integration_litellm_providers.py
+                 If the frontend was touched, also run `cd web && npm test` (tests only).
+              5. Only if tests pass, stage changed files and create a single commit with
+                 message `fix(review): address Claude review feedback`. Do NOT push -- the
+                 workflow pushes after you finish.
+              6. If you cannot produce a safe minimal fix, exit WITHOUT committing. An
+                 empty diff signals "no fix" and the workflow skips the push.
+
+      - name: Push fix commit
+        env:
+          HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          LOCAL="$(git rev-parse HEAD)"
+          REMOTE="$(git ls-remote origin "refs/heads/$HEAD_BRANCH" | awk '{print $1}' || true)"
+          if [ -n "$REMOTE" ] && [ "$LOCAL" = "$REMOTE" ]; then
+            echo "No new commit to push."
+            exit 0
+          fi
+          echo "Pushing fix to $HEAD_BRANCH..."
+          git push origin "HEAD:$HEAD_BRANCH"
