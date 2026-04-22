@@ -29,11 +29,13 @@ class HeartbeatContextGatherer:
         cron_service: CronService,
         memory_service: MemoryService | None = None,
         user_id: str | None = None,
+        agent_name: str | None = None,
     ) -> None:
         self._board = board_service
         self._crons = cron_service
         self._memory = memory_service
         self._user_id = user_id
+        self._agent_name = agent_name
 
     def gather(self) -> dict:
         """Gather full context snapshot for heartbeat reasoning (sync, no memories).
@@ -98,11 +100,38 @@ class HeartbeatContextGatherer:
         # Stale detection placeholder — in future, compare updated_at to now
         stale_tasks: list[dict] = []
 
+        # Queue assigned to this specific agent (for per-manager heartbeat
+        # auto-pickup). Sorted by priority (HIGH → LOW) then created_at ASC.
+        priority_rank = {"high": 0, "medium": 1, "low": 2}
+        my_queue: list[dict] = []
+        if self._agent_name:
+            my_tasks = [
+                t for t in tasks
+                if t.assignee == self._agent_name
+                and t.status == TaskStatus.QUEUED
+            ]
+            my_tasks.sort(
+                key=lambda t: (
+                    priority_rank.get(t.priority.value, 99),
+                    t.created_at,
+                )
+            )
+            my_queue = [
+                {
+                    "id": t.id,
+                    "title": t.title,
+                    "priority": t.priority.value,
+                    "description": t.description or "",
+                }
+                for t in my_tasks
+            ]
+
         # Cron summary
         crons = self._crons.list_all()
 
         return {
             "current_time": now.isoformat(),
+            "agent_name": self._agent_name,
             "board_summary": {
                 "total_tasks": len(tasks),
                 "backlog": status_counts.get("backlog", 0),
@@ -115,6 +144,7 @@ class HeartbeatContextGatherer:
             "failed_tasks": failed_tasks,
             "pending_approvals": pending_approvals,
             "stale_tasks": stale_tasks,
+            "my_queue": my_queue,
             "cron_summary": {
                 "total_crons": len(crons),
             },
@@ -171,6 +201,33 @@ class HeartbeatContextGatherer:
                 parts.append(
                     f"- [{st['id']}] {st['title']} (assignee: {st['assignee']})"
                 )
+
+        # Per-agent pending queue — only surfaced when we know our own
+        # agent name. Managers act on this list autonomously: pick the
+        # top task, call get_board_task (auto-picks up), do the work,
+        # call complete_board_task.
+        my_queue = ctx.get("my_queue") or []
+        agent_name = ctx.get("agent_name")
+        if agent_name and my_queue:
+            parts.append("")
+            parts.append(
+                f"### Your Pending Queue ({agent_name}) — {len(my_queue)} task(s)"
+            )
+            for tk in my_queue:
+                parts.append(
+                    f"- [{tk['id']}] {tk['title']} (priority: {tk['priority']})"
+                )
+                if tk.get("description"):
+                    parts.append(f"    > {tk['description'][:200]}")
+            parts.append("")
+            parts.append(
+                "**Work the top task now:** call `get_board_task` on its id "
+                "(this auto-transitions it to in-progress), do the work with "
+                "your tools, then call `complete_board_task(task_id, summary)` "
+                "when done. If you can't make progress, call "
+                "`fail_board_task(task_id, reason)` instead. Process one "
+                "task per heartbeat — the next cycle will take the next one."
+            )
 
         parts.append("")
         parts.append(f"### Crons: {ctx['cron_summary']['total_crons']} defined")

@@ -254,6 +254,10 @@ def _build_heartbeat_registry(
         delivery_service=delivery_service,
         default_timezone=effective_timezone,
     )
+    # Build a shared context_gatherer (without agent_name, for the
+    # legacy orchestrator path) and a per-agent gatherer inside the
+    # loop below so each manager's heartbeat sees only tasks assigned
+    # to itself.
     context_gatherer = HeartbeatContextGatherer(
         board_service=board_service,
         cron_service=cron_service,
@@ -293,8 +297,23 @@ def _build_heartbeat_registry(
             from gclaw.heartbeat.config import HeartbeatConfig
             cfg = HeartbeatConfig(enabled=False)
 
+        # Per-agent gatherer so non-orchestrator heartbeats see only
+        # tasks assigned to this specific agent (the "my_queue" field).
+        # The shared gatherer is still used for the orchestrator since
+        # its job is cross-agent situational awareness.
+        if name == "orchestrator":
+            per_agent_gatherer = context_gatherer
+        else:
+            per_agent_gatherer = HeartbeatContextGatherer(
+                board_service=board_service,
+                cron_service=cron_service,
+                memory_service=memory_service,
+                user_id=dev_user_id,
+                agent_name=name,
+            )
+
         service = HeartbeatService(
-            context_gatherer=context_gatherer,
+            context_gatherer=per_agent_gatherer,
             agent_runner=runner,
             log_repo=log_repo,
             user_id=dev_user_id,
@@ -331,6 +350,10 @@ def build_app():
     # Firestore client is ready (`live_span_processor.set_firestore_repo`).
     run_registry = None
     live_span_processor = None
+    # User-scoped event bus (separate lifecycle from observability —
+    # always constructed because board event fan-out uses it).
+    from gclaw.observability.user_event_registry import UserEventRegistry
+    user_event_registry = UserEventRegistry()
     if settings.observability_enabled:
         try:
             from gclaw.observability import (
@@ -412,7 +435,10 @@ def build_app():
     dev_user_id = os.environ.get("GCLAW_USER_ID", "default_user") if not settings.firebase_auth_enabled else None
     board_repo = BoardRepo(db=db, user_id=dev_user_id)
     board_service = BoardService(
-        repo=board_repo, user_id=dev_user_id, run_registry=run_registry
+        repo=board_repo,
+        user_id=dev_user_id,
+        run_registry=run_registry,
+        user_event_registry=user_event_registry,
     )
 
     # Catalog (providers + models)
@@ -984,6 +1010,7 @@ def build_app():
         ),
         system_config_repo=system_config_repo,
         run_registry=run_registry,
+        user_event_registry=user_event_registry,
         agent_runs_repo=agent_runs_repo,
         tool_catalog_service=tool_catalog_service,
         vertex_scorer=vertex_scorer,

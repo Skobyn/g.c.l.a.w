@@ -124,3 +124,74 @@ def test_gather_formats_as_message(gatherer, board_service, cron_service):
     assert "Heartbeat" in message
     assert "failed" in message.lower()
     assert "t1" in message
+
+
+# ── Per-agent my_queue (PR B) ───────────────────────────────────────
+
+
+def test_gather_includes_my_queue_for_named_agent(board_service, cron_service):
+    """When agent_name is set, gather returns a priority-sorted queue
+    of QUEUED tasks assigned to that specific agent."""
+    tasks = [
+        BoardTask(id="t_hi", title="Urgent", assignee="dev-mgr",
+                  status=TaskStatus.QUEUED, priority=TaskPriority.HIGH),
+        BoardTask(id="t_lo", title="Later", assignee="dev-mgr",
+                  status=TaskStatus.QUEUED, priority=TaskPriority.LOW),
+        BoardTask(id="t_med", title="Soon", assignee="dev-mgr",
+                  status=TaskStatus.QUEUED, priority=TaskPriority.MEDIUM),
+        BoardTask(id="t_other", title="Not mine", assignee="comms-mgr",
+                  status=TaskStatus.QUEUED, priority=TaskPriority.HIGH),
+        BoardTask(id="t_done", title="Done already", assignee="dev-mgr",
+                  status=TaskStatus.DONE, priority=TaskPriority.HIGH),
+    ]
+    board_service.get_all_tasks.return_value = tasks
+    cron_service.list_all.return_value = []
+
+    g = HeartbeatContextGatherer(
+        board_service=board_service,
+        cron_service=cron_service,
+        agent_name="dev-mgr",
+    )
+    ctx = g.gather()
+
+    # Only QUEUED + assigned to dev-mgr, sorted HIGH → MED → LOW
+    ids = [t["id"] for t in ctx["my_queue"]]
+    assert ids == ["t_hi", "t_med", "t_lo"]
+    assert ctx["agent_name"] == "dev-mgr"
+
+
+def test_gather_empty_my_queue_for_anonymous_gatherer(
+    gatherer, board_service, cron_service
+):
+    """gatherer with no agent_name gets an empty my_queue — legacy
+    orchestrator path unaffected."""
+    board_service.get_all_tasks.return_value = [
+        BoardTask(id="t1", title="x", assignee="dev-mgr",
+                  status=TaskStatus.QUEUED, priority=TaskPriority.HIGH),
+    ]
+    cron_service.list_all.return_value = []
+    ctx = gatherer.gather()
+    assert ctx["my_queue"] == []
+    assert ctx["agent_name"] is None
+
+
+def test_message_includes_my_queue_with_pickup_instruction(
+    board_service, cron_service,
+):
+    board_service.get_all_tasks.return_value = [
+        BoardTask(id="t_1", title="Draft that email", assignee="comms-mgr",
+                  status=TaskStatus.QUEUED, priority=TaskPriority.MEDIUM,
+                  description="Reply re: Q2 planning"),
+    ]
+    cron_service.list_all.return_value = []
+    g = HeartbeatContextGatherer(
+        board_service=board_service,
+        cron_service=cron_service,
+        agent_name="comms-mgr",
+    )
+    msg = g.gather_as_message()
+    assert "Your Pending Queue" in msg
+    assert "t_1" in msg
+    assert "Draft that email" in msg
+    assert "get_board_task" in msg
+    assert "complete_board_task" in msg

@@ -65,6 +65,7 @@ def create_app(
     oauth_refresh_interval_seconds: int = 300,
     system_config_repo: object | None = None,
     run_registry: object | None = None,
+    user_event_registry: object | None = None,
     agent_runs_repo: object | None = None,
     tool_catalog_service: object | None = None,
     vertex_scorer: object | None = None,
@@ -250,6 +251,18 @@ def create_app(
         )
         app.state.run_registry = run_registry
         app.state.agent_runs_repo = agent_runs_repo
+
+    # User-scoped event feed — drains task.* events produced anywhere
+    # in the system for the authenticated user. Always mounted when a
+    # UserEventRegistry is wired (independent of observability flag).
+    if user_event_registry is not None:
+        from gclaw.api.events_routes import build_events_router
+        app.include_router(
+            build_events_router(
+                user_event_registry=user_event_registry,  # type: ignore[arg-type]
+            )
+        )
+        app.state.user_event_registry = user_event_registry
 
     if catalog_service is not None:
         app.include_router(init_catalog_router(catalog_service))

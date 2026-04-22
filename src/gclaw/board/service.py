@@ -37,12 +37,14 @@ class BoardService:
         repo: BoardRepo,
         user_id: str | None = None,
         run_registry: Any | None = None,
+        user_event_registry: Any | None = None,
     ) -> None:
         self._repo = repo
         self._default_user_id = user_id
         self._active_user_id: str | None = None
         self._active_session_id: str | None = None
         self._run_registry = run_registry
+        self._user_event_registry = user_event_registry
 
     def set_active_user(self, user_id: str) -> None:
         """Set the user_id for the current request context.
@@ -65,32 +67,42 @@ class BoardService:
         return user_id or self._active_user_id or self._default_user_id
 
     def _emit(self, kind: str, task: BoardTask, **extra: Any) -> None:
-        """Push a ``task.*`` event to the active run's RunRegistry queue.
+        """Push a ``task.*`` event to the active channels.
 
-        No-op when no registry is wired, or no active session is set
-        (board ops outside an agent turn — e.g. direct HTTP POST
-        /board/tasks — aren't tied to a chat run).
+        Dual-writes:
+          - RunRegistry (current session) — only if active session is set.
+            Drives the inline chat dispatch log.
+          - UserEventRegistry (current user) — always if a user can be
+            resolved. Drives the background activity strip + cross-session
+            notifications.
+
+        Best-effort: exceptions in either path are swallowed so board ops
+        never fail because of event plumbing.
         """
-        if self._run_registry is None or not self._active_session_id:
-            return
-        try:
-            self._run_registry.put_nowait(
-                self._active_session_id,
-                {
-                    "event": kind,
-                    "data": {
-                        "task_id": task.id,
-                        "title": task.title,
-                        "priority": task.priority.value,
-                        "assignee": task.assignee,
-                        "status": task.status.value,
-                        "time": datetime.now(timezone.utc).isoformat(),
-                        **extra,
-                    },
-                },
-            )
-        except Exception:  # noqa: BLE001 — emit is best-effort
-            pass
+        payload = {
+            "event": kind,
+            "data": {
+                "task_id": task.id,
+                "title": task.title,
+                "priority": task.priority.value,
+                "assignee": task.assignee,
+                "status": task.status.value,
+                "time": datetime.now(timezone.utc).isoformat(),
+                **extra,
+            },
+        }
+        if self._run_registry is not None and self._active_session_id:
+            try:
+                self._run_registry.put_nowait(self._active_session_id, payload)
+            except Exception:  # noqa: BLE001
+                pass
+        if self._user_event_registry is not None:
+            uid = self._active_user_id or self._default_user_id
+            if uid:
+                try:
+                    self._user_event_registry.put_nowait(uid, payload)
+                except Exception:  # noqa: BLE001
+                    pass
 
     def create_task(
         self,

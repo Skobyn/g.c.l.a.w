@@ -16,10 +16,12 @@ import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { useAuth } from "@/contexts/auth-context";
 import { createApiClient } from "@/lib/api-client";
 import { useChatRunStream } from "@/lib/use-chat-run-stream";
+import { useUserEvents } from "@/lib/use-user-events";
 import { MessageList } from "./message-list";
 import { MessageInput } from "./message-input";
 import { VoiceControls } from "./voice-controls";
 import { AgentSelector, DEFAULT_AGENT } from "./agent-selector";
+import { BackgroundActivityStrip } from "./background-activity-strip";
 import type { AgentListEntry, ChatMessage } from "@/types";
 import { formatDatestamp } from "@/lib/format";
 
@@ -204,6 +206,14 @@ export function ChatView() {
     getIdToken,
   });
 
+  // ── User-scoped background activity (heartbeat-driven runs) ───────
+  // Persistent SSE that collects task.* events from any run — shown
+  // in the collapsible BackgroundActivityStrip above the composer.
+  const backgroundState = useUserEvents({
+    baseUrl: API_BASE,
+    getIdToken,
+  });
+
   // Derived stats
   const turnCount = messages.filter((m) => m.role === "user").length;
   const lastToolCalls = useMemo(() => {
@@ -265,6 +275,13 @@ export function ChatView() {
             </p>
           </div>
         )}
+
+        {/* Background activity — heartbeat-driven manager runs */}
+        <BackgroundActivityStrip
+          items={backgroundState.items}
+          inFlight={backgroundState.inFlight}
+          queued={backgroundState.queued}
+        />
 
         {/* Input bar */}
         <div className="hairline-t">

@@ -212,6 +212,55 @@ def test_no_emission_when_no_registry(repo):
     svc.create_task(title="Y", assignee="dev-mgr")
 
 
+# ── Dual-write to UserEventRegistry (PR B) ──────────────────────────
+
+
+class _FakeUserRegistry:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict]] = []
+
+    def put_nowait(self, user_id: str, event: dict) -> None:
+        self.calls.append((user_id, event))
+
+
+def test_create_task_also_emits_to_user_event_registry(repo):
+    reg = _FakeRegistry()
+    ureg = _FakeUserRegistry()
+    svc = BoardService(
+        repo=repo, user_id="u_1", run_registry=reg, user_event_registry=ureg
+    )
+    svc.set_active_session("sess_abc")
+    repo.create.side_effect = lambda t, user_id=None: t.model_copy(update={"id": "t_1"})
+    svc.create_task(title="X", assignee="dev-mgr")
+    assert len(reg.calls) == 1
+    assert len(ureg.calls) == 1
+    uid, event = ureg.calls[0]
+    assert uid == "u_1"
+    assert event["event"] == "task.created"
+
+
+def test_user_event_emits_without_active_session(repo):
+    """UserEventRegistry emission works even when no chat session is
+    active — that's the whole point of cross-session delivery (e.g.
+    heartbeat-driven manager runs in a 'heartbeat' session)."""
+    ureg = _FakeUserRegistry()
+    svc = BoardService(repo=repo, user_id="u_2", user_event_registry=ureg)
+    # Deliberately no set_active_session call.
+    repo.create.side_effect = lambda t, user_id=None: t.model_copy(update={"id": "t_2"})
+    svc.create_task(title="Heartbeat-picked", assignee="dev-mgr")
+    assert len(ureg.calls) == 1
+    assert ureg.calls[0][0] == "u_2"
+
+
+def test_user_event_uses_active_user_over_default(repo):
+    ureg = _FakeUserRegistry()
+    svc = BoardService(repo=repo, user_id="u_default", user_event_registry=ureg)
+    svc.set_active_user("u_active")
+    repo.create.side_effect = lambda t, user_id=None: t.model_copy(update={"id": "t_3"})
+    svc.create_task(title="X", assignee="dev-mgr")
+    assert ureg.calls[0][0] == "u_active"
+
+
 def test_move_status_allowed(service, repo):
     task = BoardTask(
         id="t1",
