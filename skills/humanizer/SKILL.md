@@ -160,7 +160,7 @@ Avoiding AI patterns is only half the job. Sterile, voiceless writing is just as
 
 **High-frequency AI words:** Additionally, align with, crucial, delve, emphasizing, enduring, enhance, fostering, garner, highlight (verb), interplay, intricate/intricacies, key (adjective), landscape (abstract noun), pivotal, showcase, tapestry (abstract noun), testament, underscore (verb), valuable, vibrant
 
-**Scott-specific banned words/phrases:** gap (as in "the X-to-Y gap", "bridging the gap", "the gap between"), game-changer, game-changing, transform/transformation, unlock (as metaphor), journey (professional context), evolve/evolution, ecosystem, holistic, seamless, streamline
+**Example custom banned-words/phrases list (override in your overlay):** gap (as in "the X-to-Y gap", "bridging the gap", "the gap between"), game-changer, game-changing, transform/transformation, unlock (as metaphor), journey (professional context), evolve/evolution, ecosystem, holistic, seamless, streamline. This list is illustrative only — the words aren't categorically AI-tells, they're one writer's pet peeves. Replace with your own list (or delete entirely) in your overlay's copy of this skill.
 
 **Problem:** These words appear far more frequently in post-2023 text. They often co-occur.
 
