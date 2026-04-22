@@ -30,7 +30,7 @@ def test_parse_days():
 
 
 def test_parse_default_unit_is_minutes():
-    # No suffix → minutes (matches OpenClaw).
+    # No suffix → minutes.
     assert parse_duration_ms("5") == 300_000
 
 

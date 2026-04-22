@@ -11,6 +11,7 @@ import json
 import logging
 
 from gclaw.shared_context.service import SharedContextService
+from gclaw.tools.catalog.builtin_registry import tool_export
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +58,7 @@ def _preview(text: str | None, limit: int = 120) -> str:
     return flat[: limit - 1] + "\u2026"
 
 
+@tool_export(description="Write a text entry to a shared-context namespace.")
 async def context_write(
     namespace: str,
     content: str,
@@ -80,6 +82,7 @@ async def context_write(
     return f"Wrote context entry {entry.id} to namespace {namespace!r} ({where})."
 
 
+@tool_export(description="Return the latest entry's content for a shared-context namespace.")
 async def context_read_latest(namespace: str) -> str:
     """Return the latest entry's content for this namespace.
 
@@ -112,6 +115,7 @@ async def context_read_latest(namespace: str) -> str:
     return f"Entry {entry.id} in {namespace!r} is empty."
 
 
+@tool_export(description="List the newest entries in a shared-context namespace.")
 async def context_list(namespace: str, limit: int = 10) -> str:
     """Return newline-separated rows for the namespace (newest first).
 
@@ -140,6 +144,7 @@ async def context_list(namespace: str, limit: int = 10) -> str:
     return "\n".join(rows)
 
 
+@tool_export(description="Write a base64-encoded image blob to a shared-context namespace.")
 async def context_write_image(
     namespace: str,
     image_base64: str,

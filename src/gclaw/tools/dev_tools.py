@@ -7,6 +7,7 @@ import logging
 import subprocess
 from pathlib import Path
 
+from gclaw.tools.catalog.builtin_registry import tool_export
 from gclaw.tools.gh import GhError, run_gh
 
 logger = logging.getLogger(__name__)
@@ -17,6 +18,7 @@ def _err(verb: str, exc: Exception) -> str:
     return f"Dev {verb} failed: {exc}"
 
 
+@tool_export(description="List open pull requests in the current repository.")
 async def list_open_prs() -> str:
     """List open pull requests in the current repository."""
     try:
@@ -38,6 +40,7 @@ async def list_open_prs() -> str:
     return "\n".join(lines)
 
 
+@tool_export(description="Fetch the unified diff of a pull request.")
 async def get_pr_diff(pr_number: int) -> str:
     """Fetch the unified diff of a pull request."""
     try:
@@ -50,6 +53,7 @@ async def get_pr_diff(pr_number: int) -> str:
     return text
 
 
+@tool_export(description="List GitHub Actions workflow runs that have failed recently.")
 async def list_failing_workflows() -> str:
     """List GitHub Actions workflow runs that have failed recently."""
     try:
@@ -72,6 +76,7 @@ async def list_failing_workflows() -> str:
     return "\n".join(lines)
 
 
+@tool_export(description="Create a GitHub issue in the current repository.")
 async def create_issue(title: str, body: str = "") -> str:
     """Create a GitHub issue in the current repository."""
     try:
@@ -87,6 +92,7 @@ async def create_issue(title: str, body: str = "") -> str:
     return url
 
 
+@tool_export(description="Return the current working-tree git diff (staged + unstaged by default).")
 async def get_current_diff(staged_only: bool = False) -> str:
     """Return the current working-tree diff (staged + unstaged by default)."""
     try:
@@ -108,6 +114,7 @@ async def get_current_diff(staged_only: bool = False) -> str:
     return text
 
 
+@tool_export(description="Read a local file from disk by path.")
 async def read_local_file(path: str) -> str:
     """Read a local file from disk."""
     p = Path(path)

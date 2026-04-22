@@ -1,24 +1,40 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useMemo, useState } from "react";
 
 interface ChipInputProps {
   values: string[];
   onChange: (values: string[]) => void;
   placeholder?: string;
   disabled?: boolean;
+  /**
+   * Optional list of known values. When present, renders a datalist so
+   * the browser surfaces autocomplete suggestions (e.g. catalog tool
+   * names) while still allowing free-form entries.
+   */
+  suggestions?: string[];
 }
 
 /**
- * Simple tag-style input. Enter/comma adds a chip, backspace on empty removes last.
+ * Tag-style input. Enter/comma adds a chip, backspace on empty removes last.
+ * When `suggestions` is supplied, the input exposes a datalist with those
+ * values for autocomplete.
  */
 export function ChipInput({
   values,
   onChange,
   placeholder,
   disabled,
+  suggestions,
 }: ChipInputProps) {
   const [draft, setDraft] = useState("");
+  const listId = useId();
+
+  const remainingSuggestions = useMemo(() => {
+    if (!suggestions) return undefined;
+    const selected = new Set(values);
+    return suggestions.filter((s) => !selected.has(s)).sort();
+  }, [suggestions, values]);
 
   function commit(raw: string) {
     const v = raw.trim();
@@ -65,6 +81,7 @@ export function ChipInput({
         type="text"
         value={draft}
         disabled={disabled}
+        list={remainingSuggestions ? listId : undefined}
         onChange={(e) => setDraft(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === ",") {
@@ -79,6 +96,13 @@ export function ChipInput({
         placeholder={placeholder ?? "Type and press Enter"}
         className="min-w-[120px] flex-1 bg-transparent px-1 py-0.5 text-sm text-slate-200 placeholder-slate-500 focus:outline-none"
       />
+      {remainingSuggestions && remainingSuggestions.length > 0 && (
+        <datalist id={listId}>
+          {remainingSuggestions.map((s) => (
+            <option key={s} value={s} />
+          ))}
+        </datalist>
+      )}
     </div>
   );
 }

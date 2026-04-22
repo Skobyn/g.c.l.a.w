@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 
+from gclaw.tools.catalog.builtin_registry import tool_export
 from gclaw.tools.gws import GwsError, run_gws
 
 logger = logging.getLogger(__name__)
@@ -20,6 +21,7 @@ def _err(verb: str, exc: Exception) -> str:
     return f"Workspace {verb} failed: {exc}"
 
 
+@tool_export(description="List unread email in the user's inbox.")
 async def list_unread_email(max_results: int = 10) -> str:
     """List unread email in the user's inbox.
 
@@ -72,6 +74,7 @@ async def list_unread_email(max_results: int = 10) -> str:
     return "\n".join(lines)
 
 
+@tool_export(description="Send an email from the user's Gmail account.")
 async def send_email(to: str, subject: str, body: str) -> str:
     """Send an email from the user's Gmail account.
 
@@ -100,6 +103,7 @@ async def send_email(to: str, subject: str, body: str) -> str:
     return f"Email sent (id: {result.get('id', '?')})"
 
 
+@tool_export(description="List today's calendar events on the user's primary calendar.")
 async def list_calendar_events_today() -> str:
     """List today's calendar events.
 
@@ -143,6 +147,7 @@ async def list_calendar_events_today() -> str:
     return "\n".join(lines)
 
 
+@tool_export(description="Create a calendar event on the user's primary calendar.")
 async def create_calendar_event(
     summary: str,
     start_iso: str,
@@ -167,6 +172,7 @@ async def create_calendar_event(
     return f"Event created: {result.get('id', '?')} — {summary}"
 
 
+@tool_export(description="List the user's most recently modified Google Drive files.")
 async def list_drive_files(max_results: int = 10) -> str:
     """List the user's most recently modified Drive files."""
     try:
@@ -192,6 +198,7 @@ async def list_drive_files(max_results: int = 10) -> str:
     return "\n".join(lines)
 
 
+@tool_export(description="Read the plain-text content of a Google Doc by file ID.")
 async def read_drive_doc(file_id: str) -> str:
     """Read the plain-text content of a Google Doc."""
     try:

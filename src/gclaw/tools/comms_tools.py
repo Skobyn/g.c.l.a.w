@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 
+from gclaw.tools.catalog.builtin_registry import tool_export
 from gclaw.tools.gws import GwsError, run_gws
 
 logger = logging.getLogger(__name__)
@@ -15,6 +16,7 @@ def _err(verb: str, exc: Exception) -> str:
     return f"Comms {verb} failed: {exc}"
 
 
+@tool_export(description="List Google Chat spaces the user is a member of.")
 async def list_chat_spaces() -> str:
     """List Google Chat spaces the user is a member of."""
     try:
@@ -33,6 +35,7 @@ async def list_chat_spaces() -> str:
     return "\n".join(lines)
 
 
+@tool_export(description="Post a message to a Google Chat space.")
 async def post_chat_message(space_name: str, text: str) -> str:
     """Post a message to a Google Chat space."""
     try:

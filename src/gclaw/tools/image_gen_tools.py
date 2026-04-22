@@ -18,11 +18,14 @@ from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
 
+from gclaw.tools.catalog.builtin_registry import tool_export
+
 logger = logging.getLogger(__name__)
 
 _TMP_DIR = Path("/tmp/gclaw-images")
 
 
+@tool_export(description="Generate an image via Gemini 3 Pro Image and return the saved file path.")
 async def generate_image(
     prompt: str,
     filename: str = "",
@@ -115,6 +118,7 @@ async def generate_image(
         return f"generate_image failed: {exc}"
 
 
+@tool_export(description="Generate an image via Gemini 3 Pro Image and return the base64-encoded PNG.")
 async def generate_image_b64(
     prompt: str,
     resolution: str = "2K",
@@ -137,3 +141,7 @@ async def generate_image_b64(
         return base64.b64encode(data).decode("ascii")
     except Exception as exc:
         return f"generate_image_b64 failed: {exc}"
+    finally:
+        # Caller asked for bytes, not a file — don't leak the PNG under
+        # /tmp/gclaw-images (Cloud Run /tmp is memory-backed).
+        Path(path).unlink(missing_ok=True)

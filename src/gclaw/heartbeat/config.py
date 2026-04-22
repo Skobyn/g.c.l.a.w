@@ -17,7 +17,11 @@ class ActiveHours(BaseModel):
 
 
 class HeartbeatConfig(BaseModel):
-    """Per-agent heartbeat config. Mirrors OpenClaw's agents.list[].heartbeat."""
+    """Per-agent heartbeat config.
+
+    Controls the periodic "wake-up" that lets an agent reason about
+    what needs attention without a user turn.
+    """
 
     enabled: bool = False
     every: str = "30m"
@@ -55,8 +59,7 @@ def parse_duration_ms(s: str) -> int:
     """Parse duration string like '30m', '2h', '500ms' into milliseconds.
 
     Supported units: ms, s, m, h, d. If no unit is provided, defaults to
-    minutes (matches OpenClaw semantics). Raises ValueError for invalid
-    input.
+    minutes. Raises ValueError for invalid input.
     """
     if not isinstance(s, str):
         raise ValueError(f"duration must be a string, got {type(s).__name__}")

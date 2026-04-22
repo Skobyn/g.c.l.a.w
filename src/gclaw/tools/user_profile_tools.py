@@ -16,6 +16,7 @@ import logging
 import os
 
 from gclaw.config.loader import ConfigLoader
+from gclaw.tools.catalog.builtin_registry import tool_export
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +41,7 @@ def _err(verb: str, exc: Exception) -> str:
     return f"user_profile_{verb} failed: {exc}"
 
 
+@tool_export(description="Return the current user.md profile content.")
 async def read_user_profile() -> str:
     """Return the current `user.md` content.
 
@@ -62,6 +64,7 @@ async def read_user_profile() -> str:
     return content
 
 
+@tool_export(description="Overwrite user.md with new markdown (full-body replacement).")
 async def update_user_profile(content: str) -> str:
     """Overwrite `user.md` with new markdown.
 

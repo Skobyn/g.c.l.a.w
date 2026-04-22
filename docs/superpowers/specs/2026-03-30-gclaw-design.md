@@ -7,7 +7,7 @@
 
 GClaw is a personal AI assistant platform built entirely on the Google ecosystem. It combines a multi-agent hierarchy with a kanban-based project board, persistent memory, scheduled automation (crons + heartbeat), and an extensible skill system. The agent is proactive — not just a chatbot waiting for input — with a consciousness loop (heartbeat) that wakes it periodically to reason about what needs attention.
 
-Inspired by OpenClaw's architecture (soul, tools, agents, crons, heartbeat, skills), rebuilt on Google's stack: ADK, Gemini, Vertex AI Memory Bank, Firestore, Cloud Run, A2A protocol, and Firebase.
+Architecture — soul, tools, agents, crons, heartbeat, skills — built on Google's stack: ADK, Gemini, Vertex AI Memory Bank, Firestore, Cloud Run, A2A protocol, and Firebase.
 
 ## Architecture — Five Layers
 

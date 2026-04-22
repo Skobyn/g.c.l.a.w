@@ -1,10 +1,20 @@
+---
+name: content-quality-gate
+version: 1.0.0
+description: Score LinkedIn and social post drafts before they reach Postiz. Catch weak drafts. Don't let garbage through. Used by content-mgr between draft generation and scheduling.
+allowed-tools:
+  - context_read_latest
+  - context_list
+  - context_write
+---
+
 # Content Quality Gate Skill
 
 ## Purpose
-Score LinkedIn post drafts before they reach Postiz. Catch weak drafts. Don't let garbage through.
+Score LinkedIn and social post drafts before they reach Postiz. Catch weak drafts. Don't let garbage through.
 
 ## When to Use
-Run this against any draft in `~/.openclaw/shared-context/queue/scott/` or `~/.openclaw/shared-context/queue/apex/` before submitting to Postiz.
+The content-mgr invokes this skill after a draft is written to a `content/drafts/<channel>` shared-context namespace and before calling `postiz_create_draft`. Read the candidate with `context_read_latest("content/drafts/<channel>")`, score it with the rubric below, and write the verdict to `content/quality-gate/<channel>` with `context_write` so the pipeline can decide whether to continue or re-draft.
 
 ## Scoring Rubric (100 points total)
 
@@ -40,9 +50,9 @@ Run this against any draft in `~/.openclaw/shared-context/queue/scott/` or `~/.o
 - **2** — Obvious AI output. Inflated language, excessive parallelism, "delve", "tapestry", hollow closer.
 
 ## Pass/Fail Thresholds
-- **80-100** — ✅ Pass. Submit to Postiz.
-- **65-79** — ⚠️ Conditional pass. Note the specific weakness. Submit but flag for Scott's review.
-- **Below 65** — ❌ Fail. Do not submit. Rewrite the weak section(s) and re-score.
+- **80-100** — Pass. Submit to Postiz via `postiz_create_draft`.
+- **65-79** — Conditional pass. Note the specific weakness. Submit but flag for human review.
+- **Below 65** — Fail. Do not submit. Rewrite the weak section(s) and re-score.
 
 ## Auto-Fail Conditions (regardless of score)
 - Opens with "In today's fast-paced world" or equivalent throat-clearing
@@ -50,27 +60,29 @@ Run this against any draft in `~/.openclaw/shared-context/queue/scott/` or `~/.o
 - Has no source link when it references a stat or external claim
 - Is longer than 1500 characters for a single-image post (caption too long)
 - Body is just a list with no narrative connective tissue
-- Contains an em dash (—). Replace with colon, comma, or split into two sentences.
+- Contains an em dash. Replace with colon, comma, or split into two sentences.
 
 ## Output Format
-When scoring a draft, output:
+Write the verdict to `content/quality-gate/<channel>` as:
 
 ```
 ## Quality Gate — [Post Title]
 
 Hook Strength:     XX/25 — [one-line note]
-Clarity:           XX/20 — [one-line note]  
+Clarity:           XX/20 — [one-line note]
 Credibility:       XX/20 — [one-line note]
 Audience Fit:      XX/15 — [one-line note]
 CTA Quality:       XX/10 — [one-line note]
 Human Voice:       XX/10 — [one-line note]
 
-TOTAL: XX/100 — ✅ PASS / ⚠️ CONDITIONAL / ❌ FAIL
+TOTAL: XX/100 — PASS / CONDITIONAL / FAIL
 
 [If fail or conditional: specific rewrite recommendation in 2-3 sentences]
 ```
 
+Include `metadata_json='{"status":"pass|conditional|fail","score":NN}'` so the content-mgr's next step can branch on it without re-parsing the text.
+
 ## Notes
 - This rubric grades craft, not viral potential. A post can score 90/100 and still not perform if the topic doesn't resonate. That's normal.
-- Once LinkedIn Community Management API is active, backfill rubric scores against actual impressions and recalibrate weights accordingly.
+- Once post-performance data is flowing through the content-mgr's analytics loop, backfill rubric scores against actual impressions and recalibrate weights.
 - The goal right now: filter out garbage. Not predict hits.

@@ -192,6 +192,26 @@ export interface SkillInfo {
   tools_required: string[];
   agents_granted: string[];
   source: "builtin" | "imported" | "custom";
+  instructions_path?: string | null;
+  examples_path?: string | null;
+}
+
+/** Payload accepted by POST/PATCH /admin/skills. */
+export interface SkillCreatePayload {
+  name: string;
+  description: string;
+  version?: string;
+  trigger?: {
+    mode: "auto" | "manual" | "both";
+    contexts: string[];
+    command: string | null;
+  };
+  config?: Record<string, unknown>;
+  tools_required?: string[];
+  agents_granted?: string[];
+  source?: "builtin" | "imported" | "custom";
+  instructions_path?: string | null;
+  examples_path?: string | null;
 }
 
 /** Memory entry from the backend. */

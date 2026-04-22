@@ -61,6 +61,10 @@ export function TabTools({ value, onSave, onDirtyChange }: Props) {
   const unselectedCatalog = enabledCatalog.filter(
     (t) => !selectedIds.includes(t.id),
   );
+  const catalogToolNames = useMemo(
+    () => Array.from(new Set(catalog.map((t) => t.name).filter(Boolean))),
+    [catalog],
+  );
 
   async function save() {
     setSaving(true);
@@ -182,20 +186,31 @@ export function TabTools({ value, onSave, onDirtyChange }: Props) {
       </div>
 
       <div>
-        <label className={LABEL_CLS}>Allow (legacy names)</label>
+        <label className={LABEL_CLS}>Allow</label>
+        <p className="mb-1 text-[11px] text-slate-500">
+          Allowlist by tool-function name. When non-empty, every tool not in
+          this list is dropped — including hard-coded manager tools. Suggestions
+          come from the catalog (<span className="font-mono">/admin/tools</span>).
+        </p>
         <ChipInput
           values={local.allow}
           onChange={(v) => setLocal({ ...local, allow: v })}
           placeholder="tool name"
+          suggestions={catalogToolNames}
         />
       </div>
 
       <div>
         <label className={LABEL_CLS}>Deny</label>
+        <p className="mb-1 text-[11px] text-slate-500">
+          Blocklist of tool-function names that should never reach this agent —
+          applies to hard-coded manager tools and catalog tools alike.
+        </p>
         <ChipInput
           values={local.deny}
           onChange={(v) => setLocal({ ...local, deny: v })}
           placeholder="tool name"
+          suggestions={catalogToolNames}
         />
       </div>
 

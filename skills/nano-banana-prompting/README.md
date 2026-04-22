@@ -2,24 +2,17 @@
   <img src="assets/banner.svg" alt="Nano Banana Prompting Skill" width="500" />
 </p>
 
-<p align="center">
-  <a href="https://clawhub.ai/skills/nano-banana-prompting"><img src="https://img.shields.io/badge/ClawHub-Install-orange?style=flat-square" alt="ClawHub" /></a>
-  <a href="https://github.com/minilozio/nano-banana-prompting-skill/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT License" /></a>
-  <img src="https://img.shields.io/badge/version-1.0.0-brightgreen?style=flat-square" alt="v1.0.0" />
-  <img src="https://img.shields.io/badge/OpenClaw-compatible-red?style=flat-square" alt="OpenClaw" />
-</p>
-
 ---
 
-Your AI agent's image prompts are mid. This skill fixes that.
+Your agent's image prompts are mid. This skill fixes that.
 
-**Transform natural language into optimized structured prompts** for Gemini image generation. Works with [OpenClaw](https://openclaw.ai) and [Claude Code](https://code.claude.com).
+**Transform natural language into optimized structured prompts** for Gemini 3 Pro Image. Part of the GClaw skill library — loaded into any agent that has the image-generation tools enabled.
 
-You say *"a gecko eating pizza on a skateboard"* → the skill builds a detailed JSON prompt with camera specs, lighting, materials, composition → Gemini produces a cinematic masterpiece instead of AI slop.
+You say *"a gecko eating pizza on a skateboard"* → the skill builds a detailed JSON prompt with camera specs, lighting, materials, composition → Gemini produces a cinematic result instead of AI slop.
 
 ## Before / After
 
-Same model (Gemini 3 Pro). Same subject. Different prompting.
+Same model (Gemini 3 Pro Image). Same subject. Different prompting.
 
 | Plain Prompt | With This Skill |
 |:---:|:---:|
@@ -43,17 +36,17 @@ You: "generate a gecko coding at night"
     └──────────┬───────────┘
                │
                ▼
-    Gemini 3 Pro Image generates with the structured prompt
+    Agent calls generate_image(prompt=<json>, filename=…)
                │
                ▼
     🖼️ Cinematic quality output
 ```
 
-The skill doesn't add new scripts or dependencies. It teaches your agent **how to prompt** — using structured JSON templates optimized for each visual style.
+The skill doesn't add new scripts or dependencies. It teaches any agent with `generate_image` in its tool allowlist **how to prompt** — using structured JSON templates optimized for each visual style.
 
 ## Supported Styles
 
-Your agent **auto-detects** the right style from your request, or you can specify one:
+The agent **auto-detects** the right style from the request, or the user can specify one:
 
 | Style | Example Request |
 |-------|----------------|
@@ -68,38 +61,20 @@ Your agent **auto-detects** the right style from your request, or you can specif
 
 ## Install
 
-### ClawHub (recommended)
-```bash
-clawhub install nano-banana-prompting
-```
+Ship this skill as part of GClaw:
 
-### OpenClaw (manual)
-```bash
-cd ~/.openclaw/workspace/skills
-git clone https://github.com/minilozio/nano-banana-prompting-skill.git
-```
+1. Drop the directory at `skills/nano-banana-prompting/`.
+2. Register it in Firestore via the `/admin/skills` UI, or let the boot-time discovery (`SkillRegistry.load_builtins`) pick it up on the next start.
+3. Grant it to any agent whose allowlist should include it from the `/admin/agents/<name>` Skills tab.
 
-### Claude Code
+### Requirements
 
-```bash
-mkdir -p .claude/skills
-cd .claude/skills
-git clone https://github.com/minilozio/nano-banana-prompting-skill.git
-```
-
-### Setup
-
-1. Get a [Gemini API key](https://aistudio.google.com/apikey) (free tier available)
-2. Set the environment variable:
-```bash
-export GEMINI_API_KEY="your-key-here"
-```
-
-**Requires:** The `nano-banana-pro` skill (bundled with OpenClaw) or any Gemini image generation script.
+- `GEMINI_API_KEY` (or Vertex ADC) set in the deploy environment
+- Image tools enabled on the target agent: `generate_image`, `generate_image_b64`, and optionally `context_write_image` for persistence
 
 ## Usage
 
-Just talk to your agent naturally:
+Just talk to the agent naturally:
 
 - *"Generate a photo of a cat in a coffee shop"*
 - *"Draw me a dragon in watercolor style"*
@@ -108,7 +83,7 @@ Just talk to your agent naturally:
 - *"Product shot of headphones on a dark background"*
 - *"Surreal painting of a whale flying through clouds"*
 
-The agent reads `SKILL.md`, detects the style, builds the optimized JSON, and generates the image. Zero manual prompting needed.
+The agent reads `SKILL.md`, detects the style, builds the optimized JSON, and calls `generate_image`. Zero manual prompting needed.
 
 ## Why Structured Prompts?
 
@@ -128,12 +103,4 @@ The result: consistent, professional-quality images every time.
 
 ## Examples
 
-See the [SKILL.md](SKILL.md) for full JSON examples for every style.
-
-## License
-
-MIT — do whatever you want with it.
-
----
-
-Built by [@minilozio](https://x.com/minilozio) 🦎
+See [`SKILL.md`](SKILL.md) for full JSON examples for every style.

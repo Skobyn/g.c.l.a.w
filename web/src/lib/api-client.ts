@@ -17,6 +17,7 @@ import type {
   HeartbeatLogEntry,
   SoulFile,
   SkillInfo,
+  SkillCreatePayload,
   MemoryEntry,
   CronInfo,
   ConnectionInfo,
@@ -422,6 +423,29 @@ export class ApiClient {
 
   async getSkill(name: string): Promise<SkillInfo> {
     return this.request<SkillInfo>(`/admin/skills/${name}`);
+  }
+
+  async createSkill(payload: SkillCreatePayload): Promise<SkillInfo> {
+    return this.request<SkillInfo>("/admin/skills", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async updateSkill(
+    name: string,
+    patch: Partial<SkillCreatePayload>,
+  ): Promise<SkillInfo> {
+    return this.request<SkillInfo>(`/admin/skills/${name}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    });
+  }
+
+  async deleteSkill(name: string): Promise<void> {
+    await this.request<{ status: string }>(`/admin/skills/${name}`, {
+      method: "DELETE",
+    });
   }
 
   // --- Admin: Memory ---

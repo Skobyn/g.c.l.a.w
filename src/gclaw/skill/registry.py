@@ -6,8 +6,10 @@ import json
 import logging
 import os
 
+import yaml
+
 from gclaw.firestore.skill_repo import SkillRepo
-from gclaw.models.skill import Skill, SkillSource
+from gclaw.models.skill import Skill, SkillSource, SkillTrigger, TriggerMode
 
 logger = logging.getLogger(__name__)
 
@@ -90,10 +92,10 @@ class SkillRegistry:
                         data = json.load(f)
                     skill = Skill.from_firestore_dict(data)
                 elif os.path.isfile(skill_md_path):
-                    # OpenClaw-style skill with SKILL.md only — synthesize
-                    # a minimal Skill record. Name from dir; description
-                    # from the first non-heading paragraph; the SKILL.md
-                    # itself becomes the instructions.
+                    # Bare SKILL.md — synthesize a minimal Skill record.
+                    # Name from dir; description from the first non-heading
+                    # paragraph; the SKILL.md itself becomes the
+                    # instructions.
                     skill = _skill_from_markdown(entry, skill_md_path)
                 else:
                     logger.debug(
@@ -118,9 +120,18 @@ class SkillRegistry:
                             update={"examples_path": examples}
                         )
 
-                self._repo.save(skill)
-                loaded.append(skill)
-                logger.info("Loaded built-in skill: %s", skill.name)
+                # Only seed on first boot — preserve any admin edits made
+                # through /admin/skills. An upgrade path that refreshes
+                # from disk on a version bump can layer on top later.
+                if self._repo.get(skill.name) is None:
+                    self._repo.save(skill)
+                    loaded.append(skill)
+                    logger.info("Loaded built-in skill: %s", skill.name)
+                else:
+                    logger.debug(
+                        "Skill %s already in registry; preserving admin edits",
+                        skill.name,
+                    )
             except Exception:
                 logger.warning(
                     "Failed to load skill from %s",
@@ -131,34 +142,82 @@ class SkillRegistry:
         return loaded
 
 
-def _skill_from_markdown(dir_name: str, skill_md_path: str) -> Skill:
-    """Build a Skill record from an OpenClaw-style SKILL.md file.
+def _split_frontmatter(text: str) -> tuple[dict, str]:
+    """Split YAML frontmatter from the body of a SKILL.md file.
 
-    Derives the description from either the first paragraph after the
-    top-level heading, or a ``## Purpose`` / ``## Description`` section
-    when present. Falls back to the dir name if the file has no text.
+    Returns ``(frontmatter_dict, body_without_frontmatter)``. When no
+    frontmatter block is present or it fails to parse cleanly, returns
+    ``({}, text)`` and leaves the body untouched.
+    """
+    if not text.startswith("---"):
+        return {}, text
+    # Normalize line endings so both \n and \r\n frontmatter parse.
+    normalized = text.replace("\r\n", "\n")
+    lines = normalized.split("\n")
+    if not lines or lines[0].strip() != "---":
+        return {}, text
+    end_idx = -1
+    for i in range(1, len(lines)):
+        if lines[i].strip() == "---":
+            end_idx = i
+            break
+    if end_idx == -1:
+        return {}, text
+    try:
+        data = yaml.safe_load("\n".join(lines[1:end_idx])) or {}
+    except yaml.YAMLError:
+        return {}, text
+    if not isinstance(data, dict):
+        return {}, text
+    body = "\n".join(lines[end_idx + 1:])
+    return data, body
+
+
+def _skill_from_markdown(dir_name: str, skill_md_path: str) -> Skill:
+    """Build a Skill record from a bare SKILL.md file.
+
+    First tries to parse YAML frontmatter (the ``---`` block at the top
+    of the file, as used by the handoff / debug / nano-banana-prompting
+    style skills) to populate name, version, description, and
+    ``allowed-tools``. Falls back to scanning the markdown body for a
+    ``## Purpose`` / ``## Description`` section or the first
+    non-heading paragraph when no frontmatter is present.
     """
     with open(skill_md_path, encoding="utf-8") as f:
-        body = f.read()
+        raw = f.read()
 
-    description = ""
-    lines = body.splitlines()
+    frontmatter, body = _split_frontmatter(raw)
+
+    name = str(frontmatter.get("name") or dir_name).strip() or dir_name
+    version = str(frontmatter.get("version") or "1.0.0").strip() or "1.0.0"
+    description = str(frontmatter.get("description") or "").strip()
+    allowed_tools_raw = frontmatter.get("allowed-tools") or []
+    if isinstance(allowed_tools_raw, str):
+        tools_required = [
+            t.strip() for t in allowed_tools_raw.split(",") if t.strip()
+        ]
+    elif isinstance(allowed_tools_raw, list):
+        tools_required = [str(t).strip() for t in allowed_tools_raw if str(t).strip()]
+    else:
+        tools_required = []
+
     # Look for a "## Purpose" or "## Description" section first.
-    for marker in ("## Purpose", "## Description", "## Overview"):
-        for i, line in enumerate(lines):
-            if line.strip().lower() == marker.lower():
-                # Grab the following non-blank lines until the next heading.
-                for j in range(i + 1, len(lines)):
-                    s = lines[j].strip()
-                    if s.startswith("#"):
+    if not description:
+        for marker in ("## Purpose", "## Description", "## Overview"):
+            for i, line in enumerate(lines):
+                if line.strip().lower() == marker.lower():
+                    # Grab the following non-blank lines until the next heading.
+                    for j in range(i + 1, len(lines)):
+                        s = lines[j].strip()
+                        if s.startswith("#"):
+                            break
+                        if s:
+                            description = s
+                            break
+                    if description:
                         break
-                    if s:
-                        description = s
-                        break
-                if description:
-                    break
-        if description:
-            break
+            if description:
+                break
     # Fall back to the first non-heading, non-blank line.
     if not description:
         for line in lines:
@@ -173,7 +232,10 @@ def _skill_from_markdown(dir_name: str, skill_md_path: str) -> Skill:
         description = description[:297].rstrip() + "…"
 
     return Skill(
-        name=dir_name,
+        name=name,
         description=description,
+        version=version,
+        trigger=SkillTrigger(mode=TriggerMode.MANUAL),
+        tools_required=tools_required,
         source=SkillSource.BUILTIN,
     )

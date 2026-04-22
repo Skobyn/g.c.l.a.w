@@ -13,10 +13,17 @@ from __future__ import annotations
 
 import os
 import logging
+import re
 from typing import Callable
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+
+# Firestore document IDs must survive `collection.document(name)` — this
+# rules out `/`, `.`, `..`, and `__x__` forms. The new skill CRUD surface
+# is the only write path; keep the charset conservative so we don't
+# produce records unreachable via the paired `{skill_name}` routes.
+_SKILL_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 
 from gclaw.auth.dependencies import get_current_user_id
 from gclaw.config.loader import ConfigLoader
@@ -372,6 +379,168 @@ def get_skill(
     if skill is None:
         raise HTTPException(status_code=404, detail=f"Skill '{skill_name}' not found")
     return skill.model_dump(mode="json")
+
+
+def _require_skill_registry() -> SkillRegistry:
+    if _skill_registry is None:
+        raise HTTPException(
+            status_code=503, detail="Skill registry not configured"
+        )
+    return _skill_registry
+
+
+class SkillCreateRequest(BaseModel):
+    name: str
+    description: str
+    version: str = "1.0.0"
+    trigger: dict | None = None
+    config: dict | None = None
+    tools_required: list[str] | None = None
+    agents_granted: list[str] | None = None
+    source: str | None = None
+    instructions_path: str | None = None
+    examples_path: str | None = None
+
+
+def _skill_from_request(data: dict) -> "Skill":
+    # Imported lazily so tests that stub out the registry don't need
+    # the pydantic model at import time.
+    from gclaw.models.skill import Skill, SkillSource, SkillTrigger, TriggerMode
+
+    trigger_data = data.get("trigger") or {}
+    mode_val = trigger_data.get("mode", "manual")
+    try:
+        trigger_mode = TriggerMode(mode_val)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"invalid trigger.mode {mode_val!r}; "
+                f"expected one of {[m.value for m in TriggerMode]}"
+            ),
+        )
+    trigger = SkillTrigger(
+        mode=trigger_mode,
+        contexts=list(trigger_data.get("contexts") or []),
+        command=trigger_data.get("command"),
+    )
+    source_val = data.get("source") or SkillSource.CUSTOM.value
+    try:
+        source = SkillSource(source_val)
+    except ValueError:
+        source = SkillSource.CUSTOM
+    return Skill(
+        name=data["name"],
+        description=data["description"],
+        version=data.get("version", "1.0.0"),
+        trigger=trigger,
+        config=data.get("config") or {},
+        tools_required=list(data.get("tools_required") or []),
+        agents_granted=list(data.get("agents_granted") or []),
+        source=source,
+        instructions_path=data.get("instructions_path"),
+        examples_path=data.get("examples_path"),
+    )
+
+
+@router.post("/skills")
+def create_skill(
+    req: SkillCreateRequest,
+    user_id: str = Depends(get_current_user_id),
+):
+    """Create a new skill.
+
+    The skill is persisted in the Firestore skill registry and becomes
+    immediately discoverable by agents that either (a) grant it
+    explicitly via ``agents_granted`` or (b) include it in their
+    per-agent override ``skills`` allowlist.
+
+    Returns 409 when a skill with the same name already exists — use
+    PATCH to mutate an existing record.
+    """
+    from gclaw.models.skill import SkillSource
+
+    registry = _require_skill_registry()
+    name = (req.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="skill name is required")
+    if not _SKILL_NAME_RE.match(name):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "skill name must match ^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$ "
+                "(no slashes, dots, or special chars)"
+            ),
+        )
+    if registry.get(name) is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Skill {name!r} already exists — use PATCH",
+        )
+    payload = req.model_dump()
+    payload["name"] = name
+    # User-created skills are always CUSTOM. The BUILTIN badge in the
+    # UI promises a record that's re-seeded from disk on restart, which
+    # isn't true of API-created records — don't let a client spoof it.
+    payload["source"] = SkillSource.CUSTOM.value
+    skill = _skill_from_request(payload)
+    saved = registry.register(skill)
+    return saved.model_dump(mode="json")
+
+
+@router.patch("/skills/{skill_name}")
+def patch_skill(
+    skill_name: str,
+    patch: dict,
+    user_id: str = Depends(get_current_user_id),
+):
+    """Merge a partial update into an existing skill."""
+    registry = _require_skill_registry()
+    existing = registry.get(skill_name)
+    if existing is None:
+        raise HTTPException(
+            status_code=404, detail=f"Skill {skill_name!r} not found"
+        )
+    merged = existing.model_dump(mode="json")
+    for key, value in (patch or {}).items():
+        if key == "name":
+            # Renaming requires create+delete; reject here to keep the
+            # Firestore doc ID and the skill name in sync.
+            if value and value != existing.name:
+                raise HTTPException(
+                    status_code=400,
+                    detail="skill rename is not supported; delete + create instead",
+                )
+            continue
+        if key == "source":
+            # Source is the skill's origin — freezing it at create time
+            # prevents a client from promoting a CUSTOM record into a
+            # BUILTIN badge with misleading "re-seeded on restart" UX.
+            continue
+        merged[key] = value
+    skill = _skill_from_request(merged)
+    saved = registry.register(skill)
+    return saved.model_dump(mode="json")
+
+
+@router.delete("/skills/{skill_name}")
+def delete_skill(
+    skill_name: str,
+    user_id: str = Depends(get_current_user_id),
+):
+    """Remove a skill from the registry.
+
+    Built-in skills shipped in ``skills/<name>/`` are re-seeded from
+    disk on the next app restart. To keep a built-in disabled, delete
+    its directory or flip a per-agent override allowlist instead.
+    """
+    registry = _require_skill_registry()
+    if registry.get(skill_name) is None:
+        raise HTTPException(
+            status_code=404, detail=f"Skill {skill_name!r} not found"
+        )
+    registry.unregister(skill_name)
+    return {"status": "deleted", "name": skill_name}
 
 
 # --- Memory ---

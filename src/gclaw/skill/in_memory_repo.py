@@ -1,9 +1,9 @@
-"""In-process skill repository for built-in skills.
+"""In-process skill repository for tests.
 
-SkillRegistry was designed around a Firestore-backed SkillRepo so per-user
-dynamic skills can be persisted. For built-in skills loaded from disk at
-startup there is no reason to pay the Firestore round-trip — this repo
-implements the same interface against a plain dict.
+Production code uses ``gclaw.firestore.skill_repo.SkillRepo`` so skill
+state is shared across workers and survives restarts. This in-memory
+variant implements the same interface against a plain dict and is kept
+around so tests can exercise the registry without a Firestore emulator.
 """
 
 from __future__ import annotations

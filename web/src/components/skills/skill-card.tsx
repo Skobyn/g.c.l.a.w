@@ -9,6 +9,8 @@ import type { SkillInfo } from "@/types";
 
 interface SkillCardProps {
   skill: SkillInfo;
+  onEdit?: (skill: SkillInfo) => void;
+  onDelete?: (skill: SkillInfo) => void;
 }
 
 const SOURCE_BADGE: Record<SkillInfo["source"], string> = {
@@ -41,7 +43,7 @@ function ConfigSection({ config }: { config: Record<string, unknown> }) {
   );
 }
 
-export function SkillCard({ skill }: SkillCardProps) {
+export function SkillCard({ skill, onEdit, onDelete }: SkillCardProps) {
   const [expanded, setExpanded] = useState(false);
 
   return (
@@ -60,15 +62,45 @@ export function SkillCard({ skill }: SkillCardProps) {
           </div>
           <p className="mt-1 text-sm text-slate-400 line-clamp-2">{skill.description}</p>
         </div>
-        <svg
-          className={`ml-3 h-5 w-5 flex-shrink-0 text-slate-400 transition-transform ${expanded ? "rotate-180" : ""}`}
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-          strokeWidth={2}
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-        </svg>
+        <div className="ml-3 flex items-center gap-1">
+          {(onEdit || onDelete) && (
+            <>
+              {onEdit && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onEdit(skill);
+                  }}
+                  className="rounded px-2 py-0.5 text-xs text-slate-300 hover:bg-slate-700"
+                >
+                  Edit
+                </button>
+              )}
+              {onDelete && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDelete(skill);
+                  }}
+                  className="rounded px-2 py-0.5 text-xs text-slate-400 hover:bg-red-900/40 hover:text-red-300"
+                >
+                  Delete
+                </button>
+              )}
+            </>
+          )}
+          <svg
+            className={`h-5 w-5 flex-shrink-0 text-slate-400 transition-transform ${expanded ? "rotate-180" : ""}`}
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+          </svg>
+        </div>
       </div>
 
       {/* Expanded details */}

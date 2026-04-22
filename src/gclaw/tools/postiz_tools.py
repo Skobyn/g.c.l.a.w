@@ -17,6 +17,8 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 
+from gclaw.tools.catalog.builtin_registry import tool_export
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -68,6 +70,7 @@ def _auth_headers(token: str) -> dict[str, str]:
 # ---------------------------------------------------------------------------
 
 
+@tool_export(description="Upload an image file to Postiz.")
 async def postiz_upload_image(image_path: str) -> str:
     """Upload an image file to Postiz.
 
@@ -102,6 +105,7 @@ async def postiz_upload_image(image_path: str) -> str:
         return _err("upload_image", e)
 
 
+@tool_export(description="Upload a base64-encoded image to Postiz.")
 async def postiz_upload_image_b64(
     image_base64: str,
     filename: str = "image.png",
@@ -137,6 +141,7 @@ async def postiz_upload_image_b64(
             pass
 
 
+@tool_export(description="Create a draft post in Postiz with optional images and a publish date.")
 async def postiz_create_draft(
     content: str,
     image_ids_json: str = "[]",
@@ -216,6 +221,7 @@ async def postiz_create_draft(
         return _err("create_draft", e)
 
 
+@tool_export(description="Register image URLs with the Postiz reviewer app after creating a post.")
 async def postiz_register_images(
     post_id: str,
     image_urls_json: str,
@@ -257,6 +263,7 @@ async def postiz_register_images(
         return _err("register_images", e)
 
 
+@tool_export(description="List available Postiz integration channels (IDs + provider).")
 async def postiz_list_channels() -> str:
     """List available Postiz integration channels.
 

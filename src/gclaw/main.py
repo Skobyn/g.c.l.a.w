@@ -736,9 +736,9 @@ def build_app():
     )
 
     # Config + skills
+    from gclaw.firestore.skill_repo import SkillRepo
     from gclaw.skill.loader import SkillLoader
     from gclaw.skill.registry import SkillRegistry
-    from gclaw.skill.in_memory_repo import InMemorySkillRepo
 
     skill_loader = SkillLoader()
     loader = ConfigLoader(
@@ -746,7 +746,7 @@ def build_app():
         skill_loader=skill_loader,
         user_timezone=effective_timezone,
     )
-    skill_registry = SkillRegistry(skill_repo=InMemorySkillRepo())
+    skill_registry = SkillRegistry(skill_repo=SkillRepo(db=db))
     loaded_skills = skill_registry.load_builtins(settings.skills_dir)
     logger.info("Loaded %d built-in skills", len(loaded_skills))
 

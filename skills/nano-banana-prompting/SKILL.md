@@ -1,15 +1,16 @@
 ---
-name: nano-banana-prompting-skill
-description: Transform natural language image requests into optimized structured prompts for Gemini image generation. Automatically detects style and builds the perfect prompt — cinematic, illustration, anime, 3D, watercolor, product, and more.
+name: nano-banana-prompting
+version: 1.0.0
+description: Transform natural language image requests into optimized structured prompts for Gemini 3 Pro Image. Detects style (cinematic, illustration, anime, 3D, watercolor, product) and builds a JSON prompt the image tool can pass straight through.
+allowed-tools:
+  - generate_image
+  - generate_image_b64
+  - context_write_image
 metadata:
-  {
-    "openclaw":
-      {
-        "emoji": "🎨",
-        "requires": { "bins": ["uv"], "env": ["GEMINI_API_KEY"] },
-        "primaryEnv": "GEMINI_API_KEY",
-      },
-  }
+  emoji: "🎨"
+  requires:
+    env:
+      - GEMINI_API_KEY
 ---
 
 # Gemini Image Prompting
@@ -25,33 +26,24 @@ When the user asks you to generate or edit an image:
 1. **Read the user's request** — understand what they want (subject, mood, style)
 2. **Detect the style** — use the Style Detection rules below
 3. **Build the structured JSON prompt** — follow the template for that style
-4. **Call the generator:**
+4. **Call the image tool:**
 
-```bash
-uv run {nano-banana-pro-dir}/scripts/generate_image.py \
-  --prompt '<YOUR_JSON_PROMPT>' \
-  --filename "<descriptive-name>.png" \
-  --resolution 2K
+```python
+# Pass the JSON prompt as a single string to the tool.
+generate_image(
+    prompt=<YOUR_JSON_PROMPT_AS_STRING>,
+    filename="<descriptive-name>.png",
+    resolution="2K",
+)
 ```
 
-Replace `{nano-banana-pro-dir}` with the path to the nano-banana-pro skill (typically bundled with OpenClaw).
-
-**For image editing** (user provides a reference image):
-```bash
-uv run {nano-banana-pro-dir}/scripts/generate_image.py \
-  --prompt '<YOUR_JSON_PROMPT>' \
-  --filename "<output-name>.png" \
-  -i "/path/to/reference.png" \
-  --resolution 2K
-```
+For inline delivery (e.g., to show the image in chat or hand it to `context_write_image`), use `generate_image_b64` instead — it returns the image as a base64 string that can be piped straight into the shared-context blob store.
 
 ### Security Note
-The `--filename` argument should always be a simple file path constructed by the agent (e.g., `gecko-running.png`). Never pass unsanitized user input directly as the filename. The agent should derive a safe, descriptive filename from the context.
+The `filename` argument should always be a safe, descriptive name constructed by the agent (e.g., `gecko-running.png`). Never pass unsanitized user input as the filename. Derive the name from the subject of the prompt.
 
 ### Output Location
-Save images to the user's Desktop or the path they specify:
-- Default: `~/Desktop/<descriptive-name>.png`
-- Use descriptive filenames: `gecko-coding-night.png`, not `output.png`
+`generate_image` writes to the image tool's configured output bucket (GCS via the shared-context service). If the user wants the image delivered to a specific destination (email attachment, Drive folder, Postiz draft), follow up with `send_email`, `postiz_upload_image`, or the appropriate workspace tool — do not try to write to a local `~/Desktop` path from the agent runtime.
 
 ---
 
@@ -479,22 +471,9 @@ Detect the style from the user's request. Look for keywords, context, and intent
 
 ## Editing / Reference Images
 
-When the user provides a reference image to edit or use as inspiration:
+> **Not yet wired up.** The current `generate_image` / `generate_image_b64` tools in `src/gclaw/tools/image_gen_tools.py` accept only `(prompt, filename?, resolution?)` — there is no `reference_url` / `reference_b64` plumbing and the Gemini call is text-only (`contents=prompt`). Treat reference-image workflows as text-to-image prompts for now: describe the subject identically across successive calls if you want character consistency.
 
-1. **Include the image** with `-i` flag
-2. **Describe what to change** in the instruction field
-3. **Keep the JSON structure** — same style detection and template applies
-4. **Be explicit** about what to preserve vs change
-
-```bash
-uv run {nano-banana-pro-dir}/scripts/generate_image.py \
-  --prompt '<JSON_PROMPT>' \
-  --filename "edited-output.png" \
-  -i "/path/to/original.png" \
-  --resolution 2K
-```
-
-For character consistency across multiple images, always include the same reference image(s) and describe the character identically in the subject field.
+When multimodal input lands, this section will describe how to pass a reference image through to the tool.
 
 ---
 

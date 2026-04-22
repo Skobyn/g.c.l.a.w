@@ -1,6 +1,13 @@
-"""Skill registry CRUD operations on Firestore.
+"""Firestore repo for the Skill registry.
 
-Collection path: users/{userId}/skills/{skillName}
+Mirrors the shape of ``firestore/tool_repo.py``. Collection layout:
+    config/skills_catalog/skills/{skill_name}
+
+Skills are a shared catalog (like tools) rather than per-user data —
+that keeps the registry consistent with how the factory, agent
+overrides, and UI reason about skills. A future multi-tenant build
+can extend this with an optional ``owner_user_id`` field rather than
+swapping collection layout.
 """
 
 from __future__ import annotations
@@ -10,19 +17,20 @@ from google.cloud.firestore import Client as FirestoreClient
 from gclaw.models.skill import Skill
 
 
+def _skills_collection(db: FirestoreClient):
+    return (
+        db.collection("config").document("skills_catalog").collection("skills")
+    )
+
+
 class SkillRepo:
     """Synchronous Firestore repository for skill definitions."""
 
-    def __init__(self, db: FirestoreClient, user_id: str) -> None:
+    def __init__(self, db: FirestoreClient) -> None:
         self._db = db
-        self._user_id = user_id
 
     def _collection_ref(self):
-        return (
-            self._db.collection("users")
-            .document(self._user_id)
-            .collection("skills")
-        )
+        return _skills_collection(self._db)
 
     def save(self, skill: Skill) -> Skill:
         """Save or overwrite a skill definition."""
