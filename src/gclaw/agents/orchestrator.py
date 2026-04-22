@@ -312,82 +312,67 @@ def build_managers(
             return None
         return _make_memory_recall_callback(memory_service, agent_id)
 
-    return {
-        "workspace_mgr": factory.build(
-            agent_name="workspace-mgr",
-            soul_overlay="workspace",
-            tools=ws_tools,
-            description=(
-                "Routes workspace requests (Gmail, Calendar, Drive, Docs) "
-                "to the single best tool. Router — does not synthesize."
-            ),
-            before_agent_callback=_recall_cb("workspace-mgr"),
-        ),
-        "dev_mgr": factory.build(
-            agent_name="dev-mgr",
-            soul_overlay="dev",
-            tools=dv_tools,
-            description=(
-                "Routes dev requests (GitHub, code, local repo) to the "
-                "single best tool. Router — does not synthesize."
-            ),
-            before_agent_callback=_recall_cb("dev-mgr"),
-        ),
-        "home_mgr": factory.build(
-            agent_name="home-mgr",
-            soul_overlay="home",
-            tools=hm_tools,
-            description=(
-                "Routes smart home requests to the single best tool. "
-                "Router — does not synthesize."
-            ),
-            before_agent_callback=_recall_cb("home-mgr"),
-        ),
-        "comms_mgr": factory.build(
-            agent_name="comms-mgr",
-            soul_overlay="comms",
-            tools=cm_tools,
-            description=(
-                "Routes inter-platform comms (Google Chat) to the single "
-                "best tool. Router — does not synthesize."
-            ),
-            before_agent_callback=_recall_cb("comms-mgr"),
-        ),
-        "research_mgr": factory.build(
-            agent_name="research-mgr",
-            soul_overlay="research",
-            tools=rs_tools,
-            description=(
-                "Routes research requests (web search, URL fetch) to the "
-                "single best tool. Router — does not synthesize."
-            ),
-            before_agent_callback=_recall_cb("research-mgr"),
-        ),
-        "profile_mgr": factory.build(
-            agent_name="profile-mgr",
-            soul_overlay="profile",
-            tools=pf_tools,
-            description=(
-                "Owns user.md. Runs onboarding when the profile is blank, "
-                "updates it when the user reveals stable new facts, and "
-                "answers 'what do you know about me?' questions. Always "
-                "confirms with the user before writing."
-            ),
-            before_agent_callback=_recall_cb("profile-mgr"),
-        ),
-        "content_mgr": factory.build(
-            agent_name="content-mgr",
-            soul_overlay="content",
-            tools=ct_tools,
-            description=(
-                "Runs the social-content pipeline end-to-end: humanize, "
-                "generate image, upload, create Postiz draft, stage in "
-                "shared-context, return summary to the orchestrator. "
-                "Executes tools — never simulates them."
-            ),
-            before_agent_callback=_recall_cb("content-mgr"),
-        ),
-    }
+    # Manager spec list — (dict_key, agent_name, soul_overlay, tools, description).
+    # Optional managers (required=False) are skipped with a log warning if
+    # their agent definition file is missing. This lets forks/overlays drop
+    # managers they don't use without patching orchestrator.py — e.g. a
+    # non-Apex fork can remove agents/content-apex.md and the orchestrator
+    # boots without it.
+    specs: list[tuple] = [
+        ("workspace_mgr", "workspace-mgr", "workspace", ws_tools,
+         "Routes workspace requests (Gmail, Calendar, Drive, Docs) to the "
+         "single best tool. Router — does not synthesize.", True),
+        ("dev_mgr", "dev-mgr", "dev", dv_tools,
+         "Routes dev requests (GitHub, code, local repo) to the single "
+         "best tool. Router — does not synthesize.", True),
+        ("home_mgr", "home-mgr", "home", hm_tools,
+         "Routes smart home requests to the single best tool. Router — "
+         "does not synthesize.", True),
+        ("comms_mgr", "comms-mgr", "comms", cm_tools,
+         "Routes inter-platform comms (Google Chat) to the single best "
+         "tool. Router — does not synthesize.", True),
+        ("research_mgr", "research-mgr", "research", rs_tools,
+         "Routes research requests (web search, URL fetch) to the single "
+         "best tool. Router — does not synthesize.", True),
+        ("profile_mgr", "profile-mgr", "profile", pf_tools,
+         "Owns user.md. Runs onboarding when the profile is blank, "
+         "updates it when the user reveals stable new facts, and answers "
+         "'what do you know about me?' questions. Always confirms with "
+         "the user before writing.", True),
+        ("content_mgr", "content-mgr", "content", ct_tools,
+         "Generic content pipeline — fallback when the brand channel is "
+         "ambiguous. Prefer content-scott or content-apex when the brand "
+         "is known.", False),
+        ("content_scott", "content-scott", "content-scott", ct_tools,
+         "Runs the social-content pipeline for the Scott personal-brand "
+         "channel. Pins POSTIZ_CHANNEL_PRIMARY; never posts to the Apex "
+         "channel.", False),
+        ("content_apex", "content-apex", "content-apex", ct_tools,
+         "Runs the social-content pipeline for the Apex brand channel. "
+         "Pins POSTIZ_CHANNEL_SECONDARY; never posts to the Scott "
+         "channel.", False),
+    ]
+
+    managers: dict[str, Any] = {}
+    for key, agent_name, overlay, tools, desc, required in specs:
+        try:
+            managers[key] = factory.build(
+                agent_name=agent_name,
+                soul_overlay=overlay,
+                tools=tools,
+                description=desc,
+                before_agent_callback=_recall_cb(agent_name),
+            )
+        except FileNotFoundError:
+            if required:
+                raise
+            import logging as _lg
+            _lg.getLogger(__name__).info(
+                "build_managers: skipping optional manager %s "
+                "(no agent file at agents/%s.md)",
+                key, agent_name,
+            )
+    return managers
 
 
 # ---------- Orchestrator builder ----------
@@ -456,12 +441,18 @@ def build_orchestrator(
         agent_tool.AgentTool(agent=managers["comms_mgr"]),
         agent_tool.AgentTool(agent=managers["research_mgr"]),
         agent_tool.AgentTool(agent=managers["profile_mgr"]),
-        agent_tool.AgentTool(agent=managers["content_mgr"]),
+    ]
+    for optional_key in ("content_mgr", "content_scott", "content_apex"):
+        if optional_key in managers:
+            orchestrator_tools.append(
+                agent_tool.AgentTool(agent=managers[optional_key])
+            )
+    orchestrator_tools.extend([
         agent_tool.AgentTool(agent=morning_brief),
         agent_tool.AgentTool(agent=commit_msg),
         user_profile_tools.read_user_profile,
         *board_tools,
-    ]
+    ])
 
     return factory.build(
         agent_name="orchestrator",
