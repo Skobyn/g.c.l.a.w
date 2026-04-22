@@ -131,6 +131,30 @@ def test_get_board_task_tool_picks_up_with_underscore_variant(board_service):
     board_service.pick_up.assert_called_once_with("t1")
 
 
+def test_get_board_task_tool_type_hints_resolve(board_service):
+    """Regression: the tool's annotations must be resolvable at runtime.
+
+    With ``from __future__ import annotations`` at the top of the module
+    (standard in this codebase), every annotation is deferred to a
+    string. If any annotation references a name that's only imported
+    under ``if TYPE_CHECKING:``, ``typing.get_type_hints`` blows up with
+    NameError — which in turn breaks ADK FunctionTool registration and
+    every downstream caller (AgentTool wrapping, model tests, chat).
+
+    PR #31 regressed this by annotating ``tool_context`` as
+    ``"ToolContext | None"`` with the import behind TYPE_CHECKING, which
+    broke all non-Gemini model calls in production (the model.test
+    endpoint was the first place the failure surfaced).
+    """
+    import typing
+
+    tool = get_board_task_tool(board_service)
+    # MUST NOT raise.
+    hints = typing.get_type_hints(tool)
+    assert "task_id" in hints
+    assert "tool_context" in hints
+
+
 def test_get_board_task_tool_no_context_skips_pickup(board_service):
     """Without a ToolContext (e.g. direct Python caller), we don't know
     the assignee, so pickup is skipped — the safer default."""

@@ -28,7 +28,6 @@ from gclaw.tools import (
 )
 
 if TYPE_CHECKING:
-    from google.adk.tools import ToolContext
     from gclaw.memory.service import MemoryService
 
 logger = logging.getLogger(__name__)
@@ -100,7 +99,7 @@ def list_board_tasks_tool(board_service: BoardService) -> Callable:
 def get_board_task_tool(board_service: BoardService) -> Callable:
     def get_board_task(
         task_id: str,
-        tool_context: "ToolContext | None" = None,
+        tool_context: Any = None,
     ) -> str:
         """Get details of a specific board task by ID.
 
