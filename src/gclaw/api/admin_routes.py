@@ -26,12 +26,15 @@ from pydantic import BaseModel
 _SKILL_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 
 from gclaw.auth.dependencies import get_current_user_id
+from gclaw.board.service import BoardService
+from gclaw.board.transitions import TransitionNotAllowed
 from gclaw.config.loader import ConfigLoader
 from gclaw.heartbeat.events import get_event_bus
 from gclaw.heartbeat.log import HeartbeatLogRepo
 from gclaw.heartbeat.reason import WakeReason
 from gclaw.memory.service import MemoryService
 from gclaw.models.memory import MemoryScope
+from gclaw.models.task import TaskStatus
 from gclaw.skill.registry import SkillRegistry
 from gclaw.cron.service import CronService
 from gclaw.cron.delivery import CronDeliveryService
@@ -48,6 +51,7 @@ _cron_service: CronService | None = None
 _cron_delivery_service: CronDeliveryService | None = None
 _heartbeat_registry: object | None = None
 _system_config_repo: object | None = None
+_board_service: BoardService | None = None
 
 
 def init_admin_router(
@@ -59,10 +63,11 @@ def init_admin_router(
     heartbeat_registry: object | None = None,
     cron_delivery_service: CronDeliveryService | None = None,
     system_config_repo: object | None = None,
+    board_service: BoardService | None = None,
 ) -> APIRouter:
     global _config_loader, _hb_repo_factory, _skill_registry
     global _memory_service, _cron_service, _heartbeat_registry
-    global _cron_delivery_service, _system_config_repo
+    global _cron_delivery_service, _system_config_repo, _board_service
     _config_loader = config_loader
     _hb_repo_factory = heartbeat_log_repo_factory
     _skill_registry = skill_registry
@@ -71,6 +76,7 @@ def init_admin_router(
     _heartbeat_registry = heartbeat_registry
     _cron_delivery_service = cron_delivery_service
     _system_config_repo = system_config_repo
+    _board_service = board_service
     return router
 
 
@@ -209,6 +215,58 @@ async def trigger_heartbeat(
             "status": status.value if hasattr(status, "value") else status,
         },
     }
+
+
+# --- Board (admin break-glass) ---
+
+
+class ForceFailRequest(BaseModel):
+    reason: str = "force-failed by admin"
+
+
+@router.post("/board/tasks/{task_id}/force-fail")
+def force_fail_task(
+    task_id: str,
+    req: ForceFailRequest | None = None,
+    user_id: str = Depends(get_current_user_id),
+):
+    """Force a stuck task into FAILED regardless of current status.
+
+    The user-facing transition API refuses to move IN_PROGRESS → FAILED
+    (users can't drag in-progress tasks on the kanban). Agents normally
+    call ``board_service.fail`` themselves when they can't finish, but
+    if a manager times out or crashes mid-turn, the task stays pinned
+    to IN_PROGRESS forever. This endpoint is the break-glass recovery
+    path for those orphans.
+
+    The underlying ``board_service.fail`` respects ``_VALID_TRANSITIONS``
+    in the task model, which allows IN_PROGRESS → FAILED (and
+    NEEDS_APPROVAL → FAILED). BACKLOG/QUEUED/DONE do not.
+    """
+    if _board_service is None:
+        raise HTTPException(
+            status_code=503, detail="Board service not configured"
+        )
+    reason = (req.reason if req else ForceFailRequest().reason).strip()
+    if not reason:
+        reason = "force-failed by admin"
+    try:
+        task = _board_service.fail(
+            task_id, reason=reason, user_id=user_id
+        )
+    except TransitionNotAllowed as e:
+        # NB: TransitionNotAllowed subclasses ValueError, so this except
+        # MUST come before the ValueError branch below — otherwise every
+        # illegal transition surfaces as 404 instead of 409.
+        raise HTTPException(status_code=409, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to transition task: {e}",
+        )
+    return task.model_dump(mode="json")
 
 
 # --- Soul Files ---

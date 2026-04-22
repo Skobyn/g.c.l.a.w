@@ -28,6 +28,7 @@ from gclaw.tools import (
 )
 
 if TYPE_CHECKING:
+    from google.adk.tools import ToolContext
     from gclaw.memory.service import MemoryService
 
 logger = logging.getLogger(__name__)
@@ -97,32 +98,54 @@ def list_board_tasks_tool(board_service: BoardService) -> Callable:
 
 
 def get_board_task_tool(board_service: BoardService) -> Callable:
-    def get_board_task(task_id: str) -> str:
+    def get_board_task(
+        task_id: str,
+        tool_context: "ToolContext | None" = None,
+    ) -> str:
         """Get details of a specific board task by ID.
 
-        Side effect: if the task is currently QUEUED, calling this tool
-        auto-transitions it to IN_PROGRESS and emits a ``task.picked_up``
-        event. This is how a manager agent reading a newly-assigned
-        task signals "I'm about to work on this" without needing an
-        explicit pick-up tool call.
+        Side effect: if the task is currently QUEUED **and** the calling
+        agent is the task's assignee, this call auto-transitions the task
+        to IN_PROGRESS and emits a ``task.picked_up`` event. This is how
+        a manager agent reading a newly-assigned task signals "I'm about
+        to work on this" without needing an explicit pick-up tool call.
+
+        Any other agent (including the orchestrator and non-assignee
+        managers) can safely read a QUEUED task for inspection without
+        flipping its status — only the assignee owns the pickup.
 
         Args:
             task_id: The task ID to look up.
+            tool_context: Injected by ADK. Used to read ``agent_name`` so
+                the assignee gate can be enforced. When None (direct
+                Python callers in tests), auto-pickup is skipped entirely
+                — tests that want pickup should call ``board_service``
+                methods directly.
 
         Returns:
             Full task details or a not-found message. If an auto-pickup
             happened, the returned status reflects the new IN_PROGRESS
-            state, not the QUEUED state that was observed on read.
+            state.
         """
         from gclaw.models.task import TaskStatus
 
         task = board_service._repo.get(task_id)
         if task is None:
             return f"Task {task_id} not found."
-        # Auto-pickup on first read of a QUEUED task. pick_up itself
-        # re-reads, transitions, and emits; swallowing failures keeps
-        # the read behavior intact if something odd happens.
-        if task.status == TaskStatus.QUEUED:
+        # Auto-pickup gate: only the assignee flips QUEUED → IN_PROGRESS.
+        # This prevents accidental pickups by the orchestrator or any
+        # heartbeat/read that happens to inspect the task first.
+        caller = (
+            getattr(tool_context, "agent_name", None)
+            if tool_context is not None
+            else None
+        )
+        caller_norm = (caller or "").replace("_", "-")
+        if (
+            task.status == TaskStatus.QUEUED
+            and caller_norm
+            and caller_norm == task.assignee
+        ):
             try:
                 task = board_service.pick_up(task_id)
             except Exception:

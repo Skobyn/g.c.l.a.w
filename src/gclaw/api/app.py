@@ -219,6 +219,7 @@ def create_app(
             heartbeat_registry=heartbeat_registry,
             cron_delivery_service=cron_delivery_service,
             system_config_repo=system_config_repo,
+            board_service=board_service,
         ))
 
     if connection_service is not None:

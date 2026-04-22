@@ -57,6 +57,96 @@ def test_get_board_task_tool(board_service):
     assert "Specific task" in result
 
 
+def test_get_board_task_tool_does_not_pickup_when_caller_is_not_assignee(
+    board_service,
+):
+    """A non-assignee reading a QUEUED task must NOT auto-pickup.
+
+    Regression: previously any caller reading a QUEUED task flipped it
+    to IN_PROGRESS via the side-effect in ``board_service.pick_up``, so
+    a passing inspection by the orchestrator or another manager would
+    orphan the task (the real assignee would never see it as queued).
+    """
+    task = BoardTask(
+        id="t1", title="Research", assignee="research-mgr",
+        status=TaskStatus.QUEUED,
+    )
+    repo_mock = MagicMock()
+    repo_mock.get.return_value = task
+    board_service._repo = repo_mock
+
+    tool_fn = get_board_task_tool(board_service)
+
+    # Simulate ADK injecting a ToolContext from the *orchestrator* (not
+    # the research-mgr assignee). We just need `.agent_name` — a bare
+    # MagicMock with the attribute set is sufficient.
+    fake_context = MagicMock()
+    fake_context.agent_name = "orchestrator"
+
+    result = tool_fn(task_id="t1", tool_context=fake_context)
+    assert "Research" in result
+    board_service.pick_up.assert_not_called()
+
+
+def test_get_board_task_tool_picks_up_when_caller_is_assignee(board_service):
+    task = BoardTask(
+        id="t1", title="Research", assignee="research-mgr",
+        status=TaskStatus.QUEUED,
+    )
+    repo_mock = MagicMock()
+    repo_mock.get.return_value = task
+    board_service._repo = repo_mock
+    # pick_up returns the transitioned task
+    board_service.pick_up.return_value = task.model_copy(
+        update={"status": TaskStatus.IN_PROGRESS}
+    )
+
+    tool_fn = get_board_task_tool(board_service)
+    fake_context = MagicMock()
+    fake_context.agent_name = "research-mgr"
+
+    tool_fn(task_id="t1", tool_context=fake_context)
+    board_service.pick_up.assert_called_once_with("t1")
+
+
+def test_get_board_task_tool_picks_up_with_underscore_variant(board_service):
+    """ADK normalizes agent names to `foo_bar`; the task assignee is
+    stored as `foo-bar`. The gate must treat them as equal."""
+    task = BoardTask(
+        id="t1", title="Research", assignee="research-mgr",
+        status=TaskStatus.QUEUED,
+    )
+    repo_mock = MagicMock()
+    repo_mock.get.return_value = task
+    board_service._repo = repo_mock
+    board_service.pick_up.return_value = task.model_copy(
+        update={"status": TaskStatus.IN_PROGRESS}
+    )
+
+    tool_fn = get_board_task_tool(board_service)
+    fake_context = MagicMock()
+    fake_context.agent_name = "research_mgr"  # ADK-safe form
+
+    tool_fn(task_id="t1", tool_context=fake_context)
+    board_service.pick_up.assert_called_once_with("t1")
+
+
+def test_get_board_task_tool_no_context_skips_pickup(board_service):
+    """Without a ToolContext (e.g. direct Python caller), we don't know
+    the assignee, so pickup is skipped — the safer default."""
+    task = BoardTask(
+        id="t1", title="Research", assignee="research-mgr",
+        status=TaskStatus.QUEUED,
+    )
+    repo_mock = MagicMock()
+    repo_mock.get.return_value = task
+    board_service._repo = repo_mock
+
+    tool_fn = get_board_task_tool(board_service)
+    tool_fn(task_id="t1")  # no tool_context
+    board_service.pick_up.assert_not_called()
+
+
 def test_build_orchestrator(board_service, tmp_path):
     soul_dir = tmp_path / "soul"
     soul_dir.mkdir()
