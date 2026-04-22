@@ -1,0 +1,55 @@
+name: Auto-merge
+
+# Auto-merges PRs that receive an APPROVE review (Claude's review workflow
+# submits one when the rubric passes). Uses `--auto` so GitHub finalizes the
+# merge only after all required status checks pass. PRs that touch sensitive
+# paths are skipped here — those require a human to merge manually.
+
+on:
+  pull_request_review:
+    types: [submitted]
+
+jobs:
+  auto-merge:
+    if: github.event.review.state == 'approved'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Guard: skip PRs that touch infra / workflows / lockfiles. The review
+      # workflow already declines to APPROVE these, but we double-check in
+      # case the approval came from a human override.
+      - name: Detect sensitive paths
+        id: sensitive
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          CHANGED="$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")"
+          SENSITIVE_RE='^(infra/|cloudbuild\.yaml$|Dockerfile$|\.github/workflows/|pyproject\.toml$|uv\.lock$|\.claude/settings\.json$)'
+          if echo "$CHANGED" | grep -E "$SENSITIVE_RE" >/dev/null 2>&1; then
+            echo "sensitive=true"  >> "$GITHUB_OUTPUT"
+            echo "::notice::PR touches sensitive paths — skipping auto-merge. Human review required."
+          else
+            echo "sensitive=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Enable auto-merge (squash)
+        if: steps.sensitive.outputs.sensitive == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          echo "Enabling --auto squash-merge on PR #$PR_NUMBER"
+          # --auto: GitHub waits for required checks before merging.
+          # If branch protection is not configured, GitHub will merge immediately.
+          gh pr merge "$PR_NUMBER" --auto --squash --delete-branch

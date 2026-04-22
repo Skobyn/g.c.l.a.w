@@ -14,9 +14,15 @@ name: Deploy
 on:
   push:
     branches: [master]
+  # PR trigger runs the `test` job pre-merge so auto-merge has a gating
+  # status check. Deploy jobs are skipped on PR events (see `if:` guards).
+  pull_request:
+    branches: [master]
 
 concurrency:
-  group: deploy-${{ github.ref }}
+  # Distinct concurrency groups for PR checks vs. master deploys — a PR test
+  # should never cancel an in-flight master deploy and vice-versa.
+  group: deploy-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -29,6 +35,7 @@ jobs:
   # infra/phoenix/** or this workflow actually changed.
   changes:
     name: Detect changed paths
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     outputs:
       phoenix: ${{ steps.filter.outputs.phoenix }}
@@ -68,6 +75,7 @@ jobs:
   deploy-backend:
     name: Deploy Backend
     needs: test
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -91,6 +99,7 @@ jobs:
   deploy-web:
     name: Deploy Web
     needs: deploy-backend  # backend must be live before web builds (API URL baked in)
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -117,7 +126,7 @@ jobs:
   deploy-phoenix:
     name: Deploy Phoenix
     needs: [test, changes]
-    if: needs.changes.outputs.phoenix == 'true'
+    if: github.event_name == 'push' && needs.changes.outputs.phoenix == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read

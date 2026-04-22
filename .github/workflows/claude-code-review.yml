@@ -3,25 +3,18 @@ name: Claude Code Review
 on:
   pull_request:
     types: [opened, synchronize, ready_for_review, reopened]
-    # Optional: Only run on specific file changes
-    # paths:
-    #   - "src/**/*.ts"
-    #   - "src/**/*.tsx"
-    #   - "src/**/*.js"
-    #   - "src/**/*.jsx"
+
+concurrency:
+  group: claude-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 jobs:
   claude-review:
-    # Optional: Filter by PR author
-    # if: |
-    #   github.event.pull_request.user.login == 'external-contributor' ||
-    #   github.event.pull_request.user.login == 'new-developer' ||
-    #   github.event.pull_request.author_association == 'FIRST_TIME_CONTRIBUTOR'
-
     runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false
     permissions:
       contents: read
-      pull-requests: read
+      pull-requests: write
       issues: read
       id-token: write
 
@@ -29,16 +22,71 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 1
+          fetch-depth: 0
+
+      # Sensitive paths require human merge; Claude reviews but must not approve.
+      # Keep this regex in sync with auto-merge.yml.
+      - name: Detect sensitive paths
+        id: sensitive
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          CHANGED="$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")"
+          echo "--- Files changed ---"
+          echo "$CHANGED"
+          SENSITIVE_RE='^(infra/|cloudbuild\.yaml$|Dockerfile$|\.github/workflows/|pyproject\.toml$|uv\.lock$|\.claude/settings\.json$)'
+          if echo "$CHANGED" | grep -E "$SENSITIVE_RE" >/dev/null 2>&1; then
+            echo "sensitive=true"  >> "$GITHUB_OUTPUT"
+          else
+            echo "sensitive=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Run Claude Code Review
         id: claude-review
         uses: anthropics/claude-code-action@v1
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          SENSITIVE: ${{ steps.sensitive.outputs.sensitive }}
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          plugin_marketplaces: 'https://github.com/anthropics/claude-code.git'
-          plugins: 'code-review@claude-code-plugins'
-          prompt: '/code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}'
-          # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
-          # or https://code.claude.com/docs/en/cli-reference for available options
+          additional_permissions: |
+            actions: read
+          claude_args: '--allowed-tools "Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr review:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Read,Grep,Glob"'
+          prompt: |
+            You are reviewing a pull request in the gclaw repository. The PR number is
+            available via the `PR_NUMBER` env var. The `SENSITIVE` env var is "true" when
+            the PR touches infra/workflow/lockfile paths — those require human merge.
 
+            Read `CLAUDE.md` for project context. gclaw is a multi-agent AI orchestration
+            platform (FastAPI + ADK + Next.js) deployed to GCP apex-internal-apps via Cloud
+            Build. Merging to master triggers a production deploy — do NOT auto-approve
+            sloppy work.
+
+            Gather context:
+              gh pr view "$PR_NUMBER" --json title,body,files,additions,deletions
+              gh pr diff "$PR_NUMBER"
+
+            Review rubric (flag any of these as BLOCKING):
+              1. Correctness — bugs, off-by-one, unhandled None, broken async, missing awaits.
+              2. Security — secrets, unsanitized shell input, injection, unsafe deserialization,
+                 new IAM/service-account permissions that broaden scope.
+              3. Test coverage — new behavior without tests; tests that do not actually assert.
+              4. Project conventions — board-based agent communication (no agent-to-agent direct),
+                 ADK LiteLlm adapter wrapped inside ModelRouter (not at call sites), config via
+                 `src/gclaw/settings.py`, `user_id` read from `request.state`.
+              5. Backwards compat — public API changes without migration, breaking Firestore schema.
+
+            Style/polish issues → mention but do NOT block.
+
+            Decision (exactly one of these):
+              - SENSITIVE == "true":
+                  gh pr review "$PR_NUMBER" --comment --body "<findings>"
+                  Do NOT approve.
+              - Blocking issues found:
+                  gh pr review "$PR_NUMBER" --request-changes --body "<concise findings with file:line refs>"
+              - Clean:
+                  gh pr review "$PR_NUMBER" --approve --body "Claude review: no blocking issues found."
+
+            Be decisive. Never skip submitting a review — auto-merge waits on this signal.
