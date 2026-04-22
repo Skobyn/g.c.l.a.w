@@ -78,31 +78,48 @@ cd web && npm test                     # frontend
 
 ## Deploy (Cloud Run via Cloud Build)
 
-The included `cloudbuild.yaml` deploys a backend + web pair to a
-single GCP project. All deployment-specific values are Cloud Build
-substitutions — defaults reflect the upstream maintainer's project,
-override per fork:
+Three scripts in `scripts/` cover the full first-time-deploy path:
 
 ```bash
-gcloud builds submit \
-  --project <your-project> \
-  --config cloudbuild.yaml \
-  --substitutions \
-    _PROJECT_ID=<your-project>,\
-_IMAGE=us-central1-docker.pkg.dev/<your-project>/gclaw/gclaw,\
-_SERVICE_ACCOUNT=gclaw-run-sa@<your-project>.iam.gserviceaccount.com,\
-_MEMORY_ENGINE_ID=<your-reasoning-engine-id>,\
-_GWS_USER=<your-workspace-user>,\
-_VPC_CONNECTOR=<your-connector-or-empty>
+# 1. Provision GCP project state (Firestore, AR repo, runtime SA + IAM,
+#    GCS bucket; prints follow-up to create a Memory Bank engine).
+#    Idempotent — safe to re-run.
+./scripts/bootstrap-gcp.sh <your-project> us-central1
+
+# 2. Populate Secret Manager with API keys.
+#    Dry-run plan first, then apply with --apply when ready.
+./scripts/seed-secrets.sh <your-project>
+./scripts/seed-secrets.sh <your-project> --apply --values ./my-secrets.env
+
+# 3. Build + deploy (with optional overlay — see "Customizing" below).
+GWS_USER=you@yourdomain.com \
+MEMORY_ENGINE_ID=<from-step-1> \
+./scripts/deploy.sh <your-project> us-central1
 ```
 
-Before the first deploy you'll need to provision the GCP-side state
-out-of-band: Firestore in Native mode, an Artifact Registry repo
-named `gclaw`, a runtime service account with `aiplatform.user` +
-`datastore.user` + `logging.logWriter` + `monitoring.metricWriter`,
-a Vertex AI Memory Bank reasoning engine (if `MEMORY_ENABLED=true`),
-and a GCS bucket for shared context. There's no bootstrap script
-yet — see issue tracker for the planned `scripts/bootstrap-gcp.sh`.
+You can also drive `cloudbuild.yaml` directly via `gcloud builds
+submit --substitutions ...` — `scripts/deploy.sh` is just a thin
+wrapper that turns env vars into the substitution string.
+
+### Bootstrapping Secret Manager
+
+`gclaw` reads third-party API keys (Gemini, Anthropic, OpenAI,
+OpenRouter, Postiz, etc.) from Secret Manager at startup. There are
+two ways to populate them on a fresh project:
+
+1. **CLI seeder** (`scripts/seed-secrets.sh`). Reads values from
+   either a `KEY=value` env-style file (`--values ./my-secrets.env`)
+   or your shell environment, and creates one Secret Manager
+   resource per canonical secret. Best for first-time bulk seed.
+2. **Admin UI** at `/admin/secrets` after the first deploy. The
+   backend exposes write/rotate/list endpoints for individual
+   secrets so you can rotate from the browser without rebuilding.
+   Useful day-to-day; chicken-and-egg for first deploy (you need a
+   running backend to use the UI), so seed via CLI first.
+
+Either path goes through the same `SecretManagerService` and writes
+to the same canonical names. Default name prefix is `watson-` (see
+`docs/SECRETS_MIGRATION.md` to change it for your fork).
 
 ## Skills
 
