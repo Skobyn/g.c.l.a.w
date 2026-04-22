@@ -233,24 +233,68 @@ need them.
 
 ### Firebase Auth
 
-If you want real user auth (as opposed to `FIREBASE_AUTH_ENABLED=false`
-which pins a single dev user):
+For real user auth (vs. `FIREBASE_AUTH_ENABLED=false` which pins a
+single dev user), run the bootstrap script — it adds Firebase to
+your existing GCP project, creates a web app, enables
+email/password + anonymous sign-in, and emits the Firebase config:
 
-1. Open https://console.firebase.google.com/project/<your-project>/authentication
-2. Enable Google (or your preferred) provider.
-3. Copy the web config (apiKey, authDomain, etc.) into `web/.env.local`
-   as `NEXT_PUBLIC_FIREBASE_*`.
-4. Set `FIREBASE_AUTH_ENABLED=true` in the backend cloudbuild
-   substitutions + redeploy.
+```bash
+./scripts/bootstrap-firebase.sh <your-project>
+# writes web/.env.firebase — cat into web/.env.local for local dev,
+# or pass as --build-args in web/cloudbuild.yaml for Cloud Run.
+```
+
+Then set `FIREBASE_AUTH_ENABLED=true` in your backend cloudbuild
+substitutions + redeploy.
+
+**Google sign-in is console-only** (OAuth consent screen + brand
+review is partly manual). If you want it:
+
+1. After `bootstrap-firebase.sh` completes, open
+   `https://console.firebase.google.com/project/<your-project>/authentication/providers`
+2. Enable "Google" → set the support email → save.
 
 ### Phoenix observability
 
-Arize Phoenix as a second Cloud Run service for rich trace/eval UI
-on top of Cloud Trace. One-time provisioning in
-[`infra/phoenix/README.md`](./infra/phoenix/README.md) (Cloud SQL
-Postgres + VPC connector + Secret Manager entries). After that, the
-backend's OTLP exporter sends spans to Phoenix when
-`OBSERVABILITY_ENABLED=true` and `OTEL_EXPORTER_OTLP_ENDPOINT` is set.
+Arize Phoenix runs as a second Cloud Run service and gives you a
+trace/eval UI on top of the OpenInference spans gclaw already
+ships. Data never leaves your project.
+
+Three-step setup:
+
+```bash
+# 1. Provision Cloud SQL + VPC connector + SA + secrets.
+./scripts/bootstrap-phoenix.sh <your-project> us-central1
+
+# 2. Deploy Phoenix. The bootstrap script prints the exact command
+#    with your project values pre-filled; typical form:
+gcloud builds submit --project <your-project> \
+  --config infra/phoenix/cloudbuild.yaml \
+  --substitutions \
+    _PROJECT_ID=<your-project>,\
+_IMAGE=us-central1-docker.pkg.dev/<your-project>/gclaw/phoenix,\
+_SERVICE_ACCOUNT=phoenix-run-sa@<your-project>.iam.gserviceaccount.com,\
+_VPC_CONNECTOR=gclaw-connector
+
+# 3. Wire the backend to Phoenix + redeploy.
+PHOENIX_URL=$(gcloud run services describe phoenix \
+  --region=us-central1 --project=<your-project> --format='value(status.url)')
+printf '%s/v1/traces' "$PHOENIX_URL" | \
+  gcloud secrets versions add otel-exporter-otlp-endpoint \
+    --data-file=- --project=<your-project>
+# Then redeploy the backend with OBSERVABILITY_ENABLED=true.
+```
+
+Cost: Cloud SQL `db_f1_micro` is ≈ $10/mo — set a budget alert. To
+fully disable ingestion without tearing down Cloud SQL, flip
+`OBSERVABILITY_ENABLED=false` on the backend; Cloud Trace keeps
+receiving spans in-project at zero cost increase.
+
+Phoenix is distributed under the **Elastic License 2.0** — self-host
+for internal use is fine; redistribution / offering Phoenix as a
+managed service to third parties is not. See
+[`infra/phoenix/README.md`](./infra/phoenix/README.md) for rollback
+commands and deeper deployment reference.
 
 ### Vertex AI model endpoints (Gemma 4, Nemotron)
 
