@@ -174,19 +174,24 @@ def build_adk_override_from_model(
         kwargs["api_base"] = provider.base_url
 
     # ANTHROPIC_OAUTH: Claude Code OAuth bearer token path.
-    # LiteLlm's Anthropic config auto-detects tokens with the "sk-ant-oat"
-    # prefix and swaps x-api-key for Authorization: Bearer (+ adds the
-    # oauth beta header). For tokens that don't match that prefix we also
-    # force the bearer header via extra_headers so LiteLlm won't fall back
-    # to constructing x-api-key. See
-    # litellm/llms/anthropic/common_utils.py::optionally_handle_anthropic_oauth
-    # and AnthropicModelInfo.get_anthropic_headers for the branch logic.
+    #
+    # LiteLlm's Anthropic transformer detects sk-ant-oat* tokens from
+    # `api_key` and emits `Authorization: Bearer <token>` itself. If we
+    # ALSO put `Authorization` in extra_headers, httpx merges the two
+    # values into a single comma-joined header
+    # (`Authorization: Bearer foo, Bearer foo`) and Anthropic returns
+    # 401 "Invalid bearer token". So for the standard sk-ant-oat path we
+    # ONLY supply the OAuth beta header and let api_key drive the
+    # Authorization header. Direct curl with the same token confirmed
+    # the duplicate-header symptom.
+    #
+    # If you ever need to support a non-sk-ant-oat OAuth token shape,
+    # branch on prefix and force Bearer via extra_headers ONLY in that
+    # case (and clear api_key in the same kwargs). Don't combine.
     if provider.kind == ProviderKind.ANTHROPIC_OAUTH and api_key:
-        extra_headers = {
-            "Authorization": f"Bearer {api_key}",
+        kwargs["extra_headers"] = {
             "anthropic-beta": "oauth-2025-04-20",
         }
-        kwargs["extra_headers"] = extra_headers
 
     # Copilot needs IDE-auth headers regardless of the auth-refresh
     # story — bake them in once here so they ride on every call.
@@ -226,12 +231,12 @@ def build_adk_override_from_model(
             if not fresh:
                 return {}
             if prov_kind == ProviderKind.ANTHROPIC_OAUTH:
-                return {
-                    "extra_headers": {
-                        "Authorization": f"Bearer {fresh}",
-                        "anthropic-beta": "oauth-2025-04-20",
-                    }
-                }
+                # Same duplicate-Authorization gotcha as the construction
+                # path above: api_key alone drives Authorization for
+                # sk-ant-oat tokens. Patch api_key here, NOT
+                # extra_headers["Authorization"], or you'll get
+                # "Bearer foo, Bearer foo" → 401.
+                return {"api_key": fresh}
             # Copilot-hosted CUSTOM_OPENAI
             return {"api_key": fresh}
 

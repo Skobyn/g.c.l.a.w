@@ -85,7 +85,17 @@ def test_anthropic_provider_wrapped_as_litellm(populated_service):
     assert "anthropic/claude-opus-4-6" in str(getattr(obj, "model", ""))
 
 
-def test_anthropic_oauth_provider_uses_bearer_extra_headers():
+def test_anthropic_oauth_provider_lets_litellm_emit_authorization():
+    """Anthropic OAuth path must NOT inject `Authorization: Bearer ...`
+    via extra_headers. LiteLlm's Anthropic transformer auto-emits the
+    Bearer header from `api_key` for sk-ant-oat* tokens. If we ALSO put
+    Authorization in extra_headers, httpx merges both into a single
+    comma-joined value (`Bearer foo, Bearer foo`) and Anthropic 401s
+    with "Invalid bearer token". So the contract is:
+      * api_key carries the token
+      * extra_headers carries ONLY anthropic-beta (the OAuth scope flag)
+      * LiteLlm produces the actual Authorization header at call time
+    """
     svc = CatalogService(
         provider_repo=FakeProviderRepo(),
         model_repo=FakeModelRepo(),
@@ -106,19 +116,21 @@ def test_anthropic_oauth_provider_uses_bearer_extra_headers():
     from google.adk.models.lite_llm import LiteLlm
     assert isinstance(obj, LiteLlm)
     assert "anthropic/claude-sonnet-4-6" in str(getattr(obj, "model", ""))
-    # LiteLlm stashes constructor kwargs on the instance; check extra_headers.
-    extra = getattr(obj, "_additional_args", None) or getattr(obj, "kwargs", None)
-    # Fall back to inspecting vars() — look for Bearer-style Authorization header.
-    found = False
-    for container in (extra, vars(obj)):
-        if not container:
-            continue
-        # Recursively check str representations
-        s = str(container)
-        if "Bearer sk-ant-oat-xyz" in s:
-            found = True
-            break
-    assert found, f"expected Bearer header wired through LiteLlm; got {vars(obj)!r}"
+
+    extra = getattr(obj, "_additional_args", None) or {}
+    # api_key must be the OAuth token (not lost in the rename) so LiteLlm
+    # can emit the right Authorization header at request time.
+    assert extra.get("api_key") == "sk-ant-oat-xyz", (
+        f"expected api_key=sk-ant-oat-xyz on LiteLlm kwargs; got {extra!r}"
+    )
+    # extra_headers must carry the OAuth scope flag…
+    headers = extra.get("extra_headers") or {}
+    assert headers.get("anthropic-beta") == "oauth-2025-04-20"
+    # …and MUST NOT carry Authorization (would duplicate LiteLlm's auto-injection).
+    assert "Authorization" not in headers, (
+        "Authorization in extra_headers duplicates LiteLlm's auto-injected "
+        "Bearer header → Anthropic returns 401. See adk_builder.py."
+    )
 
 
 def test_disabled_models_excluded():
