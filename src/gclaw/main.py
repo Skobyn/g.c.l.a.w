@@ -411,7 +411,9 @@ def build_app():
     # In dev mode (auth disabled), DevUserMiddleware sets a default user_id
     dev_user_id = os.environ.get("GCLAW_USER_ID", "default_user") if not settings.firebase_auth_enabled else None
     board_repo = BoardRepo(db=db, user_id=dev_user_id)
-    board_service = BoardService(repo=board_repo, user_id=dev_user_id)
+    board_service = BoardService(
+        repo=board_repo, user_id=dev_user_id, run_registry=run_registry
+    )
 
     # Catalog (providers + models)
     catalog_service = None

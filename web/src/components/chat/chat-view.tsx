@@ -15,12 +15,16 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { useAuth } from "@/contexts/auth-context";
 import { createApiClient } from "@/lib/api-client";
+import { useChatRunStream } from "@/lib/use-chat-run-stream";
 import { MessageList } from "./message-list";
 import { MessageInput } from "./message-input";
 import { VoiceControls } from "./voice-controls";
 import { AgentSelector, DEFAULT_AGENT } from "./agent-selector";
 import type { AgentListEntry, ChatMessage } from "@/types";
 import { formatDatestamp } from "@/lib/format";
+
+const API_BASE =
+  process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
 function msgId(): string {
   return `msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -164,6 +168,7 @@ export function ChatView() {
           content: response.text,
           timestamp: new Date(),
           tool_calls: response.tool_calls,
+          run_id: response.run_id,
         };
         setMessagesByAgent((prev) => ({
           ...prev,
@@ -179,6 +184,25 @@ export function ChatView() {
     },
     [activeAgent],
   );
+
+  // ── Live board-event stream for the most recent assistant turn ─────
+  // Subscribe to /api/runs/{run_id}/events for the latest assistant
+  // message with a run_id. As task.* events land, fold them into the
+  // last assistant message's `dispatches` map for inline rendering.
+  const latestRunId = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === "assistant" && messages[i].run_id) {
+        return messages[i].run_id;
+      }
+    }
+    return undefined;
+  }, [messages]);
+
+  const dispatches = useChatRunStream({
+    runId: latestRunId,
+    baseUrl: API_BASE,
+    getIdToken,
+  });
 
   // Derived stats
   const turnCount = messages.filter((m) => m.role === "user").length;
@@ -230,6 +254,7 @@ export function ChatView() {
           messages={messages}
           activeAgent={activeAgent}
           loading={isLoading}
+          dispatchesByRunId={{ [latestRunId || ""]: dispatches }}
         />
 
         {error && (

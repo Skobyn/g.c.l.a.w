@@ -229,6 +229,35 @@ body::before {
     animation: phosphor-pulse 2s ease-in-out infinite;
   }
 
+  .phosphor-dot-idle {
+    /* Static quiet variant — no pulse, no glow. Used by the background
+       activity strip when nothing is running. */
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--paper-40);
+  }
+
+  /* Board-event dispatch block animations — ticker-tape entry of
+     sub-events, gold→signal flash on completion checkmarks. Staggered
+     via inline style="animation-delay" on each <li>. */
+  .dispatch-event-enter {
+    animation: dispatch-event-in 120ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
+    opacity: 0;
+  }
+  @keyframes dispatch-event-in {
+    from { opacity: 0; transform: translateY(4px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .dispatch-check-flash {
+    animation: dispatch-check-flash 240ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  }
+  @keyframes dispatch-check-flash {
+    0%   { color: var(--gold); }
+    100% { color: var(--signal); }
+  }
+
   .signal-cursor::after {
     content: "▌";
     color: var(--signal);

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Any
 
 from gclaw.board.transitions import (
     TransitionNotAllowed,
@@ -24,12 +25,24 @@ class BoardService:
 
     user_id can be set at init (dev mode) or passed per-method (auth mode).
     Per-method user_id takes priority over the init default.
+
+    When ``run_registry`` is provided and ``set_active_session`` has been
+    called for the current turn, board lifecycle events (task.created,
+    task.picked_up, task.completed, task.failed) are pushed into the
+    run's event queue so the live chat SSE can render them inline.
     """
 
-    def __init__(self, repo: BoardRepo, user_id: str | None = None) -> None:
+    def __init__(
+        self,
+        repo: BoardRepo,
+        user_id: str | None = None,
+        run_registry: Any | None = None,
+    ) -> None:
         self._repo = repo
         self._default_user_id = user_id
         self._active_user_id: str | None = None
+        self._active_session_id: str | None = None
+        self._run_registry = run_registry
 
     def set_active_user(self, user_id: str) -> None:
         """Set the user_id for the current request context.
@@ -40,8 +53,44 @@ class BoardService:
         """
         self._active_user_id = user_id
 
+    def set_active_session(self, session_id: str | None) -> None:
+        """Set the session_id (== run_id) for the current turn.
+
+        Called alongside ``set_active_user`` so board-lifecycle events
+        (``_emit``) can be fanned to the right run queue.
+        """
+        self._active_session_id = session_id
+
     def _uid(self, user_id: str | None = None) -> str | None:
         return user_id or self._active_user_id or self._default_user_id
+
+    def _emit(self, kind: str, task: BoardTask, **extra: Any) -> None:
+        """Push a ``task.*`` event to the active run's RunRegistry queue.
+
+        No-op when no registry is wired, or no active session is set
+        (board ops outside an agent turn — e.g. direct HTTP POST
+        /board/tasks — aren't tied to a chat run).
+        """
+        if self._run_registry is None or not self._active_session_id:
+            return
+        try:
+            self._run_registry.put_nowait(
+                self._active_session_id,
+                {
+                    "event": kind,
+                    "data": {
+                        "task_id": task.id,
+                        "title": task.title,
+                        "priority": task.priority.value,
+                        "assignee": task.assignee,
+                        "status": task.status.value,
+                        "time": datetime.now(timezone.utc).isoformat(),
+                        **extra,
+                    },
+                },
+            )
+        except Exception:  # noqa: BLE001 — emit is best-effort
+            pass
 
     def create_task(
         self,
@@ -69,14 +118,18 @@ class BoardService:
             dependencies=dependencies or [],
             requires_approval=requires_approval,
         )
-        return self._repo.create(task, user_id=self._uid(user_id))
+        created = self._repo.create(task, user_id=self._uid(user_id))
+        self._emit("task.created", created)
+        return created
 
     def pick_up(self, task_id: str, user_id: str | None = None) -> BoardTask:
         task = self._repo.get(task_id, user_id=self._uid(user_id))
         if task is None:
             raise ValueError(f"Task {task_id} not found")
         updated = task.transition_to(TaskStatus.IN_PROGRESS)
-        return self._repo.update(updated, user_id=self._uid(user_id))
+        saved = self._repo.update(updated, user_id=self._uid(user_id))
+        self._emit("task.picked_up", saved)
+        return saved
 
     def complete(
         self,
@@ -91,7 +144,9 @@ class BoardService:
         completed = task.complete(TaskResult(
             summary=summary, artifacts=artifacts or []
         ))
-        return self._repo.update(completed, user_id=self._uid(user_id))
+        saved = self._repo.update(completed, user_id=self._uid(user_id))
+        self._emit("task.completed", saved, summary=summary)
+        return saved
 
     def fail(self, task_id: str, reason: str, user_id: str | None = None) -> BoardTask:
         task = self._repo.get(task_id, user_id=self._uid(user_id))
@@ -101,7 +156,9 @@ class BoardService:
         failed = failed.model_copy(
             update={"result": TaskResult(summary=reason)}
         )
-        return self._repo.update(failed, user_id=self._uid(user_id))
+        saved = self._repo.update(failed, user_id=self._uid(user_id))
+        self._emit("task.failed", saved, reason=reason)
+        return saved
 
     def get_pending_tasks(self, assignee: str, user_id: str | None = None) -> list[BoardTask]:
         return self._repo.list_by_assignee(assignee, status=TaskStatus.QUEUED, user_id=self._uid(user_id))

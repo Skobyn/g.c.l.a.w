@@ -117,6 +117,101 @@ def test_get_pending_tasks_for_agent(service, repo):
     )
 
 
+# ── Event emission via RunRegistry ──────────────────────────────────
+
+
+class _FakeRegistry:
+    """Minimal RunRegistry shape — capture put_nowait calls."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict]] = []
+
+    def put_nowait(self, run_id: str, event: dict) -> None:
+        self.calls.append((run_id, event))
+
+
+@pytest.fixture
+def registry():
+    return _FakeRegistry()
+
+
+@pytest.fixture
+def service_with_registry(repo, registry):
+    svc = BoardService(repo=repo, run_registry=registry)
+    svc.set_active_session("sess_abc")
+    return svc
+
+
+def test_create_task_emits_task_created(service_with_registry, repo, registry):
+    repo.create.side_effect = lambda t, user_id=None: t.model_copy(update={"id": "t_001"})
+    service_with_registry.create_task(
+        title="Do thing", assignee="dev-mgr", source_type="user",
+    )
+    assert len(registry.calls) == 1
+    run_id, event = registry.calls[0]
+    assert run_id == "sess_abc"
+    assert event["event"] == "task.created"
+    assert event["data"]["task_id"] == "t_001"
+    assert event["data"]["assignee"] == "dev-mgr"
+    assert event["data"]["title"] == "Do thing"
+    assert "time" in event["data"]
+
+
+def test_pick_up_emits_task_picked_up(service_with_registry, repo, registry):
+    task = BoardTask(
+        id="t_002", title="Queued", assignee="dev-mgr", status=TaskStatus.QUEUED
+    )
+    repo.get.return_value = task
+    repo.update.side_effect = lambda t, user_id=None: t
+    service_with_registry.pick_up("t_002")
+    assert [c[1]["event"] for c in registry.calls] == ["task.picked_up"]
+    assert registry.calls[0][1]["data"]["status"] == TaskStatus.IN_PROGRESS.value
+
+
+def test_complete_emits_task_completed_with_summary(
+    service_with_registry, repo, registry
+):
+    task = BoardTask(
+        id="t_003", title="Running", assignee="dev-mgr", status=TaskStatus.IN_PROGRESS
+    )
+    repo.get.return_value = task
+    repo.update.side_effect = lambda t, user_id=None: t
+    service_with_registry.complete("t_003", summary="All good")
+    ev = registry.calls[0][1]
+    assert ev["event"] == "task.completed"
+    assert ev["data"]["summary"] == "All good"
+
+
+def test_fail_emits_task_failed_with_reason(
+    service_with_registry, repo, registry
+):
+    task = BoardTask(
+        id="t_004", title="Trying", assignee="dev-mgr", status=TaskStatus.IN_PROGRESS
+    )
+    repo.get.return_value = task
+    repo.update.side_effect = lambda t, user_id=None: t
+    service_with_registry.fail("t_004", reason="timeout")
+    ev = registry.calls[0][1]
+    assert ev["event"] == "task.failed"
+    assert ev["data"]["reason"] == "timeout"
+
+
+def test_no_emission_when_no_active_session(repo, registry):
+    svc = BoardService(repo=repo, run_registry=registry)
+    # deliberately do NOT call set_active_session
+    repo.create.side_effect = lambda t, user_id=None: t.model_copy(update={"id": "x"})
+    svc.create_task(title="X", assignee="dev-mgr")
+    assert registry.calls == []
+
+
+def test_no_emission_when_no_registry(repo):
+    svc = BoardService(repo=repo)
+    svc.set_active_session("sess_xyz")
+    repo.create.side_effect = lambda t, user_id=None: t.model_copy(update={"id": "y"})
+    # Should not raise; just no-op on emit.
+    svc.create_task(title="Y", assignee="dev-mgr")
+
+
 def test_move_status_allowed(service, repo):
     task = BoardTask(
         id="t1",

@@ -62,6 +62,37 @@ export interface ChatMessage {
   content: string;
   timestamp: Date;
   tool_calls?: ToolCall[];
+  /** run_id from the backend — used to attach streamed board-task
+      dispatch events to this assistant turn. */
+  run_id?: string;
+  /** Board-task dispatch blocks, keyed by task_id. Populated live
+      by `useChatRunStream`. */
+  dispatches?: Record<string, DispatchBlock>;
+}
+
+/** One sub-event in a dispatch block. */
+export interface DispatchSubEvent {
+  id: string;
+  time: string;
+  agent?: string;
+  kind: "picked_up" | "tool_call" | "completed" | "failed" | "info";
+  text: string;
+  /** True for completed events — triggers the gold→signal flash. */
+  final?: boolean;
+  reason?: string;
+}
+
+/** Aggregated dispatch state for one task_id in the chat turn. */
+export interface DispatchBlock {
+  task_id: string;
+  title: string;
+  priority: TaskPriority;
+  assignee: string;
+  created_at: string;
+  events: DispatchSubEvent[];
+  status: "queued" | "in_progress" | "completed" | "failed";
+  summary?: string;
+  reason?: string;
 }
 
 /** Tool call from agent response. */
@@ -83,6 +114,9 @@ export interface ChatResponse {
   text: string;
   tool_calls: ToolCall[];
   is_final: boolean;
+  /** Effective (agent-scoped) session id. Subscribe to
+      /api/runs/{run_id}/events for live board-task events. */
+  run_id: string;
 }
 
 /** Voice WebSocket message from client to server. */

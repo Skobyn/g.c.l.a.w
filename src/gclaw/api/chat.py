@@ -74,6 +74,10 @@ class ChatResponse(BaseModel):
     text: str
     tool_calls: list[dict] = []
     is_final: bool = False
+    # run_id == the effective (agent-scoped) session id. Frontend uses
+    # this to subscribe to /api/runs/{run_id}/events for inline board
+    # event streaming.
+    run_id: str = ""
 
 
 class EndSessionRequest(BaseModel):
@@ -133,6 +137,7 @@ async def chat(
         text=response.text,
         tool_calls=response.tool_calls,
         is_final=response.is_final,
+        run_id=sid,
     )
 
 

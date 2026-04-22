@@ -2,13 +2,16 @@
 
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import type { ChatMessage } from "@/types";
+import type { ChatMessage, DispatchBlock } from "@/types";
 import { formatTimestamp } from "@/lib/format";
+import { DispatchBlockView } from "./dispatch-block";
 
 interface MessageListProps {
   messages: ChatMessage[];
   activeAgent: string;
   loading?: boolean;
+  /** Live board-task dispatch blocks keyed by run_id → (task_id → block). */
+  dispatchesByRunId?: Record<string, Record<string, DispatchBlock>>;
 }
 
 /**
@@ -17,7 +20,12 @@ interface MessageListProps {
  * Each turn is a typeset entry with a margin dateline in mono; user turns
  * are indented and greyed, agent turns ride a hairline signal-green rule.
  */
-export function MessageList({ messages, activeAgent, loading }: MessageListProps) {
+export function MessageList({
+  messages,
+  activeAgent,
+  loading,
+  dispatchesByRunId,
+}: MessageListProps) {
   if (messages.length === 0 && !loading) {
     return (
       <div className="flex flex-1 items-center justify-center px-6">
@@ -69,6 +77,15 @@ export function MessageList({ messages, activeAgent, loading }: MessageListProps
                       {msg.content}
                     </ReactMarkdown>
                   </div>
+                  {(() => {
+                    const blocks = msg.run_id
+                      ? dispatchesByRunId?.[msg.run_id] ?? {}
+                      : {};
+                    const taskIds = Object.keys(blocks);
+                    return taskIds.map((tid) => (
+                      <DispatchBlockView key={tid} block={blocks[tid]} />
+                    ));
+                  })()}
                   {msg.tool_calls && msg.tool_calls.length > 0 && (
                     <div className="mt-3 hairline-t pt-2">
                       <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-paper-40">

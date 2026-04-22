@@ -229,6 +229,9 @@ class AgentRunner:
     ) -> AgentResponse:
         if self._board_service is not None:
             self._board_service.set_active_user(user_id)
+            # session_id is the run_id from the observability layer's POV
+            # (SESSION_ID attribute keys the RunRegistry channel).
+            self._board_service.set_active_session(session_id)
         if self._session_store is not None:
             self._session_store.set_active_user(user_id)
 
