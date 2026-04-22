@@ -29,6 +29,12 @@
 #                            after deploy (defaults to "user.md" — add
 #                            any overlay-only directories you don't
 #                            want left in the public clone afterward).
+#   HEARTBEAT_SCHEDULER      When "true", create/update a Cloud
+#                            Scheduler job that POSTs /heartbeat to
+#                            the deployed service every 15 minutes.
+#                            Required for the proactive agent loop;
+#                            opt-in because it costs ~$0 but adds
+#                            deploy-time permissions (cloudscheduler.admin).
 
 set -euo pipefail
 
@@ -90,3 +96,39 @@ if [[ -d "${OVERLAY}" ]]; then
 fi
 
 echo "==> Done. Cloud Run will serve the new revision once build + deploy finish."
+
+# 5 — Optional: create/update Cloud Scheduler heartbeat job.
+if [[ "${HEARTBEAT_SCHEDULER:-}" == "true" ]]; then
+  SERVICE_URL=$(gcloud run services describe gclaw \
+    --region="${REGION}" --project="${PROJECT_ID}" \
+    --format='value(status.url)' 2>/dev/null || echo "")
+  if [[ -z "${SERVICE_URL}" ]]; then
+    echo "==> WARNING: could not resolve Cloud Run URL; skipping scheduler"
+  else
+    JOB_NAME="gclaw-heartbeat"
+    SCHED_URL="${SERVICE_URL}/heartbeat"
+    echo "==> Ensuring Cloud Scheduler job '${JOB_NAME}' → ${SCHED_URL}"
+    if gcloud scheduler jobs describe "${JOB_NAME}" \
+         --location="${REGION}" --project="${PROJECT_ID}" \
+         >/dev/null 2>&1; then
+      gcloud scheduler jobs update http "${JOB_NAME}" \
+        --location="${REGION}" --project="${PROJECT_ID}" \
+        --schedule="*/15 * * * *" \
+        --uri="${SCHED_URL}" \
+        --http-method=POST \
+        --time-zone="UTC" \
+        --quiet
+      echo "    updated"
+    else
+      gcloud scheduler jobs create http "${JOB_NAME}" \
+        --location="${REGION}" --project="${PROJECT_ID}" \
+        --schedule="*/15 * * * *" \
+        --uri="${SCHED_URL}" \
+        --http-method=POST \
+        --time-zone="UTC" \
+        --description="POST /heartbeat every 15 min — gclaw agent consciousness loop" \
+        --quiet
+      echo "    created"
+    fi
+  fi
+fi

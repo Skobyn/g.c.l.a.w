@@ -42,6 +42,50 @@ direct agent-to-agent call is treated as a bug.
 See [`CLAUDE.md`](./CLAUDE.md) for the deeper architectural tour
 (written for AI assistants but doubles as a maintainer handbook).
 
+---
+
+## Prerequisites
+
+### Local tools
+
+| Tool | Why | Notes |
+|---|---|---|
+| `gcloud` CLI | All GCP provisioning + build submit | Authenticate with `gcloud auth login` and `gcloud auth application-default login` |
+| `uv` | Python package manager | https://docs.astral.sh/uv/ |
+| `docker` | Local container build; Cloud Build also needs it on the client for `gcloud builds submit` | |
+| `node` 20+ & `npm` | Web client build + dev | |
+| `firebase` CLI (optional) | Deploys `firestore.rules` + `firestore.indexes.json` | `npm install -g firebase-tools` |
+| `gh` CLI (optional) | If you wire up GitHub Actions deploy | |
+
+### GCP account requirements
+
+- A GCP project you own (Owner or Project IAM Admin role).
+- A billing account linked to that project (APIs won't enable
+  otherwise; `bootstrap-gcp.sh` checks this upfront).
+- Vertex AI available in your chosen region (default `us-central1`).
+
+### External service accounts you'll want
+
+Only `GEMINI_API_KEY` (or Vertex ADC via the runtime SA) is strictly
+required to get chat working. Everything else is optional and
+unlocks specific managers / skills:
+
+| Provider | Why | Manager / skill that uses it |
+|---|---|---|
+| Google Cloud (Vertex AI) | Required — Gemini, Memory Bank | Orchestrator, all |
+| Google Workspace domain-wide delegation | Workspace agent tools (Gmail, Calendar, Drive) | `workspace-mgr` |
+| GitHub PAT (`gh` CLI) | Dev manager GitHub operations | `dev-mgr` |
+| Anthropic API | Claude routing (optional) | `ModelRouter` |
+| OpenAI API | OpenAI routing (optional) | `ModelRouter` |
+| OpenRouter API | OSS model routing (optional) | `ModelRouter` |
+| Perplexity API | Research tool (optional) | `research-mgr` |
+| Postiz | Social-media scheduling | `content-mgr` |
+| Slack | Comms bot | `comms-mgr` |
+| Discord | Comms bot | `comms-mgr` |
+| Anthropic Claude Code OAuth | Copilot-auth model routing (optional) | `ModelRouter` |
+
+---
+
 ## Quickstart (local, no GCP)
 
 You can run the backend without Firebase, without Memory Bank, and
@@ -76,14 +120,14 @@ uv run pytest                          # backend
 cd web && npm test                     # frontend
 ```
 
-## Deploy (Cloud Run via Cloud Build)
+---
 
-Three scripts in `scripts/` cover the full first-time-deploy path:
+## First-time deploy (Cloud Run via Cloud Build)
+
+Three scripts in `scripts/` cover the full path:
 
 ```bash
-# 1. Provision GCP project state (Firestore, AR repo, runtime SA + IAM,
-#    GCS bucket; prints follow-up to create a Memory Bank engine).
-#    Idempotent — safe to re-run.
+# 1. Provision GCP project state.  Idempotent — safe to re-run.
 ./scripts/bootstrap-gcp.sh <your-project> us-central1
 
 # 2. Populate Secret Manager with API keys.
@@ -91,9 +135,10 @@ Three scripts in `scripts/` cover the full first-time-deploy path:
 ./scripts/seed-secrets.sh <your-project>
 ./scripts/seed-secrets.sh <your-project> --apply --values ./my-secrets.env
 
-# 3. Build + deploy (with optional overlay — see "Customizing" below).
+# 3. Build + deploy.  Optionally create the heartbeat scheduler.
 GWS_USER=you@yourdomain.com \
-MEMORY_ENGINE_ID=<from-step-1> \
+MEMORY_ENGINE_ID=<printed-by-bootstrap> \
+HEARTBEAT_SCHEDULER=true \
 ./scripts/deploy.sh <your-project> us-central1
 ```
 
@@ -101,27 +146,127 @@ You can also drive `cloudbuild.yaml` directly via `gcloud builds
 submit --substitutions ...` — `scripts/deploy.sh` is just a thin
 wrapper that turns env vars into the substitution string.
 
-### Bootstrapping Secret Manager
+### What `bootstrap-gcp.sh` provisions
 
-`gclaw` reads third-party API keys (Gemini, Anthropic, OpenAI,
-OpenRouter, Postiz, etc.) from Secret Manager at startup. There are
-two ways to populate them on a fresh project:
+**APIs enabled:**
 
-1. **CLI seeder** (`scripts/seed-secrets.sh`). Reads values from
-   either a `KEY=value` env-style file (`--values ./my-secrets.env`)
-   or your shell environment, and creates one Secret Manager
-   resource per canonical secret. Best for first-time bulk seed.
-2. **Admin UI** at `/admin/secrets` after the first deploy. The
-   backend exposes write/rotate/list endpoints for individual
-   secrets so you can rotate from the browser without rebuilding.
-   Useful day-to-day; chicken-and-egg for first deploy (you need a
-   running backend to use the UI), so seed via CLI first.
+| API | Used by |
+|---|---|
+| `aiplatform.googleapis.com` | Gemini, Memory Bank, optional Vertex model endpoints |
+| `artifactregistry.googleapis.com` | Container images |
+| `cloudbuild.googleapis.com` | Build + deploy pipeline |
+| `cloudscheduler.googleapis.com` | Heartbeat loop (opt-in) |
+| `datastore.googleapis.com` | Firestore in Datastore-mode compat layer |
+| `firestore.googleapis.com` | Firestore Native mode |
+| `iamcredentials.googleapis.com` | SA impersonation |
+| `run.googleapis.com` | Cloud Run backend + web services |
+| `secretmanager.googleapis.com` | API keys, OAuth tokens, GWS creds |
+| `storage.googleapis.com` | Shared-context GCS bucket |
 
-Either path goes through the same `SecretManagerService` and writes
-to the same canonical names. Default name prefix is `gclaw-` (e.g.
-`gclaw-openai-api-key`). Override with `SECRET_NAME_PREFIX` in your
-deploy env if you have legacy SM resources under a different prefix
-you don't want to migrate — see `docs/SECRETS_MIGRATION.md`.
+**Resources created:**
+
+- **Firestore** — Native mode, default DB, in your chosen region.
+  `firestore.rules` (deny-by-default access model) and
+  `firestore.indexes.json` (composite indexes for board/session/usage
+  queries) are applied if `firebase-tools` is installed.
+- **Artifact Registry** Docker repo `gclaw` in your region.
+- **Runtime SA** `gclaw-run-sa@<project>.iam.gserviceaccount.com`
+  with these roles:
+  - `roles/aiplatform.user` — Gemini + Memory Bank
+  - `roles/datastore.user` — Firestore
+  - `roles/logging.logWriter` + `roles/monitoring.metricWriter` — Cloud Run telemetry
+  - `roles/secretmanager.secretAccessor` — API key bootstrap
+  - `roles/storage.objectAdmin` — shared-context bucket
+- **Cloud Build SA** (`<project-number>@cloudbuild.gserviceaccount.com`)
+  gets:
+  - `roles/run.admin` — deploy Cloud Run services
+  - `roles/iam.serviceAccountUser` on the runtime SA — act as it
+  - `roles/artifactregistry.writer` — push images
+  - `roles/secretmanager.secretAccessor` — read the OTEL endpoint secret during deploy
+- **GCS bucket** `gclaw-shared-context-<project>` — uniform access, in your region. Used by the shared-context blackboard service.
+- **Vertex AI Memory Bank reasoning engine** (unless `--no-memory`). The script creates the engine via the Python SDK and prints the ID for the next deploy.
+
+### What `seed-secrets.sh` writes
+
+One Secret Manager resource per integration, all with labels
+`app=gclaw, kind=api-key`. Secret names use the prefix from
+`SECRET_NAME_PREFIX` (default `gclaw-`). Canonical list:
+
+```
+gclaw-gemini-api-key          GEMINI_API_KEY         (env-bootstrapped at startup)
+gclaw-anthropic-api-key       ANTHROPIC_API_KEY
+gclaw-openai-api-key          OPENAI_API_KEY
+gclaw-openrouter-api-key      OPENROUTER_API_KEY
+gclaw-github-copilot-token    GITHUB_COPILOT_TOKEN
+gclaw-perplexity-api-key      PERPLEXITY_API_KEY
+gclaw-slack-bot-token         SLACK_BOT_TOKEN
+gclaw-slack-app-token         SLACK_APP_TOKEN
+gclaw-discord-token           DISCORD_TOKEN
+gclaw-postiz-token            POSTIZ_API_TOKEN       (env-bootstrapped)
+gclaw-gh-token                GH_TOKEN               (env-bootstrapped)
+gclaw-gws-credentials         GOOGLE_WORKSPACE_CREDENTIALS_FILE
+                                                    (file-bootstrapped to /tmp/gws-credentials.json)
+```
+
+Secrets you don't have a value for are still created (with a
+`REPLACE_ME` placeholder version) — rotate them later via the
+admin UI at `/admin/secrets` or the seeder again.
+
+### What `deploy.sh` does
+
+1. If `OVERLAY` is set (default `$HOME/dev/gclaw-overlay`), rsyncs
+   the overlay onto the working tree.
+2. Runs `gcloud builds submit --config cloudbuild.yaml` with
+   substitutions built from env vars.
+3. Resets the working tree so overlay files don't accidentally get
+   committed to the public framework.
+4. If `HEARTBEAT_SCHEDULER=true`, creates (or updates) a Cloud
+   Scheduler job `gclaw-heartbeat` that POSTs `/heartbeat` every 15
+   minutes. Required for the proactive agent consciousness loop.
+
+---
+
+## Optional: additional infrastructure
+
+Not required for the minimum-viable deploy; wire these up as you
+need them.
+
+### Firebase Auth
+
+If you want real user auth (as opposed to `FIREBASE_AUTH_ENABLED=false`
+which pins a single dev user):
+
+1. Open https://console.firebase.google.com/project/<your-project>/authentication
+2. Enable Google (or your preferred) provider.
+3. Copy the web config (apiKey, authDomain, etc.) into `web/.env.local`
+   as `NEXT_PUBLIC_FIREBASE_*`.
+4. Set `FIREBASE_AUTH_ENABLED=true` in the backend cloudbuild
+   substitutions + redeploy.
+
+### Phoenix observability
+
+Arize Phoenix as a second Cloud Run service for rich trace/eval UI
+on top of Cloud Trace. One-time provisioning in
+[`infra/phoenix/README.md`](./infra/phoenix/README.md) (Cloud SQL
+Postgres + VPC connector + Secret Manager entries). After that, the
+backend's OTLP exporter sends spans to Phoenix when
+`OBSERVABILITY_ENABLED=true` and `OTEL_EXPORTER_OTLP_ENDPOINT` is set.
+
+### Vertex AI model endpoints (Gemma 4, Nemotron)
+
+Only needed if `MODEL_ROUTING_ENABLED=true` and you want non-Gemini
+providers via Vertex. See
+[`infra/vertex-models/README.md`](./infra/vertex-models/README.md)
+and the deploy scripts in the same directory.
+
+### GitHub Actions auto-deploy (Workload Identity Federation)
+
+`.github/workflows/deploy.yml` supports automatic deploys from
+`master` via WIF. The setup commands are in the file's comment
+header — one-time `gcloud iam workload-identity-pools create …`
+sequence.
+
+---
 
 ## Skills
 
@@ -144,18 +289,18 @@ Highlights:
 ## Customizing for your own use
 
 The manager agents (`agents/*.md`) and personality files
-(`soul/*.md`) are hand-written for the upstream deployment. Forks
-have two options:
+(`soul/*.md`) in the public repo are generic templates. Forks have
+two options:
 
 1. **Edit in place** — change the agent prompts and soul files
    directly. Simpler if you don't plan to pull upstream changes
    often.
-2. **Private overlay** — point `GCLAW_CONFIG_DIR` at a separate
-   private repo containing your `agents/`, `soul/`, `user.md`, and
-   personalized `crons/`. Lets you stay in sync with upstream for
-   the framework while keeping your personality private.
-
-Option 2 is what the upstream maintainer is moving toward.
+2. **Private overlay** — put your personalized `agents/`, `soul/`,
+   `user.md`, `crons/`, brand-specific skills, and `.env` in a
+   separate private repo. `scripts/deploy.sh` rsyncs the overlay
+   onto the framework at build time. Lets you stay in sync with
+   upstream while keeping your voice private. Full guide in
+   [`docs/OVERLAY.md`](./docs/OVERLAY.md).
 
 ## Documentation
 
@@ -163,7 +308,9 @@ Option 2 is what the upstream maintainer is moving toward.
   design decisions.
 - [`CONTRIBUTING.md`](./CONTRIBUTING.md) — dev setup, PR flow.
 - [`SECURITY.md`](./SECURITY.md) — security disclosure policy.
-- `docs/research/` — published architectural validations.
+- [`docs/OVERLAY.md`](./docs/OVERLAY.md) — private overlay pattern.
+- [`docs/SECRETS_MIGRATION.md`](./docs/SECRETS_MIGRATION.md) — Secret
+  Manager name-prefix migration.
 
 ## License
 
