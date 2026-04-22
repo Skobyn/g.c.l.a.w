@@ -133,8 +133,29 @@ def build_adk_override_from_model(
     re-invokes the callable on every generate call. For static-key
     providers the callable is ignored — there's no token to rotate.
     """
-    if provider.kind in (ProviderKind.GOOGLE_GEMINI, ProviderKind.GOOGLE_VERTEX):
+    # Google Vertex: bare model_id; ADK uses the env-driven Vertex path
+    # (GOOGLE_GENAI_USE_VERTEXAI=TRUE + GOOGLE_CLOUD_PROJECT/LOCATION).
+    # This is the right path for first-party publisher models that the
+    # project is allowlisted for via Vertex.
+    if provider.kind == ProviderKind.GOOGLE_VERTEX:
         return model.model_id
+
+    # Google Gemini (public API at generativelanguage.googleapis.com):
+    # the catalog can register the public-API provider with an explicit
+    # api_key. We route this through LiteLlm's `gemini/` prefix so the
+    # call goes via the public API regardless of the global
+    # GOOGLE_GENAI_USE_VERTEXAI setting. This is how preview models like
+    # `gemini-3-pro-preview` (which exist on AI Studio but not yet on
+    # Vertex for many projects) become reachable.
+    #
+    # When no api_key is configured (the implicit "System (Google)"
+    # provider that just uses ADC), fall back to bare model_id and let
+    # ADK pick the env-driven path — preserves the legacy default.
+    if provider.kind == ProviderKind.GOOGLE_GEMINI:
+        if not api_key:
+            return model.model_id
+        from google.adk.models.lite_llm import LiteLlm
+        return LiteLlm(model=f"gemini/{model.model_id}", api_key=api_key)
 
     prefix = _LITELLM_PREFIX.get(provider.kind)
     if prefix is None:
