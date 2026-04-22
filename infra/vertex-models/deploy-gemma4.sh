@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploy Gemma 4 31B to a Vertex AI endpoint in the apexfoundation project.
+# Deploy Gemma 4 31B to a Vertex AI endpoint in your GCP project.
 #
 # Prerequisites:
 #   - gcloud CLI authenticated with sufficient permissions
@@ -11,7 +11,12 @@
 
 set -euo pipefail
 
-PROJECT_ID="${1:-apexfoundation}"
+PROJECT_ID="${1:-${GCP_PROJECT_ID:-}}"
+if [[ -z "$PROJECT_ID" ]]; then
+  echo "Usage: $0 <PROJECT_ID> [REGION]" >&2
+  echo "       (or set \$GCP_PROJECT_ID in the environment)" >&2
+  exit 2
+fi
 REGION="${2:-us-central1}"
 MODEL_ID="google/gemma-4-31b-it"
 ENDPOINT_NAME="gclaw-gemma4-31b"

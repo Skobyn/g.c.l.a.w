@@ -34,11 +34,11 @@ def test_settings_model_routing_enabled(clean_routing_env, monkeypatch):
     monkeypatch.setenv("MODEL_ROUTING_ENABLED", "true")
     monkeypatch.setenv(
         "GEMMA_ENDPOINT_ID",
-        "projects/apexfoundation/locations/us-central1/endpoints/111",
+        "projects/test-project/locations/us-central1/endpoints/111",
     )
     monkeypatch.setenv(
         "NEMOTRON_ENDPOINT_ID",
-        "projects/apexfoundation/locations/us-central1/endpoints/222",
+        "projects/test-project/locations/us-central1/endpoints/222",
     )
     monkeypatch.setenv("NEMOTRON_PROVIDER", "nim")
     s = Settings()

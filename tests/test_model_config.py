@@ -6,7 +6,7 @@ from gclaw.models.model_config import ModelEndpoint, TaskProfile, RoutingRule
 def test_model_endpoint_defaults():
     ep = ModelEndpoint(
         name="gemma-4-31b",
-        endpoint_id="projects/apexfoundation/locations/us-central1/endpoints/123",
+        endpoint_id="projects/test-project/locations/us-central1/endpoints/123",
     )
     assert ep.name == "gemma-4-31b"
     assert ep.provider == "gemini"
@@ -16,7 +16,7 @@ def test_model_endpoint_defaults():
 def test_model_endpoint_with_context():
     ep = ModelEndpoint(
         name="nemotron-3-super",
-        endpoint_id="projects/apexfoundation/locations/us-central1/endpoints/456",
+        endpoint_id="projects/test-project/locations/us-central1/endpoints/456",
         max_context_tokens=1_000_000,
         provider="nim",
     )

@@ -11,7 +11,12 @@
 
 set -euo pipefail
 
-PROJECT_ID="${1:-apexfoundation}"
+PROJECT_ID="${1:-${GCP_PROJECT_ID:-}}"
+if [[ -z "$PROJECT_ID" ]]; then
+  echo "Usage: $0 <PROJECT_ID> [REGION]" >&2
+  echo "       (or set \$GCP_PROJECT_ID in the environment)" >&2
+  exit 2
+fi
 REGION="${2:-us-central1}"
 ENDPOINT_NAME="gclaw-nemotron3-super"
 MACHINE_TYPE="a2-ultragpu-1g"

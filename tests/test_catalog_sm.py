@@ -59,7 +59,7 @@ def _install_fake_secretmanager(client_factory):
 def test_resolve_api_key_sm_returns_decoded_string():
     svc = CatalogService(FakeProviderRepo(), FakeModelRepo())
     provider = _provider_with_sm(
-        "projects/apex-internal-apps/secrets/openai-key/versions/latest"
+        "projects/test-project/secrets/openai-key/versions/latest"
     )
 
     fake_client = MagicMock()
@@ -74,7 +74,7 @@ def test_resolve_api_key_sm_returns_decoded_string():
 
     assert result == "sk-abc123"
     fake_client.access_secret_version.assert_called_once_with(
-        name="projects/apex-internal-apps/secrets/openai-key/versions/latest"
+        name="projects/test-project/secrets/openai-key/versions/latest"
     )
 
 

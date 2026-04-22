@@ -48,7 +48,7 @@ from gclaw.models.model_config import ModelEndpoint, TaskProfile, RoutingRule
 def test_model_endpoint_defaults():
     ep = ModelEndpoint(
         name="gemma-4-31b",
-        endpoint_id="projects/apexfoundation/locations/us-central1/endpoints/123",
+        endpoint_id="projects/your-project/locations/us-central1/endpoints/123",
     )
     assert ep.name == "gemma-4-31b"
     assert ep.provider == "vertex"
@@ -58,7 +58,7 @@ def test_model_endpoint_defaults():
 def test_model_endpoint_with_context():
     ep = ModelEndpoint(
         name="nemotron-3-super",
-        endpoint_id="projects/apexfoundation/locations/us-central1/endpoints/456",
+        endpoint_id="projects/your-project/locations/us-central1/endpoints/456",
         max_context_tokens=1_000_000,
         provider="nim",
     )
@@ -175,8 +175,8 @@ def test_settings_model_routing_defaults():
 def test_settings_model_routing_enabled():
     os.environ["GCP_PROJECT_ID"] = "test-project"
     os.environ["MODEL_ROUTING_ENABLED"] = "true"
-    os.environ["GEMMA_ENDPOINT_ID"] = "projects/apexfoundation/locations/us-central1/endpoints/111"
-    os.environ["NEMOTRON_ENDPOINT_ID"] = "projects/apexfoundation/locations/us-central1/endpoints/222"
+    os.environ["GEMMA_ENDPOINT_ID"] = "projects/your-project/locations/us-central1/endpoints/111"
+    os.environ["NEMOTRON_ENDPOINT_ID"] = "projects/your-project/locations/us-central1/endpoints/222"
     os.environ["NEMOTRON_PROVIDER"] = "nim"
     try:
         s = Settings()
@@ -267,12 +267,12 @@ def endpoints():
         ),
         "gemma-4-31b": ModelEndpoint(
             name="gemma-4-31b",
-            endpoint_id="projects/apexfoundation/locations/us-central1/endpoints/111",
+            endpoint_id="projects/your-project/locations/us-central1/endpoints/111",
             max_context_tokens=256_000,
         ),
         "nemotron-3-super": ModelEndpoint(
             name="nemotron-3-super",
-            endpoint_id="projects/apexfoundation/locations/us-central1/endpoints/222",
+            endpoint_id="projects/your-project/locations/us-central1/endpoints/222",
             max_context_tokens=1_000_000,
             provider="nim",
         ),
@@ -505,7 +505,7 @@ def model_router():
         ),
         "nemotron-3-super": ModelEndpoint(
             name="nemotron-3-super",
-            endpoint_id="projects/apexfoundation/locations/us-central1/endpoints/222",
+            endpoint_id="projects/your-project/locations/us-central1/endpoints/222",
             max_context_tokens=1_000_000,
             provider="nim",
         ),
@@ -1790,7 +1790,7 @@ mkdir -p infra/vertex-models
 ```bash
 # infra/vertex-models/deploy-gemma4.sh
 #!/usr/bin/env bash
-# Deploy Gemma 4 31B to a Vertex AI endpoint in the apexfoundation project.
+# Deploy Gemma 4 31B to a Vertex AI endpoint in the your-project project.
 #
 # Prerequisites:
 #   - gcloud CLI authenticated with sufficient permissions
@@ -1802,7 +1802,7 @@ mkdir -p infra/vertex-models
 
 set -euo pipefail
 
-PROJECT_ID="${1:-apexfoundation}"
+PROJECT_ID="${1:-your-project}"
 REGION="${2:-us-central1}"
 MODEL_ID="google/gemma-4-31b-it"
 ENDPOINT_NAME="gclaw-gemma4-31b"
@@ -1893,7 +1893,7 @@ echo "    GEMMA_ENDPOINT_ID=${ENDPOINT_ID}"
 
 set -euo pipefail
 
-PROJECT_ID="${1:-apexfoundation}"
+PROJECT_ID="${1:-your-project}"
 REGION="${2:-us-central1}"
 ENDPOINT_NAME="gclaw-nemotron3-super"
 MACHINE_TYPE="a2-ultragpu-1g"  # 1x A100 80GB (MoE only activates 12B)
@@ -1982,7 +1982,7 @@ Deployment scripts for GClaw's multi-model routing layer.
 ## Prerequisites
 
 1. `gcloud` CLI authenticated with `roles/aiplatform.admin`
-2. Vertex AI API enabled on `apexfoundation` project
+2. Vertex AI API enabled on `your-project` project
 3. GPU quota in `us-central1`:
    - Gemma 4: 4x NVIDIA L4 (g2-standard-48)
    - Nemotron 3: 1x A100 80GB (a2-ultragpu-1g)
@@ -1992,11 +1992,11 @@ Deployment scripts for GClaw's multi-model routing layer.
 ```bash
 # Deploy Gemma 4 31B
 chmod +x deploy-gemma4.sh
-./deploy-gemma4.sh apexfoundation us-central1
+./deploy-gemma4.sh your-project us-central1
 
 # Deploy Nemotron 3 Super
 chmod +x deploy-nemotron.sh
-./deploy-nemotron.sh apexfoundation us-central1
+./deploy-nemotron.sh your-project us-central1
 ```
 
 ## Environment Variables
@@ -2005,8 +2005,8 @@ After deployment, add to your `.env`:
 
 ```
 MODEL_ROUTING_ENABLED=true
-GEMMA_ENDPOINT_ID=projects/apexfoundation/locations/us-central1/endpoints/<id>
-NEMOTRON_ENDPOINT_ID=projects/apexfoundation/locations/us-central1/endpoints/<id>
+GEMMA_ENDPOINT_ID=projects/your-project/locations/us-central1/endpoints/<id>
+NEMOTRON_ENDPOINT_ID=projects/your-project/locations/us-central1/endpoints/<id>
 NEMOTRON_PROVIDER=vertex
 ```
 
@@ -2247,12 +2247,12 @@ def full_router():
         ),
         "gemma-4": ModelEndpoint(
             name="gemma-4",
-            endpoint_id="projects/apexfoundation/locations/us-central1/endpoints/111",
+            endpoint_id="projects/your-project/locations/us-central1/endpoints/111",
             max_context_tokens=256_000,
         ),
         "nemotron-3-super": ModelEndpoint(
             name="nemotron-3-super",
-            endpoint_id="projects/apexfoundation/locations/us-central1/endpoints/222",
+            endpoint_id="projects/your-project/locations/us-central1/endpoints/222",
             max_context_tokens=1_000_000,
             provider="nim",
         ),

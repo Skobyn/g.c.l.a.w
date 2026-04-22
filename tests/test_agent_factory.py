@@ -94,7 +94,7 @@ def model_router():
         ),
         "nemotron-3-super": ModelEndpoint(
             name="nemotron-3-super",
-            endpoint_id="projects/apexfoundation/locations/us-central1/endpoints/222",
+            endpoint_id="projects/test-project/locations/us-central1/endpoints/222",
             max_context_tokens=1_000_000,
             provider="nim",
         ),

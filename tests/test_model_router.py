@@ -15,12 +15,12 @@ def endpoints():
         ),
         "gemma-4-31b": ModelEndpoint(
             name="gemma-4-31b",
-            endpoint_id="projects/apexfoundation/locations/us-central1/endpoints/111",
+            endpoint_id="projects/test-project/locations/us-central1/endpoints/111",
             max_context_tokens=256_000,
         ),
         "nemotron-3-super": ModelEndpoint(
             name="nemotron-3-super",
-            endpoint_id="projects/apexfoundation/locations/us-central1/endpoints/222",
+            endpoint_id="projects/test-project/locations/us-central1/endpoints/222",
             max_context_tokens=1_000_000,
             provider="nim",
         ),

@@ -37,7 +37,7 @@ All scripts accept optional `PROJECT_ID` and `REGION` arguments:
 ### Deploy Gemma 4 31B
 
 ```bash
-# Default: apexfoundation project, us-central1 region
+# Uses $GCP_PROJECT_ID + us-central1 by default
 ./deploy-gemma4.sh
 
 # Custom project and region
@@ -49,7 +49,7 @@ Deployment time: **15-25 minutes** (model upload + endpoint configuration)
 ### Deploy Nemotron 3 Super
 
 ```bash
-# Default: apexfoundation project, us-central1 region
+# Uses $GCP_PROJECT_ID + us-central1 by default
 ./deploy-nemotron.sh
 
 # Custom project and region
@@ -65,13 +65,13 @@ After successful deployment, set these variables in your `.env`:
 ```bash
 # Gemma 4 Endpoint
 GEMMA_ENDPOINT_ID=projects/123456/locations/us-central1/endpoints/1234567890
-GEMMA_PROJECT_ID=apexfoundation
+GEMMA_PROJECT_ID=your-project
 GEMMA_REGION=us-central1
 GEMMA_PROVIDER=vertex
 
 # Nemotron 3 Super Endpoint
 NEMOTRON_ENDPOINT_ID=projects/123456/locations/us-central1/endpoints/9876543210
-NEMOTRON_PROJECT_ID=apexfoundation
+NEMOTRON_PROJECT_ID=your-project
 NEMOTRON_REGION=us-central1
 NEMOTRON_PROVIDER=vertex
 ```
@@ -97,15 +97,15 @@ _Costs assume 24/7 availability with 0-1 replica scaling. Production workloads m
 ### View Endpoint Status
 
 ```bash
-gcloud ai endpoints list --project=apexfoundation --region=us-central1
-gcloud ai endpoints describe ENDPOINT_ID --project=apexfoundation --region=us-central1
+gcloud ai endpoints list --project=<your-project> --region=us-central1
+gcloud ai endpoints describe ENDPOINT_ID --project=<your-project> --region=us-central1
 ```
 
 ### View Model Deployments
 
 ```bash
 gcloud ai endpoints describe ENDPOINT_ID \
-    --project=apexfoundation \
+    --project=<your-project> \
     --region=us-central1 \
     --format="value(deployedModels[].displayName)"
 ```
@@ -113,7 +113,7 @@ gcloud ai endpoints describe ENDPOINT_ID \
 ### Check Quotas
 
 ```bash
-gcloud compute project-info describe --project=apexfoundation \
+gcloud compute project-info describe --project=<your-project> \
     --format="table(quotas[name,usage,limit].select(name,usage,limit))"
 ```
 
@@ -124,7 +124,7 @@ gcloud compute project-info describe --project=apexfoundation \
 Check available quota and request increase if needed:
 
 ```bash
-gcloud compute project-info describe --project=apexfoundation \
+gcloud compute project-info describe --project=<your-project> \
     --format="table(quotas[name,usage,limit])"
 ```
 
@@ -144,7 +144,7 @@ Check endpoint creation status:
 
 ```bash
 gcloud ai endpoints describe ENDPOINT_ID \
-    --project=apexfoundation \
+    --project=<your-project> \
     --region=us-central1
 ```
 

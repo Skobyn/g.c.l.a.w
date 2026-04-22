@@ -46,7 +46,7 @@ def test_parse_values_file_strips_quotes(tmp_path):
 
 def test_seed_all_dry_run_placeholder_by_default():
     results = seed_all(
-        project="apex-internal-apps",
+        project="test-project",
         values={},
         apply=False,
         use_env_fallback=False,
