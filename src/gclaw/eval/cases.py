@@ -57,7 +57,7 @@ GOLDEN_CASES: list[EvalCase] = [
         category="routing",
     ),
     EvalCase(
-        query="What PRs are open on the apex-internal-apps repo right now?",
+        query="What PRs are open on the gclaw repo right now?",
         expected_tools=["dev_mgr"],
         description="GitHub PR lookup → dev manager",
         category="routing",

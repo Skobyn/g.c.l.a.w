@@ -23,3 +23,14 @@ ruvector.db
 # Local debugging screenshots
 /chat-page-screenshot.png
 /schedule-loop*.txt
+
+# Credentials and key material — never commit
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*credentials*.json
+*service-account*.json
+*-sa.json
+application_default_credentials.json

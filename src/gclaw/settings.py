@@ -172,11 +172,13 @@ class Settings:
             "GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE", ""
         )
     )
-    # Shared-context (blackboard) storage
+    # Shared-context (blackboard) storage. When SHARED_CONTEXT_BUCKET
+    # isn't set explicitly, derive a per-project name from GCP_PROJECT_ID
+    # so each deployment gets its own bucket without collision.
     shared_context_bucket: str = field(
         default_factory=lambda: os.environ.get(
             "SHARED_CONTEXT_BUCKET",
-            "gclaw-shared-context-apex-internal-apps",
+            f"gclaw-shared-context-{os.environ.get('GCP_PROJECT_ID', 'unset')}",
         )
     )
     shared_context_enabled: bool = field(
@@ -225,27 +227,22 @@ class Settings:
             "SECRET_BOOTSTRAP_ENABLED", "true"
         ).lower() == "true"
     )
-    # Postiz social media scheduling
+    # Postiz social media scheduling. All values must be supplied via env
+    # in deployment config — there are no in-tree defaults because the
+    # URLs and channel IDs are deployment-specific. The Postiz tools only
+    # initialize when POSTIZ_API_TOKEN is also present (see main.py), so
+    # an unset Postiz config simply means the tools aren't bound.
     postiz_base_url: str = field(
-        default_factory=lambda: os.environ.get(
-            "POSTIZ_BASE_URL", "https://postiz.digitalbrainworks.com"
-        )
+        default_factory=lambda: os.environ.get("POSTIZ_BASE_URL", "")
     )
     postiz_reviewer_url: str = field(
-        default_factory=lambda: os.environ.get(
-            "POSTIZ_REVIEWER_URL",
-            "https://postiz-reviewer-qkaevtm7wq-uc.a.run.app",
-        )
+        default_factory=lambda: os.environ.get("POSTIZ_REVIEWER_URL", "")
     )
     postiz_channel_scott: str = field(
-        default_factory=lambda: os.environ.get(
-            "POSTIZ_CHANNEL_SCOTT", "cmmh4zsgw0001pn7hcajjulhj"
-        )
+        default_factory=lambda: os.environ.get("POSTIZ_CHANNEL_SCOTT", "")
     )
     postiz_channel_apex: str = field(
-        default_factory=lambda: os.environ.get(
-            "POSTIZ_CHANNEL_APEX", ""
-        )
+        default_factory=lambda: os.environ.get("POSTIZ_CHANNEL_APEX", "")
     )
     # Observability — OpenTelemetry + OpenInference. OFF by default; when
     # OBSERVABILITY_ENABLED=true the main.py composition root calls

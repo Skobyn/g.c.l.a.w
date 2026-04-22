@@ -125,7 +125,7 @@ SECRETS: tuple[SecretSpec, ...] = (
 )
 
 
-DEFAULT_PROJECT = "apex-internal-apps"
+DEFAULT_PROJECT = os.environ.get("GCP_PROJECT_ID", "")
 PLACEHOLDER_VALUE = "REPLACE_ME"
 
 
@@ -293,7 +293,14 @@ def print_plan(results: list[dict], *, apply: bool) -> None:
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--project", default=DEFAULT_PROJECT)
+    parser.add_argument(
+        "--project",
+        default=DEFAULT_PROJECT,
+        help=(
+            "GCP project ID. Defaults to $GCP_PROJECT_ID; required if "
+            "that env var is not set."
+        ),
+    )
     parser.add_argument(
         "--apply",
         action="store_true",
@@ -317,6 +324,11 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     args = parser.parse_args(argv)
+
+    if not args.project:
+        parser.error(
+            "--project is required (or set GCP_PROJECT_ID in the environment)"
+        )
 
     values = parse_values_file(args.values) if args.values else {}
 

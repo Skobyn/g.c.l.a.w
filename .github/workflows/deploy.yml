@@ -4,10 +4,10 @@
 # service account keys. One-time setup required (see bottom of this file).
 #
 # Secrets required in GitHub repo settings:
-#   GCP_PROJECT_ID         — apex-internal-apps
+#   GCP_PROJECT_ID         — <your-gcp-project>
 #   GCP_REGION             — us-central1
 #   WIF_PROVIDER           — projects/<num>/locations/global/workloadIdentityPools/<pool>/providers/<provider>
-#   WIF_SERVICE_ACCOUNT    — gclaw-deployer@apex-internal-apps.iam.gserviceaccount.com
+#   WIF_SERVICE_ACCOUNT    — gclaw-deployer@<your-gcp-project>.iam.gserviceaccount.com
 
 name: Deploy
 
@@ -154,13 +154,13 @@ jobs:
 #
 #    gcloud iam service-accounts create gclaw-deployer \
 #      --display-name="GClaw GitHub Actions deployer" \
-#      --project=apex-internal-apps
+#      --project=<your-gcp-project>
 #
 # 2. Grant it the roles Cloud Build needs to trigger builds:
 #
-#    SA=gclaw-deployer@apex-internal-apps.iam.gserviceaccount.com
+#    SA=gclaw-deployer@<your-gcp-project>.iam.gserviceaccount.com
 #    for role in roles/cloudbuild.builds.editor roles/serviceusage.serviceUsageConsumer roles/iam.serviceAccountUser roles/storage.objectAdmin; do
-#      gcloud projects add-iam-policy-binding apex-internal-apps \
+#      gcloud projects add-iam-policy-binding <your-gcp-project> \
 #        --member="serviceAccount:${SA}" --role="${role}" --quiet
 #    done
 #
@@ -169,40 +169,40 @@ jobs:
 #    gcloud iam workload-identity-pools create github-pool \
 #      --location=global \
 #      --display-name="GitHub Actions" \
-#      --project=apex-internal-apps
+#      --project=<your-gcp-project>
 #
 #    gcloud iam workload-identity-pools providers create-oidc github-provider \
 #      --location=global \
 #      --workload-identity-pool=github-pool \
 #      --issuer-uri="https://token.actions.githubusercontent.com" \
 #      --attribute-mapping="google.subject=assertion.sub,attribute.repository=assertion.repository" \
-#      --attribute-condition="assertion.repository=='Skobyn/gclaw'" \
-#      --project=apex-internal-apps
+#      --attribute-condition="assertion.repository=='<owner>/<repo>'" \
+#      --project=<your-gcp-project>
 #
 # 4. Allow the GitHub repo to impersonate the deployer SA:
 #
 #    POOL_ID=$(gcloud iam workload-identity-pools describe github-pool \
-#      --location=global --project=apex-internal-apps --format='value(name)')
+#      --location=global --project=<your-gcp-project> --format='value(name)')
 #
 #    gcloud iam service-accounts add-iam-policy-binding \
-#      gclaw-deployer@apex-internal-apps.iam.gserviceaccount.com \
+#      gclaw-deployer@<your-gcp-project>.iam.gserviceaccount.com \
 #      --role=roles/iam.workloadIdentityUser \
-#      --member="principalSet://iam.googleapis.com/${POOL_ID}/attribute.repository/Skobyn/gclaw" \
-#      --project=apex-internal-apps
+#      --member="principalSet://iam.googleapis.com/${POOL_ID}/attribute.repository/<owner>/<repo>" \
+#      --project=<your-gcp-project>
 #
 # 5. Get the full provider resource name for the GitHub secret:
 #
 #    gcloud iam workload-identity-pools providers describe github-provider \
 #      --location=global \
 #      --workload-identity-pool=github-pool \
-#      --project=apex-internal-apps \
+#      --project=<your-gcp-project> \
 #      --format='value(name)'
 #
 #    → Set this as the WIF_PROVIDER secret in GitHub repo settings.
 #
 # 6. Set GitHub repo secrets (Settings → Secrets → Actions):
 #
-#    GCP_PROJECT_ID       = apex-internal-apps
+#    GCP_PROJECT_ID       = <your-gcp-project>
 #    GCP_REGION           = us-central1
 #    WIF_PROVIDER         = (output from step 5)
-#    WIF_SERVICE_ACCOUNT  = gclaw-deployer@apex-internal-apps.iam.gserviceaccount.com
+#    WIF_SERVICE_ACCOUNT  = gclaw-deployer@<your-gcp-project>.iam.gserviceaccount.com

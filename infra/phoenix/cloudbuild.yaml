@@ -12,6 +12,9 @@
 #   - VPC connector `gclaw-connector` (shared with the backend)
 
 substitutions:
+  # Override these for non-upstream deployments — defaults reflect the
+  # `apex-internal-apps` upstream so the existing trigger keeps working.
+  _PROJECT_ID: apex-internal-apps
   _REGION: us-central1
   _IMAGE: us-central1-docker.pkg.dev/apex-internal-apps/gclaw/phoenix
   _SERVICE: phoenix

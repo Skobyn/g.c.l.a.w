@@ -111,7 +111,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
             <p className="mt-2 font-mono text-[9px] uppercase tracking-[0.2em] text-paper-40 leading-relaxed">
               MISSION CONTROL
               <br />
-              <span className="text-paper-60">apex-internal-apps</span>
+              <span className="text-paper-60">{process.env.NEXT_PUBLIC_GCP_PROJECT_ID || ""}</span>
             </p>
           </>
         ) : (
