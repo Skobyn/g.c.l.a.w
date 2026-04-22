@@ -1,15 +1,14 @@
 # Cloud Build pipeline for GClaw.
 #
 # All deployment-specific values are in the `substitutions:` block below.
-# The defaults reflect the upstream `apex-internal-apps` deployment so
-# `gcloud builds submit --config cloudbuild.yaml` keeps working unchanged
-# from a clone of that environment. Forks should override the relevant
-# substitutions instead of editing this file in-tree.
+# Most defaults are placeholders — you MUST override the substitutions
+# (or use `scripts/deploy.sh` which builds them from env vars) for any
+# real deployment.
 #
-# Invoke manually (upstream defaults):
-#   gcloud builds submit --project apex-internal-apps --config cloudbuild.yaml
+# Invoke (typical):
+#   ./scripts/deploy.sh <your-project> us-central1
 #
-# Invoke against your own project:
+# Invoke (raw gcloud):
 #   gcloud builds submit \
 #     --project <your-project> \
 #     --config cloudbuild.yaml \
@@ -25,35 +24,42 @@
 # the Cloud Console or via `gcloud builds triggers create`.
 
 substitutions:
-  _PROJECT_ID: apex-internal-apps
+  _PROJECT_ID: ""
   _REGION: us-central1
-  _IMAGE: us-central1-docker.pkg.dev/apex-internal-apps/gclaw/gclaw
+  _IMAGE: ""
   _SERVICE: gclaw
   # Dedicated runtime service account with least-privilege roles:
   # aiplatform.user (Gemini via Vertex AI + Memory Bank), datastore.user
-  # (Firestore), logging.logWriter, monitoring.metricWriter. Replaces
-  # the default compute SA so other Cloud Run services in this project
-  # aren't broadened when we grant GClaw new permissions.
-  _SERVICE_ACCOUNT: gclaw-run-sa@apex-internal-apps.iam.gserviceaccount.com
-  # Vertex AI Memory Bank reasoning engine ID. Each deployment gets its
-  # own engine (numeric or full resource path); see settings.py for how
-  # the runtime parses both forms.
-  _MEMORY_ENGINE_ID: "1568060811371347968"
+  # (Firestore), logging.logWriter, monitoring.metricWriter,
+  # secretmanager.secretAccessor, storage.objectAdmin. Created by
+  # scripts/bootstrap-gcp.sh.
+  _SERVICE_ACCOUNT: ""
+  # Vertex AI Memory Bank reasoning engine ID. Numeric or full resource
+  # path; settings.py parses both forms. Leave empty when MEMORY_ENABLED
+  # is "false" (skip the bootstrap).
+  _MEMORY_ENGINE_ID: ""
   # Google Workspace user that the gws CLI impersonates for Workspace
   # tool calls (Gmail, Calendar, Drive). Domain-wide delegation must be
-  # configured for the runtime SA against this user.
-  _GWS_USER: sbenson@getapexinsights.com
+  # configured for the runtime SA against this user. Leave empty if not
+  # using Workspace tools.
+  _GWS_USER: ""
   # Serverless VPC connector — needed only when reaching internal-only
-  # Cloud Run services (e.g. Phoenix's internal-ingress). Override to
-  # empty string + drop the --vpc-* flags below for a public-only setup.
-  _VPC_CONNECTOR: n8n-vpc
+  # Cloud Run services (e.g. Phoenix's internal-ingress). Leave empty
+  # for a public-only setup AND drop the --vpc-* flags below by
+  # commenting them out.
+  _VPC_CONNECTOR: ""
   # Postiz integration (social-media scheduling). Empty values disable
   # the Postiz tools at startup. The tools also require POSTIZ_API_TOKEN
   # to be present (typically bootstrapped from Secret Manager).
-  _POSTIZ_BASE_URL: https://postiz.digitalbrainworks.com
-  _POSTIZ_REVIEWER_URL: https://postiz-reviewer-qkaevtm7wq-uc.a.run.app
-  _POSTIZ_CHANNEL_SCOTT: cmmh4zsgw0001pn7hcajjulhj
-  _POSTIZ_CHANNEL_APEX: ""
+  _POSTIZ_BASE_URL: ""
+  _POSTIZ_REVIEWER_URL: ""
+  _POSTIZ_CHANNEL_PRIMARY: ""
+  _POSTIZ_CHANNEL_SECONDARY: ""
+  # Secret Manager name prefix for bootstrapped credentials. Default
+  # "gclaw-" matches the canonical naming. Override (e.g. to "watson-")
+  # if your live SM resources use a legacy prefix and you don't want to
+  # migrate them. See docs/SECRETS_MIGRATION.md.
+  _SECRET_NAME_PREFIX: "gclaw-"
 
 steps:
   # 1. Build the image with both commit SHA and latest tags.
@@ -96,7 +102,8 @@ steps:
       # can reach Phoenix's internal-ingress Cloud Run URL. Without
       # egress=all-traffic, *.run.app DNS resolves to public IPs and
       # Phoenix's `internal-and-cloud-load-balancing` ingress 404s the
-      # request before the container sees it.
+      # request before the container sees it. Comment both out for
+      # public-only setups.
       - --vpc-connector=${_VPC_CONNECTOR}
       - --vpc-egress=all-traffic
       # GOOGLE_GENAI_USE_VERTEXAI + GOOGLE_CLOUD_PROJECT + GOOGLE_CLOUD_LOCATION
@@ -104,7 +111,7 @@ steps:
       # the Cloud Run service account) rather than the public Gemini API path
       # (which requires GOOGLE_API_KEY). Without these, every /chat request
       # fails at the first LLM call with "No API key was provided".
-      - --set-env-vars=GCP_PROJECT_ID=${_PROJECT_ID},GCP_LOCATION=${_REGION},FIRESTORE_DATABASE=(default),GOOGLE_GENAI_USE_VERTEXAI=TRUE,GOOGLE_CLOUD_PROJECT=${_PROJECT_ID},GOOGLE_CLOUD_LOCATION=${_REGION},MODEL_ROUTING_ENABLED=false,MEMORY_ENABLED=true,MEMORY_BANK_REASONING_ENGINE_ID=${_MEMORY_ENGINE_ID},FIREBASE_AUTH_ENABLED=false,GWS_IMPERSONATE_USER=${_GWS_USER},OBSERVABILITY_ENABLED=true,OTEL_SERVICE_NAME=gclaw-backend,OTEL_SAMPLING_RATIO=1.0,GUARDRAILS_ENABLED=true,GUARDRAILS_DEFAULT_PROFILE=loose,VERTEX_SCORING_ENABLED=true,POSTIZ_BASE_URL=${_POSTIZ_BASE_URL},POSTIZ_REVIEWER_URL=${_POSTIZ_REVIEWER_URL},POSTIZ_CHANNEL_SCOTT=${_POSTIZ_CHANNEL_SCOTT},POSTIZ_CHANNEL_APEX=${_POSTIZ_CHANNEL_APEX}
+      - --set-env-vars=GCP_PROJECT_ID=${_PROJECT_ID},GCP_LOCATION=${_REGION},FIRESTORE_DATABASE=(default),GOOGLE_GENAI_USE_VERTEXAI=TRUE,GOOGLE_CLOUD_PROJECT=${_PROJECT_ID},GOOGLE_CLOUD_LOCATION=${_REGION},MODEL_ROUTING_ENABLED=false,MEMORY_ENABLED=true,MEMORY_BANK_REASONING_ENGINE_ID=${_MEMORY_ENGINE_ID},FIREBASE_AUTH_ENABLED=false,GWS_IMPERSONATE_USER=${_GWS_USER},OBSERVABILITY_ENABLED=true,OTEL_SERVICE_NAME=gclaw-backend,OTEL_SAMPLING_RATIO=1.0,GUARDRAILS_ENABLED=true,GUARDRAILS_DEFAULT_PROFILE=loose,VERTEX_SCORING_ENABLED=true,POSTIZ_BASE_URL=${_POSTIZ_BASE_URL},POSTIZ_REVIEWER_URL=${_POSTIZ_REVIEWER_URL},POSTIZ_CHANNEL_PRIMARY=${_POSTIZ_CHANNEL_PRIMARY},POSTIZ_CHANNEL_SECONDARY=${_POSTIZ_CHANNEL_SECONDARY},SECRET_NAME_PREFIX=${_SECRET_NAME_PREFIX}
       # OTEL_EXPORTER_OTLP_ENDPOINT is Secret-Manager-backed: the
       # initial placeholder value is swapped in post-Phoenix-deploy to
       # the real `<phoenix URL>/v1/traces`. Fail-soft OTLP exporter

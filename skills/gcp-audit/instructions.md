@@ -15,8 +15,11 @@ Ask the user for (or detect from the codebase):
 - **Scope** — full audit or specific phases (e.g., "just security" = phases 1-2, 5, 7-8)
 - **Known exceptions** — intentionally public buckets, services without IAM auth, etc.
 
-For this repository, the known project is:
-- `apex-internal-apps` — single project hosting compute (Cloud Run + Artifact Registry), Firestore, Firebase Auth, GCS buckets, secrets, service accounts.
+Targets are the GCP project(s) the user supplies — typically the
+single project hosting compute (Cloud Run + Artifact Registry),
+Firestore, Firebase Auth, GCS buckets, secrets, and service accounts
+for this gclaw deployment. Ask the user for the project ID(s) before
+running.
 
 ### Step 2: Run the Audit
 

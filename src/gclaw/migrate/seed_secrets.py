@@ -54,69 +54,73 @@ class SecretSpec:
     bootstrap_path: str = ""            # filename (without /tmp/) when bootstrap="file"
 
 
-# Canonical list. Add to this as new integrations land — the CLI uses it as
-# the source of truth for what should exist.
+# Canonical list. The `name` field is the *suffix* — the actual Secret
+# Manager resource name is `f"{SECRET_NAME_PREFIX}{spec.name}"` where
+# the prefix comes from the SECRET_NAME_PREFIX env var (default
+# "gclaw-"; see secret_manager.py and docs/SECRETS_MIGRATION.md).
+# Add to this list as new integrations land — the CLI uses it as the
+# source of truth for what should exist.
 SECRETS: tuple[SecretSpec, ...] = (
     SecretSpec(
-        "watson-gemini-api-key",
+        "gemini-api-key",
         "Gemini API direct (generativelanguage.googleapis.com).",
         "GEMINI_API_KEY",
         bootstrap="env",
     ),
     SecretSpec(
-        "watson-anthropic-api-key",
+        "anthropic-api-key",
         "Anthropic API (Claude Opus/Sonnet/Haiku).",
         "ANTHROPIC_API_KEY",
     ),
     SecretSpec(
-        "watson-openai-api-key",
+        "openai-api-key",
         "OpenAI API (GPT-4o, o1, etc).",
         "OPENAI_API_KEY",
     ),
     SecretSpec(
-        "watson-openrouter-api-key",
+        "openrouter-api-key",
         "OpenRouter — gateway to many OSS + commercial models.",
         "OPENROUTER_API_KEY",
     ),
     SecretSpec(
-        "watson-github-copilot-token",
+        "github-copilot-token",
         "GitHub Copilot subscription token for copilot-api models.",
         "GITHUB_COPILOT_TOKEN",
     ),
     SecretSpec(
-        "watson-perplexity-api-key",
+        "perplexity-api-key",
         "Perplexity — web search + sourced research.",
         "PERPLEXITY_API_KEY",
     ),
     SecretSpec(
-        "watson-slack-bot-token",
+        "slack-bot-token",
         "Slack bot token (xoxb-…) for comms delivery.",
         "SLACK_BOT_TOKEN",
     ),
     SecretSpec(
-        "watson-slack-app-token",
+        "slack-app-token",
         "Slack app-level token (xapp-…) for socket-mode events.",
         "SLACK_APP_TOKEN",
     ),
     SecretSpec(
-        "watson-discord-token",
+        "discord-token",
         "Discord bot token for comms delivery.",
         "DISCORD_TOKEN",
     ),
     SecretSpec(
-        "watson-postiz-token",
+        "postiz-token",
         "Postiz API token for scheduling LinkedIn / social media posts.",
         "POSTIZ_API_TOKEN",
         bootstrap="env",
     ),
     SecretSpec(
-        "watson-gh-token",
+        "gh-token",
         "GitHub Personal Access Token used by the gh CLI (dev-mgr agent).",
         "GH_TOKEN",
         bootstrap="env",
     ),
     SecretSpec(
-        "watson-gws-credentials",
+        "gws-credentials",
         "Google Workspace credentials JSON for the gws CLI (comms + workspace-mgr).",
         "GOOGLE_WORKSPACE_CREDENTIALS_FILE",
         bootstrap="file",
@@ -127,6 +131,15 @@ SECRETS: tuple[SecretSpec, ...] = (
 
 DEFAULT_PROJECT = os.environ.get("GCP_PROJECT_ID", "")
 PLACEHOLDER_VALUE = "REPLACE_ME"
+
+
+def _prefixed(name: str) -> str:
+    """Return the full SM resource name for a SecretSpec.name suffix.
+
+    Reads SECRET_NAME_PREFIX at call time (not at module load) so tests
+    that monkeypatch the env var see the change.
+    """
+    return f"{os.environ.get('SECRET_NAME_PREFIX', 'gclaw-')}{name}"
 
 
 def sm_path(project: str, name: str, *, version: str = "latest") -> str:
@@ -158,13 +171,18 @@ def _resolve_value(
 ) -> str | None:
     """Return the value to store for this spec, or None if not provided.
 
-    Lookup order:
-      1. values[spec.name]           — canonical name wins
-      2. values[spec.env_alias]      — convenience: people write OPENAI_API_KEY=…
-      3. env[spec.env_alias]         — only if use_env_fallback is True
+    Lookup order (each name is checked both unprefixed and prefixed
+    so users can write either form in their values file):
+      1. values[spec.name]           — base name wins (e.g. openai-api-key)
+      2. values[_prefixed(spec.name)] — full name (e.g. gclaw-openai-api-key)
+      3. values[spec.env_alias]      — env-var alias (e.g. OPENAI_API_KEY)
+      4. env[spec.env_alias]         — only if use_env_fallback is True
     """
     if spec.name in values:
         return values[spec.name]
+    full = _prefixed(spec.name)
+    if full in values:
+        return values[full]
     if spec.env_alias in values:
         return values[spec.env_alias]
     if use_env_fallback:
@@ -193,13 +211,14 @@ def _secret_exists(client, project: str, name: str) -> bool:
 
 def ensure_secret(client, project: str, spec: SecretSpec) -> bool:
     """Create the secret resource if missing. Returns True when created."""
-    if _secret_exists(client, project, spec.name):
+    full = _prefixed(spec.name)
+    if _secret_exists(client, project, full):
         return False
     parent = f"projects/{project}"
     client.create_secret(
         request={
             "parent": parent,
-            "secret_id": spec.name,
+            "secret_id": full,
             "secret": {
                 "replication": {"automatic": {}},
                 "labels": {"app": "gclaw"},
@@ -211,7 +230,8 @@ def ensure_secret(client, project: str, spec: SecretSpec) -> bool:
 
 def add_version(client, project: str, spec: SecretSpec, value: str) -> str:
     """Add a new version with the given value. Returns the version resource name."""
-    parent = f"projects/{project}/secrets/{spec.name}"
+    full = _prefixed(spec.name)
+    parent = f"projects/{project}/secrets/{full}"
     resp = client.add_secret_version(
         request={"parent": parent, "payload": {"data": value.encode("utf-8")}}
     )
@@ -238,10 +258,11 @@ def seed_all(
         client, _ = _client_and_parent(project)
 
     for spec in SECRETS:
+        full = _prefixed(spec.name)
         entry: dict = {
-            "name": spec.name,
+            "name": full,
             "description": spec.description,
-            "path": sm_path(project, spec.name),
+            "path": sm_path(project, full),
             "created": False,
             "version_added": None,
             "value_source": None,
@@ -252,7 +273,11 @@ def seed_all(
             entry["value_source"] = "placeholder"
         elif value is not None:
             entry["value_source"] = (
-                "values-file" if (spec.name in values or spec.env_alias in values)
+                "values-file" if (
+                    spec.name in values
+                    or full in values
+                    or spec.env_alias in values
+                )
                 else "env"
             )
 

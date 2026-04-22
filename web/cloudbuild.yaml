@@ -4,27 +4,24 @@
 # FastAPI backend (gclaw). The backend URL is baked into the JS
 # bundle at build time via --build-arg.
 #
-# Invoke (upstream defaults):
-#   gcloud builds submit --project apex-internal-apps --config web/cloudbuild.yaml web/
-#
-# Invoke against your own project:
+# Invoke:
 #   gcloud builds submit \
 #     --project <your-project> \
 #     --config web/cloudbuild.yaml \
 #     --substitutions \
 #       _PROJECT_ID=<your-project>,\
 # _IMAGE=us-central1-docker.pkg.dev/<your-project>/gclaw/gclaw-web,\
-# _API_URL=<your-backend-url> \
+# _API_URL=<your-backend-cloud-run-url> \
 #     web/
 
 substitutions:
-  _PROJECT_ID: apex-internal-apps
+  _PROJECT_ID: ""
   _REGION: us-central1
-  _IMAGE: us-central1-docker.pkg.dev/apex-internal-apps/gclaw/gclaw-web
+  _IMAGE: ""
   _SERVICE: gclaw-web
   # Cloud Run URL of the backend (gclaw) service in this project.
   # Baked into the JS bundle at build time as NEXT_PUBLIC_API_BASE_URL.
-  _API_URL: https://gclaw-982188522148.us-central1.run.app
+  _API_URL: ""
 
 steps:
   - id: build

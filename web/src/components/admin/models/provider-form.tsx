@@ -61,7 +61,16 @@ const KINDS: ProviderKind[] = [
   "anthropic_oauth",
 ];
 
-const SM_NAME_RE = /^watson-[a-z0-9-]+$/;
+// Configurable Secret Manager name prefix. Default mirrors the
+// backend's SECRET_NAME_PREFIX ("gclaw-"). Override at build time
+// via NEXT_PUBLIC_SECRET_NAME_PREFIX if your deployment uses a
+// different prefix (e.g. legacy "watson-"; see
+// docs/SECRETS_MIGRATION.md).
+const SM_PREFIX = process.env.NEXT_PUBLIC_SECRET_NAME_PREFIX || "gclaw-";
+// Validate as a generic SM name; the backend's normalize_name will
+// re-apply the prefix server-side, so we don't need to bake it into
+// this regex.
+const SM_NAME_RE = /^[a-z][a-z0-9-]*$/;
 
 function slugifyProviderName(name: string): string {
   const base = name
@@ -74,7 +83,7 @@ function slugifyProviderName(name: string): string {
 
 function defaultSecretName(providerName: string): string {
   const slug = slugifyProviderName(providerName);
-  return `watson-${slug}-api-key`;
+  return `${SM_PREFIX}${slug}-api-key`;
 }
 
 function extractSecretNameFromPath(path: string | null): string | null {
@@ -266,7 +275,7 @@ export function ProviderForm({
         }
         if (!SM_NAME_RE.test(smStoreName)) {
           setError(
-            "Secret name must match /^watson-[a-z0-9-]+$/ (lowercase, digits, hyphens; watson- prefix).",
+            "Secret name must match /^[a-z][a-z0-9-]*$/ (lowercase, digits, hyphens; the configured prefix is added server-side).",
           );
           return;
         }
@@ -300,7 +309,7 @@ export function ProviderForm({
         }
         if (!SM_NAME_RE.test(smStoreName)) {
           setError(
-            "Secret name must match /^watson-[a-z0-9-]+$/ (lowercase, digits, hyphens; watson- prefix).",
+            "Secret name must match /^[a-z][a-z0-9-]*$/ (lowercase, digits, hyphens; the configured prefix is added server-side).",
           );
           return;
         }
@@ -597,8 +606,8 @@ export function ProviderForm({
                       setSmStoreName(e.target.value);
                       setSmStoreNameDirty(true);
                     }}
-                    pattern="^watson-[a-z0-9-]+$"
-                    title="Must match ^watson-[a-z0-9-]+$"
+                    pattern="^[a-z][a-z0-9-]*$"
+                    title="Must match ^[a-z][a-z0-9-]*$ — the configured prefix is added server-side"
                   />
                   <p className="mt-1 text-xs text-indigo-300">
                     Token will auto-refresh in the background. Stored as a
@@ -636,12 +645,12 @@ export function ProviderForm({
                       setSmStoreName(e.target.value);
                       setSmStoreNameDirty(true);
                     }}
-                    pattern="^watson-[a-z0-9-]+$"
-                    title="Must match ^watson-[a-z0-9-]+$"
+                    pattern="^[a-z][a-z0-9-]*$"
+                    title="Must match ^[a-z][a-z0-9-]*$ — the configured prefix is added server-side"
                   />
                   <p className="mt-1 text-xs text-slate-500">
                     Stored in Secret Manager with labels{" "}
-                    <span className="font-mono">app=watson, kind=api-key</span>.
+                    <span className="font-mono">app=gclaw, kind=api-key</span>.
                     The provider will be saved with the{" "}
                     <span className="font-mono">/versions/latest</span> path.
                   </p>

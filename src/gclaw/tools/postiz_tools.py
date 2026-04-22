@@ -35,8 +35,8 @@ def set_postiz_config(
     base_url: str,
     reviewer_url: str,
     api_token: str,
-    channel_scott: str,
-    channel_apex: str,
+    channel_primary: str,
+    channel_secondary: str,
 ) -> None:
     """Inject runtime configuration. Called once from ``main.py``."""
     global _config
@@ -44,8 +44,8 @@ def set_postiz_config(
         "base_url": base_url.rstrip("/"),
         "reviewer_url": reviewer_url.rstrip("/"),
         "api_token": api_token,
-        "channel_scott": channel_scott,
-        "channel_apex": channel_apex,
+        "channel_primary": channel_primary,
+        "channel_secondary": channel_secondary,
     }
 
 
@@ -155,7 +155,7 @@ async def postiz_create_draft(
         image_ids_json: JSON array of ``[{"id": "...", "path": "..."}]``
             objects from prior upload responses.
         channel_id: Postiz integration/channel ID.  Defaults to
-            ``channel_scott`` from config when empty.
+            ``channel_primary`` from config when empty.
         date: ISO-format publish date.  Defaults to now + 1 day.
 
     Returns:
@@ -171,7 +171,7 @@ async def postiz_create_draft(
     except json.JSONDecodeError as e:
         return _err("create_draft", e)
 
-    effective_channel = channel_id or cfg.get("channel_scott", "")
+    effective_channel = channel_id or cfg.get("channel_primary", "")
     if not effective_channel:
         return "Postiz create_draft failed: no channel_id provided and no default configured"
 

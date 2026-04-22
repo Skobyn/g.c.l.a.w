@@ -3,7 +3,7 @@
 /**
  * Agent selector — collapsible tree with orchestrator at the top.
  *
- * Watson (orchestrator) is always visible. Sub-agents are grouped in
+ * The root orchestrator is always visible. Sub-agents are grouped in
  * a collapsible "SUB AGENTS" folder. If any sub-agent is a manager
  * (name ends with `-mgr`), it could in turn have nested specialists,
  * shown in their own collapsible folder.

@@ -238,11 +238,20 @@ class Settings:
     postiz_reviewer_url: str = field(
         default_factory=lambda: os.environ.get("POSTIZ_REVIEWER_URL", "")
     )
-    postiz_channel_scott: str = field(
-        default_factory=lambda: os.environ.get("POSTIZ_CHANNEL_SCOTT", "")
+    # Generic primary/secondary channel slots — historical names
+    # POSTIZ_CHANNEL_SCOTT/APEX are still accepted as fallbacks so
+    # legacy deployments don't need a coordinated cutover.
+    postiz_channel_primary: str = field(
+        default_factory=lambda: (
+            os.environ.get("POSTIZ_CHANNEL_PRIMARY")
+            or os.environ.get("POSTIZ_CHANNEL_SCOTT", "")
+        )
     )
-    postiz_channel_apex: str = field(
-        default_factory=lambda: os.environ.get("POSTIZ_CHANNEL_APEX", "")
+    postiz_channel_secondary: str = field(
+        default_factory=lambda: (
+            os.environ.get("POSTIZ_CHANNEL_SECONDARY")
+            or os.environ.get("POSTIZ_CHANNEL_APEX", "")
+        )
     )
     # Observability — OpenTelemetry + OpenInference. OFF by default; when
     # OBSERVABILITY_ENABLED=true the main.py composition root calls

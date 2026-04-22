@@ -114,8 +114,8 @@ export class ApiClient {
   /** Send a chat message and get the agent response.
    *
    * `agentName` is optional — omit it (or pass null) to hit the
-   * default orchestrator runner. Pass an agent name like "intel" or
-   * "content-scott" to talk directly to that agent.
+   * default orchestrator runner. Pass an agent name like "dev-mgr"
+   * or "content-mgr" to talk directly to that agent.
    */
   async chat(
     sessionId: string,

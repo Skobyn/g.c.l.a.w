@@ -92,26 +92,26 @@ def _fake_client():
     client.get_secret.side_effect = _NotFoundExc("missing")
     # add_secret_version returns an object with .name
     resp = MagicMock()
-    resp.name = "projects/p/secrets/watson-foo/versions/3"
+    resp.name = "projects/p/secrets/gclaw-foo/versions/3"
     client.add_secret_version.return_value = resp
     return client
 
 
 def test_normalize_name_adds_prefix():
-    assert SecretManagerService.normalize_name("openai-key") == "watson-openai-key"
+    assert SecretManagerService.normalize_name("openai-key") == "gclaw-openai-key"
 
 
 def test_normalize_name_keeps_prefix():
     assert (
-        SecretManagerService.normalize_name("watson-openai-key")
-        == "watson-openai-key"
+        SecretManagerService.normalize_name("gclaw-openai-key")
+        == "gclaw-openai-key"
     )
 
 
 def test_normalize_name_lowercases_and_strips():
     assert (
         SecretManagerService.normalize_name("OpenAI_API KEY!")
-        == "watson-openai-api-key"
+        == "gclaw-openai-api-key"
     )
 
 
@@ -129,24 +129,24 @@ def test_write_creates_secret_then_adds_version():
     with _install_fake_gcloud(client):
         result = svc.write(name="openai-key", value="sk-abc")
 
-    assert result["name"] == "watson-openai-key"
-    assert result["path"] == "projects/p/secrets/watson-openai-key/versions/latest"
+    assert result["name"] == "gclaw-openai-key"
+    assert result["path"] == "projects/p/secrets/gclaw-openai-key/versions/latest"
     assert result["created_secret"] is True
     assert result["version_id"] == "3"
 
     # create_secret invoked once with correct labels
     create_req = client.create_secret.call_args.kwargs["request"]
     assert create_req["parent"] == "projects/p"
-    assert create_req["secret_id"] == "watson-openai-key"
+    assert create_req["secret_id"] == "gclaw-openai-key"
     assert create_req["secret"]["labels"] == {
-        "app": "watson",
+        "app": "gclaw",
         "kind": "api-key",
     }
     assert create_req["secret"]["replication"] == {"automatic": {}}
 
     # add_secret_version invoked with bytes payload
     ver_req = client.add_secret_version.call_args.kwargs["request"]
-    assert ver_req["parent"] == "projects/p/secrets/watson-openai-key"
+    assert ver_req["parent"] == "projects/p/secrets/gclaw-openai-key"
     assert ver_req["payload"]["data"] == b"sk-abc"
 
 
@@ -197,7 +197,7 @@ def test_rotate_adds_version_only():
         result = svc.rotate(name="openai-key", value="sk-new")
 
     client.create_secret.assert_not_called()
-    assert result["name"] == "watson-openai-key"
+    assert result["name"] == "gclaw-openai-key"
     assert result["version_id"] == "3"
 
 
@@ -213,18 +213,20 @@ def test_permission_denied_on_write_surfaces_helpful_message():
     assert "roles/secretmanager" in str(exc.value)
 
 
-def test_list_returns_watson_prefixed_and_labeled_secrets():
+def test_list_returns_prefixed_and_labeled_secrets():
     """list_gclaw_secrets unions labelled secrets with anything
-    prefixed `watson-` — so shared watson secrets created outside
-    GClaw still show up in the admin list."""
+    matching the configured SECRET_NAME_PREFIX — so shared gclaw
+    secrets created outside the admin UI still show up in the list.
+    The legacy `app=watson` label is still accepted to avoid surprise
+    when migrating from pre-rename deployments."""
     client = _fake_client()
 
     # matches via name prefix
     prefixed = MagicMock()
-    prefixed.name = "projects/p/secrets/watson-openai-key"
+    prefixed.name = "projects/p/secrets/gclaw-openai-key"
     prefixed.labels = {}
 
-    # matches via label
+    # matches via legacy label
     labelled = MagicMock()
     labelled.name = "projects/p/secrets/some-random-name"
     labelled.labels = {"app": "watson", "kind": "api-key"}
@@ -250,11 +252,11 @@ def test_list_returns_watson_prefixed_and_labeled_secrets():
     assert "filter" not in list_req
 
     names = {i["name"] for i in items}
-    assert names == {"watson-openai-key", "some-random-name"}
-    openai = next(i for i in items if i["name"] == "watson-openai-key")
+    assert names == {"gclaw-openai-key", "some-random-name"}
+    openai = next(i for i in items if i["name"] == "gclaw-openai-key")
     assert (
         openai["path"]
-        == "projects/p/secrets/watson-openai-key/versions/latest"
+        == "projects/p/secrets/gclaw-openai-key/versions/latest"
     )
     assert openai["latest_version_created_at"] == ts.isoformat()
 

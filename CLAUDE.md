@@ -51,8 +51,9 @@ npm run test:watch
 # Build locally
 docker build -t gclaw .
 
-# Cloud Build → Artifact Registry → Cloud Run (deploys to apex-internal-apps)
-gcloud builds submit --project apex-internal-apps --config cloudbuild.yaml
+# Cloud Build → Artifact Registry → Cloud Run (see scripts/deploy.sh
+# for the full env-var-driven wrapper; below is the bare gcloud form).
+gcloud builds submit --project <your-gcp-project> --config cloudbuild.yaml
 ```
 
 The Dockerfile also installs the `gh` and `gws` (Google Workspace) CLIs — the dev and workspace managers shell out to them as tools.
@@ -106,7 +107,7 @@ Key packages under `src/gclaw/`:
 
 ## GCP footprint
 
-Everything — Cloud Run, Artifact Registry, Firestore, Firebase Auth, GCS buckets, secrets, service accounts — lives in **`apex-internal-apps`**. GClaw does not cross project boundaries. `apexfoundation` and `saltwater-sync` are out of scope.
+Everything — Cloud Run, Artifact Registry, Firestore, Firebase Auth, GCS buckets, secrets, service accounts — lives in **a single GCP project per deployment**. GClaw does not cross project boundaries. The project ID is supplied via the `_PROJECT_ID` Cloud Build substitution (or the `GCP_PROJECT_ID` env var at runtime); see `scripts/bootstrap-gcp.sh` for the one-time provisioning steps.
 
 ## Environment & settings
 

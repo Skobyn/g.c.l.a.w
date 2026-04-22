@@ -118,8 +118,10 @@ two ways to populate them on a fresh project:
    running backend to use the UI), so seed via CLI first.
 
 Either path goes through the same `SecretManagerService` and writes
-to the same canonical names. Default name prefix is `watson-` (see
-`docs/SECRETS_MIGRATION.md` to change it for your fork).
+to the same canonical names. Default name prefix is `gclaw-` (e.g.
+`gclaw-openai-api-key`). Override with `SECRET_NAME_PREFIX` in your
+deploy env if you have legacy SM resources under a different prefix
+you don't want to migrate — see `docs/SECRETS_MIGRATION.md`.
 
 ## Skills
 

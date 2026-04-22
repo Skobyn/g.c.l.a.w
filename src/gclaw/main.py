@@ -378,8 +378,8 @@ def build_app():
             base_url=settings.postiz_base_url,
             reviewer_url=settings.postiz_reviewer_url,
             api_token=postiz_token,
-            channel_scott=settings.postiz_channel_scott,
-            channel_apex=settings.postiz_channel_apex,
+            channel_primary=settings.postiz_channel_primary,
+            channel_secondary=settings.postiz_channel_secondary,
         )
         logger.info("postiz: tools configured (base=%s)", settings.postiz_base_url)
 

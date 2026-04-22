@@ -19,7 +19,7 @@ import logging
 import os
 from pathlib import Path
 
-from gclaw.migrate.seed_secrets import SECRETS, SecretSpec, sm_path
+from gclaw.migrate.seed_secrets import SECRETS, SecretSpec, _prefixed, sm_path
 
 logger = logging.getLogger(__name__)
 
@@ -29,15 +29,16 @@ TMP_DIR = Path("/tmp")
 
 def _fetch_secret(project: str, spec: SecretSpec) -> str | None:
     """Return the latest version's value for ``spec``, or None on any failure."""
+    full = _prefixed(spec.name)
     try:
         from google.cloud import secretmanager  # type: ignore
 
         client = secretmanager.SecretManagerServiceClient()
-        resp = client.access_secret_version(name=sm_path(project, spec.name))
+        resp = client.access_secret_version(name=sm_path(project, full))
         return resp.payload.data.decode("utf-8")
     except Exception as exc:
         logger.info(
-            "secret-bootstrap: %s not loaded (%s)", spec.name, exc.__class__.__name__
+            "secret-bootstrap: %s not loaded (%s)", full, exc.__class__.__name__
         )
         return None
 
@@ -62,19 +63,20 @@ def bootstrap_secrets(
         if spec.bootstrap == "none":
             continue
 
+        full = _prefixed(spec.name)
         value = _fetch_secret(project, spec)
         if value is None:
-            skipped.append(spec.name)
+            skipped.append(full)
             continue
 
         try:
             if spec.bootstrap == "env":
                 os.environ[spec.env_alias] = value
-                applied.append(f"{spec.name}→env:{spec.env_alias}")
+                applied.append(f"{full}→env:{spec.env_alias}")
 
             elif spec.bootstrap == "file":
                 if not spec.bootstrap_path:
-                    raise ValueError(f"{spec.name} bootstrap=file but no bootstrap_path")
+                    raise ValueError(f"{full} bootstrap=file but no bootstrap_path")
                 tmp_dir.mkdir(parents=True, exist_ok=True)
                 target = tmp_dir / spec.bootstrap_path
                 # Write with 0600 so only this process/user can read.
@@ -88,23 +90,23 @@ def bootstrap_secrets(
                 finally:
                     os.close(fd)
                 os.environ[spec.env_alias] = str(target)
-                applied.append(f"{spec.name}→file:{target}")
+                applied.append(f"{full}→file:{target}")
 
             else:
                 logger.warning(
                     "secret-bootstrap: unknown bootstrap mode %r for %s",
                     spec.bootstrap,
-                    spec.name,
+                    full,
                 )
-                failed.append(spec.name)
+                failed.append(full)
 
         except Exception as exc:
             logger.warning(
                 "secret-bootstrap: failed to apply %s (%s)",
-                spec.name,
+                full,
                 exc,
             )
-            failed.append(spec.name)
+            failed.append(full)
 
     logger.info(
         "secret-bootstrap: applied=%d skipped=%d failed=%d",

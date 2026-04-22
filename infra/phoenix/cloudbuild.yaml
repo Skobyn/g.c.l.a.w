@@ -12,17 +12,17 @@
 #   - VPC connector `gclaw-connector` (shared with the backend)
 
 substitutions:
-  # Override these for non-upstream deployments — defaults reflect the
-  # `apex-internal-apps` upstream so the existing trigger keeps working.
-  _PROJECT_ID: apex-internal-apps
+  # All values must be supplied via --substitutions (see
+  # infra/phoenix/README.md for the full deploy invocation).
+  _PROJECT_ID: ""
   _REGION: us-central1
-  _IMAGE: us-central1-docker.pkg.dev/apex-internal-apps/gclaw/phoenix
+  _IMAGE: ""
   _SERVICE: phoenix
-  _SERVICE_ACCOUNT: phoenix-run-sa@apex-internal-apps.iam.gserviceaccount.com
-  # Reusing the existing n8n-vpc connector (default network, 10.8.0.0/28)
-  # instead of standing up a dedicated gclaw-connector. Cloud Run
-  # supports many services per connector, and the saving is ~$10/mo.
-  _VPC_CONNECTOR: n8n-vpc
+  _SERVICE_ACCOUNT: ""
+  # Serverless VPC connector. Phoenix needs one to receive OTLP traffic
+  # from the backend's internal-ingress; supply the connector name here
+  # (or reuse one shared with the gclaw backend service).
+  _VPC_CONNECTOR: ""
 
 steps:
   - id: build

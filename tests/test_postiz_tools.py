@@ -19,8 +19,8 @@ def _configure_postiz():
         base_url="https://postiz.test",
         reviewer_url="https://reviewer.test",
         api_token="test-token-abc",
-        channel_scott="ch-scott-123",
-        channel_apex="ch-apex-456",
+        channel_primary="ch-primary-123",
+        channel_secondary="ch-secondary-456",
     )
     yield
     postiz_tools._config = {}
@@ -91,7 +91,7 @@ async def test_upload_image_file_not_found():
 async def test_create_draft_success():
     mock_resp = _mock_response(
         200,
-        [{"postId": "post-42", "integration": "ch-scott-123"}],
+        [{"postId": "post-42", "integration": "ch-primary-123"}],
     )
     mock_client = AsyncMock()
     mock_client.post.return_value = mock_resp
@@ -104,7 +104,7 @@ async def test_create_draft_success():
         result = await postiz_tools.postiz_create_draft(
             content="Hello LinkedIn!",
             image_ids_json=images,
-            channel_id="ch-scott-123",
+            channel_id="ch-primary-123",
             date="2026-04-16T12:00:00.000Z",
         )
 
@@ -116,7 +116,7 @@ async def test_create_draft_success():
     assert sent_payload["type"] == "draft"
     assert sent_payload["shortLink"] is False
     assert sent_payload["tags"] == []
-    assert sent_payload["posts"][0]["integration"]["id"] == "ch-scott-123"
+    assert sent_payload["posts"][0]["integration"]["id"] == "ch-primary-123"
     assert sent_payload["posts"][0]["value"][0]["content"] == "Hello LinkedIn!"
     assert sent_payload["posts"][0]["value"][0]["image"] == [
         {"id": "img-1", "path": "https://cdn/img-1.png"}
@@ -128,7 +128,7 @@ async def test_create_draft_success():
 
 @pytest.mark.asyncio
 async def test_create_draft_default_channel():
-    """When channel_id is empty, uses channel_scott from config."""
+    """When channel_id is empty, uses channel_primary from config."""
     mock_resp = _mock_response(200, [{"postId": "post-99"}])
     mock_client = AsyncMock()
     mock_client.post.return_value = mock_resp
@@ -146,7 +146,7 @@ async def test_create_draft_default_channel():
 
     call_kwargs = mock_client.post.call_args
     sent_payload = call_kwargs.kwargs["json"]
-    assert sent_payload["posts"][0]["integration"]["id"] == "ch-scott-123"
+    assert sent_payload["posts"][0]["integration"]["id"] == "ch-primary-123"
 
 
 @pytest.mark.asyncio

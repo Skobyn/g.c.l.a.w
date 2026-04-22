@@ -8,6 +8,7 @@ node_modules/
 .env
 .env.local
 web/.env.local
+.firebaserc.local
 tmp/
 
 # Agent / orchestration tool artifacts

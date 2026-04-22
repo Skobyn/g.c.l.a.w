@@ -70,7 +70,7 @@ export default function LoginPage() {
               <span>Sign in with Google</span>
             </button>
             <p className="mt-6 font-mono text-[10px] uppercase tracking-[0.16em] text-paper-40">
-              APEX-INTERNAL-APPS · PERSONAL USE ONLY
+              {(process.env.NEXT_PUBLIC_GCP_PROJECT_ID || "GCLAW").toUpperCase()} · PERSONAL USE ONLY
             </p>
           </div>
         </div>

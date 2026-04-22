@@ -24,11 +24,12 @@ logger = logging.getLogger(__name__)
 
 
 _NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
-# Secret name prefix. Defaults to ``watson-`` for the upstream maintainer's
-# legacy resources; forks should set ``SECRET_NAME_PREFIX`` to their own
-# project namespace (e.g. ``gclaw-``) before bootstrapping. See
-# ``docs/SECRETS_MIGRATION.md`` for the migration recipe.
-_NAME_PREFIX = os.environ.get("SECRET_NAME_PREFIX", "watson-")
+# Secret name prefix. Defaults to ``gclaw-`` (canonical). Override
+# with ``SECRET_NAME_PREFIX`` env var if you have legacy SM resources
+# under a different prefix you don't want to migrate (e.g. set to
+# ``watson-`` to keep reading upstream pre-rename resources). See
+# ``docs/SECRETS_MIGRATION.md``.
+_NAME_PREFIX = os.environ.get("SECRET_NAME_PREFIX", "gclaw-")
 _INVALID_CHARS = re.compile(r"[^a-z0-9-]")
 _MAX_NAME_LEN = 255
 
@@ -81,7 +82,7 @@ class SecretManagerService:
         """Lowercase, strip invalid chars, ensure the configured prefix.
 
         The prefix comes from ``SECRET_NAME_PREFIX`` env (default
-        ``watson-`` for backwards compat).
+        ``gclaw-``).
         """
         if not raw:
             raise ValueError("secret name is required")
@@ -156,7 +157,7 @@ class SecretManagerService:
                     "secret_id": name,
                     "secret": {
                         "replication": {"automatic": {}},
-                        "labels": {"app": "watson", "kind": "api-key"},
+                        "labels": {"app": "gclaw", "kind": "api-key"},
                     },
                 }
             )
@@ -227,10 +228,10 @@ class SecretManagerService:
         """List secrets GClaw has visibility into.
 
         Union of:
-          - secrets labelled ``app=watson`` (legacy) or ``app=gclaw``
-            (canonical for newer deployments), and
+          - secrets labelled ``app=gclaw`` (canonical) or ``app=watson``
+            (legacy upstream label kept for backwards compat), and
           - any secret whose name starts with the configured
-            ``SECRET_NAME_PREFIX`` (default ``watson-``).
+            ``SECRET_NAME_PREFIX`` (default ``gclaw-``).
 
         Names + latest-version timestamps only.
         """

@@ -1,1 +1,4 @@
-{"projects": {"default": "apex-internal-apps"}}
+{
+  "_comment": "Override with .firebaserc.local (gitignored) or `firebase use --add <your-project>`. The empty default lets the public repo ship without a hardcoded project alias.",
+  "projects": {}
+}

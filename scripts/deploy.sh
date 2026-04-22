@@ -6,7 +6,8 @@
 # Usage:
 #   ./scripts/deploy.sh <PROJECT_ID> [REGION]
 #
-# Optional environment variables:
+# Optional environment variables (each maps to a Cloud Build
+# substitution; unset = leave default in cloudbuild.yaml empty):
 #   OVERLAY                  Path to your private overlay repo. If set
 #                            and the directory exists, files are rsync'd
 #                            on top of the working tree before build.
@@ -17,21 +18,24 @@
 #                            from bootstrap-gcp.sh step 6.
 #   POSTIZ_BASE_URL          Base URL of your Postiz instance.
 #   POSTIZ_REVIEWER_URL      Reviewer Cloud Run URL (if separate).
-#   POSTIZ_CHANNEL_PRIMARY   Primary channel ID (legacy env name:
-#                            POSTIZ_CHANNEL_SCOTT — see settings.py).
-#   POSTIZ_CHANNEL_SECONDARY Secondary channel ID (legacy:
-#                            POSTIZ_CHANNEL_APEX).
+#   POSTIZ_CHANNEL_PRIMARY   Primary Postiz channel ID.
+#   POSTIZ_CHANNEL_SECONDARY Secondary Postiz channel ID.
 #   VPC_CONNECTOR            VPC connector name (only if reaching
 #                            internal-only Cloud Run services).
-#
-# Each env var maps to a Cloud Build substitution; unset = use the
-# default in cloudbuild.yaml.
+#   SECRET_NAME_PREFIX       SM resource prefix (default "gclaw-").
+#                            Set to "watson-" to keep reading legacy
+#                            upstream resources.
+#   OVERLAY_RESET_PATHS      Space-separated paths git-clean removes
+#                            after deploy (defaults to "user.md" — add
+#                            any overlay-only directories you don't
+#                            want left in the public clone afterward).
 
 set -euo pipefail
 
 PROJECT_ID="${1:?Usage: $0 <PROJECT_ID> [REGION]}"
 REGION="${2:-us-central1}"
 OVERLAY="${OVERLAY:-${HOME}/dev/gclaw-overlay}"
+OVERLAY_RESET_PATHS="${OVERLAY_RESET_PATHS:-user.md}"
 
 cd "$(dirname "$0")/.."
 
@@ -62,8 +66,9 @@ SUBS+=",_SERVICE_ACCOUNT=gclaw-run-sa@${PROJECT_ID}.iam.gserviceaccount.com"
 [[ -n "${VPC_CONNECTOR:-}" ]]            && SUBS+=",_VPC_CONNECTOR=${VPC_CONNECTOR}"
 [[ -n "${POSTIZ_BASE_URL:-}" ]]          && SUBS+=",_POSTIZ_BASE_URL=${POSTIZ_BASE_URL}"
 [[ -n "${POSTIZ_REVIEWER_URL:-}" ]]      && SUBS+=",_POSTIZ_REVIEWER_URL=${POSTIZ_REVIEWER_URL}"
-[[ -n "${POSTIZ_CHANNEL_PRIMARY:-}" ]]   && SUBS+=",_POSTIZ_CHANNEL_SCOTT=${POSTIZ_CHANNEL_PRIMARY}"
-[[ -n "${POSTIZ_CHANNEL_SECONDARY:-}" ]] && SUBS+=",_POSTIZ_CHANNEL_APEX=${POSTIZ_CHANNEL_SECONDARY}"
+[[ -n "${POSTIZ_CHANNEL_PRIMARY:-}" ]]   && SUBS+=",_POSTIZ_CHANNEL_PRIMARY=${POSTIZ_CHANNEL_PRIMARY}"
+[[ -n "${POSTIZ_CHANNEL_SECONDARY:-}" ]] && SUBS+=",_POSTIZ_CHANNEL_SECONDARY=${POSTIZ_CHANNEL_SECONDARY}"
+[[ -n "${SECRET_NAME_PREFIX:-}" ]]       && SUBS+=",_SECRET_NAME_PREFIX=${SECRET_NAME_PREFIX}"
 
 # 3 — Submit
 echo "==> Submitting Cloud Build to project ${PROJECT_ID}"
@@ -77,9 +82,11 @@ gcloud builds submit \
 if [[ -d "${OVERLAY}" ]]; then
   echo "==> Resetting working tree to clean framework state"
   git checkout -- .
-  git clean -fd \
-    user.md \
-    skills/lyons-blog-pipeline 2>/dev/null || true
+  # OVERLAY_RESET_PATHS removes any files/dirs the overlay added that
+  # don't exist in the public framework. Defaults to user.md; extend
+  # via env for skill directories or anything else overlay-only.
+  # shellcheck disable=SC2086
+  git clean -fd ${OVERLAY_RESET_PATHS} 2>/dev/null || true
 fi
 
 echo "==> Done. Cloud Run will serve the new revision once build + deploy finish."

@@ -2,7 +2,7 @@
 title: Orchestration Refactor — AgentTool, Composed Workflows, LiteLlm Unification
 date: 2026-04-10
 status: approved
-author: skobyn (brainstormed with Claude)
+author: maintainer (brainstormed with Claude)
 supersedes_parts_of: docs/superpowers/plans/2026-04-04-multi-provider-routing.md
 ---
 

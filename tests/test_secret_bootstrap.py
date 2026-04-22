@@ -12,20 +12,22 @@ from gclaw.migrate.seed_secrets import SecretSpec
 
 
 def _make_fetch_stub(returns: dict[str, str | None]):
+    """Stub keyed by either bare name or full SECRET_NAME_PREFIX-prefixed name."""
     def stub(project, spec):
-        return returns.get(spec.name)
+        from gclaw.migrate.seed_secrets import _prefixed
+        return returns.get(spec.name) or returns.get(_prefixed(spec.name))
     return stub
 
 
 ENV_SPEC = SecretSpec(
-    name="watson-gh-token",
+    name="gh-token",
     description="GitHub PAT.",
     env_alias="GH_TOKEN",
     bootstrap="env",
 )
 
 FILE_SPEC = SecretSpec(
-    name="watson-gws-credentials",
+    name="gws-credentials",
     description="GWS JSON.",
     env_alias="GOOGLE_WORKSPACE_CREDENTIALS_FILE",
     bootstrap="file",
@@ -33,7 +35,7 @@ FILE_SPEC = SecretSpec(
 )
 
 NONE_SPEC = SecretSpec(
-    name="watson-openai-api-key",
+    name="openai-api-key",
     description="OpenAI.",
     env_alias="OPENAI_API_KEY",
     bootstrap="none",
@@ -46,7 +48,7 @@ def test_env_bootstrap_sets_env_var(monkeypatch, tmp_path):
 
     with patch(
         "gclaw.catalog.secret_bootstrap._fetch_secret",
-        side_effect=_make_fetch_stub({"watson-gh-token": "ghp_fake_token"}),
+        side_effect=_make_fetch_stub({"gh-token": "ghp_fake_token"}),
     ):
         result = bootstrap_secrets(
             project="p",
@@ -55,7 +57,7 @@ def test_env_bootstrap_sets_env_var(monkeypatch, tmp_path):
         )
 
     assert os.environ["GH_TOKEN"] == "ghp_fake_token"
-    assert result["applied"] == ["watson-gh-token→env:GH_TOKEN"]
+    assert result["applied"] == ["gclaw-gh-token→env:GH_TOKEN"]
     assert result["skipped"] == []
     assert result["failed"] == []
 
@@ -66,7 +68,7 @@ def test_file_bootstrap_writes_file_and_sets_env(monkeypatch, tmp_path):
 
     with patch(
         "gclaw.catalog.secret_bootstrap._fetch_secret",
-        side_effect=_make_fetch_stub({"watson-gws-credentials": payload}),
+        side_effect=_make_fetch_stub({"gws-credentials": payload}),
     ):
         result = bootstrap_secrets(
             project="p",
@@ -85,7 +87,7 @@ def test_file_bootstrap_writes_file_and_sets_env(monkeypatch, tmp_path):
 def test_none_bootstrap_ignored(tmp_path):
     with patch(
         "gclaw.catalog.secret_bootstrap._fetch_secret",
-        side_effect=_make_fetch_stub({"watson-openai-api-key": "sk-real"}),
+        side_effect=_make_fetch_stub({"openai-api-key": "sk-real"}),
     ) as fetch:
         result = bootstrap_secrets(
             project="p",
@@ -112,14 +114,14 @@ def test_missing_secret_recorded_as_skipped(monkeypatch, tmp_path):
         )
 
     assert "GH_TOKEN" not in os.environ
-    assert set(result["skipped"]) == {"watson-gh-token", "watson-gws-credentials"}
+    assert set(result["skipped"]) == {"gclaw-gh-token", "gclaw-gws-credentials"}
     assert result["applied"] == []
     assert result["failed"] == []
 
 
 def test_file_bootstrap_without_path_fails_gracefully(monkeypatch, tmp_path):
     bad_spec = SecretSpec(
-        name="watson-bad",
+        name="bad",
         description="",
         env_alias="BAD",
         bootstrap="file",
@@ -127,28 +129,28 @@ def test_file_bootstrap_without_path_fails_gracefully(monkeypatch, tmp_path):
     )
     with patch(
         "gclaw.catalog.secret_bootstrap._fetch_secret",
-        side_effect=_make_fetch_stub({"watson-bad": "value"}),
+        side_effect=_make_fetch_stub({"bad": "value"}),
     ):
         result = bootstrap_secrets(project="p", tmp_dir=tmp_path, specs=(bad_spec,))
 
-    assert result["failed"] == ["watson-bad"]
+    assert result["failed"] == ["gclaw-bad"]
     assert "BAD" not in os.environ
 
 
 def test_unknown_bootstrap_mode_logged_and_failed(tmp_path):
     weird_spec = SecretSpec(
-        name="watson-weird",
+        name="weird",
         description="",
         env_alias="WEIRD",
         bootstrap="telepathy",
     )
     with patch(
         "gclaw.catalog.secret_bootstrap._fetch_secret",
-        side_effect=_make_fetch_stub({"watson-weird": "v"}),
+        side_effect=_make_fetch_stub({"weird": "v"}),
     ):
         result = bootstrap_secrets(project="p", tmp_dir=tmp_path, specs=(weird_spec,))
 
-    assert result["failed"] == ["watson-weird"]
+    assert result["failed"] == ["gclaw-weird"]
 
 
 def test_fetch_secret_swallows_sdk_errors(tmp_path):
