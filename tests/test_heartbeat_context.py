@@ -195,3 +195,53 @@ def test_message_includes_my_queue_with_pickup_instruction(
     assert "Draft that email" in msg
     assert "get_board_task" in msg
     assert "complete_board_task" in msg
+
+
+def test_my_queue_includes_orphaned_in_progress_tasks(
+    board_service, cron_service,
+):
+    """IN_PROGRESS tasks assigned to me must surface in my_queue with
+    resume=True, sorted before queued ones. Without this the
+    orchestrator's get_board_task auto-pickup (4-step HIGH flow) can
+    flip a task to IN_PROGRESS and the assignee's heartbeat never sees
+    it again because the old filter was status==QUEUED only.
+    """
+    tasks = [
+        BoardTask(id="t_orphan", title="Orphaned in-flight",
+                  assignee="research-mgr", status=TaskStatus.IN_PROGRESS,
+                  priority=TaskPriority.MEDIUM),
+        BoardTask(id="t_high", title="New urgent",
+                  assignee="research-mgr", status=TaskStatus.QUEUED,
+                  priority=TaskPriority.HIGH),
+        BoardTask(id="t_other", title="Someone else's in-flight",
+                  assignee="dev-mgr", status=TaskStatus.IN_PROGRESS,
+                  priority=TaskPriority.HIGH),
+    ]
+    board_service.get_all_tasks.return_value = tasks
+    cron_service.list_all.return_value = []
+
+    g = HeartbeatContextGatherer(
+        board_service=board_service,
+        cron_service=cron_service,
+        agent_name="research-mgr",
+    )
+    ctx = g.gather()
+
+    # Orphan (in-progress) sorts before the queued HIGH because every
+    # minute it sits is a minute the user is staring at a stalled task.
+    ids = [t["id"] for t in ctx["my_queue"]]
+    assert ids == ["t_orphan", "t_high"]
+
+    orphan = ctx["my_queue"][0]
+    assert orphan["resume"] is True
+    queued = ctx["my_queue"][1]
+    assert queued["resume"] is False
+
+    msg = g.gather_as_message()
+    assert "RESUME" in msg
+    assert "t_orphan" in msg
+    # Resume guidance must instruct skipping get_board_task and going
+    # straight to complete_board_task.
+    assert "complete_board_task" in msg
+    # Header should call out the resume count.
+    assert "1 RESUME" in msg

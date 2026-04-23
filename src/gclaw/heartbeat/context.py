@@ -102,16 +102,28 @@ class HeartbeatContextGatherer:
 
         # Queue assigned to this specific agent (for per-manager heartbeat
         # auto-pickup). Sorted by priority (HIGH → LOW) then created_at ASC.
+        # Includes IN_PROGRESS items too — those are tasks that something
+        # else (often the orchestrator's get_board_task auto-pickup
+        # during the 4-step HIGH flow, or a previous heartbeat that
+        # crashed mid-run) flipped to IN_PROGRESS without completing.
+        # Without surfacing them here the assignee never resumes them
+        # and they sit IN_PROGRESS forever — that's the "researcher
+        # never picks up the task" bug. Marked with `resume=True` so
+        # the LLM knows to complete (or fail) rather than re-pickup.
         priority_rank = {"high": 0, "medium": 1, "low": 2}
         my_queue: list[dict] = []
         if self._agent_name:
             my_tasks = [
                 t for t in tasks
                 if t.assignee == self._agent_name
-                and t.status == TaskStatus.QUEUED
+                and t.status in (TaskStatus.QUEUED, TaskStatus.IN_PROGRESS)
             ]
             my_tasks.sort(
                 key=lambda t: (
+                    # Resume orphaned in-flight work first regardless
+                    # of priority — every minute it sits is a minute
+                    # the user is staring at a stalled task.
+                    0 if t.status == TaskStatus.IN_PROGRESS else 1,
                     priority_rank.get(t.priority.value, 99),
                     t.created_at,
                 )
@@ -122,6 +134,7 @@ class HeartbeatContextGatherer:
                     "title": t.title,
                     "priority": t.priority.value,
                     "description": t.description or "",
+                    "resume": t.status == TaskStatus.IN_PROGRESS,
                 }
                 for t in my_tasks
             ]
@@ -205,28 +218,43 @@ class HeartbeatContextGatherer:
         # Per-agent pending queue — only surfaced when we know our own
         # agent name. Managers act on this list autonomously: pick the
         # top task, call get_board_task (auto-picks up), do the work,
-        # call complete_board_task.
+        # call complete_board_task. Tasks already IN_PROGRESS are
+        # marked RESUME — call complete_board_task directly without a
+        # fresh get_board_task pickup.
         my_queue = ctx.get("my_queue") or []
         agent_name = ctx.get("agent_name")
         if agent_name and my_queue:
+            resume_count = sum(1 for tk in my_queue if tk.get("resume"))
+            queued_count = len(my_queue) - resume_count
+            header = f"### Your Pending Queue ({agent_name}) — {len(my_queue)} task(s)"
+            if resume_count:
+                header += f" · {resume_count} RESUME"
             parts.append("")
-            parts.append(
-                f"### Your Pending Queue ({agent_name}) — {len(my_queue)} task(s)"
-            )
+            parts.append(header)
             for tk in my_queue:
+                tag = " [RESUME — already in-progress]" if tk.get("resume") else ""
                 parts.append(
-                    f"- [{tk['id']}] {tk['title']} (priority: {tk['priority']})"
+                    f"- [{tk['id']}] {tk['title']} (priority: {tk['priority']}){tag}"
                 )
                 if tk.get("description"):
                     parts.append(f"    > {tk['description'][:200]}")
             parts.append("")
+            if resume_count:
+                parts.append(
+                    "**Resume the [RESUME] task(s) FIRST** — they are already "
+                    "in-progress (something flipped them but never finished). "
+                    "Skip `get_board_task` and call `complete_board_task("
+                    "task_id, summary)` directly when you have a result. If "
+                    "the task can't be done, call `fail_board_task("
+                    "task_id, reason)` so it doesn't sit stuck."
+                )
+                parts.append("")
             parts.append(
-                "**Work the top task now:** call `get_board_task` on its id "
-                "(this auto-transitions it to in-progress), do the work with "
-                "your tools, then call `complete_board_task(task_id, summary)` "
-                "when done. If you can't make progress, call "
-                "`fail_board_task(task_id, reason)` instead. Process one "
-                "task per heartbeat — the next cycle will take the next one."
+                "**Then take the top queued task:** call `get_board_task` on "
+                "its id (this auto-transitions it to in-progress), do the work "
+                "with your tools, then call `complete_board_task(task_id, "
+                "summary)` when done. Process one task per heartbeat — the "
+                "next cycle will take the next one."
             )
 
         parts.append("")
