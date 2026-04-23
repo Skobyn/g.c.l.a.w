@@ -193,6 +193,45 @@ else
   echo "  ✓ created"
 fi
 
+# 7b — Cloud NAT on the VPC the connector lives in.
+#
+# The backend Cloud Run service is deployed with --vpc-egress=all-traffic
+# (required for Phoenix's internal-only ingress to accept OTLP traces),
+# which routes ALL outbound traffic through the VPC connector — not just
+# RFC-1918. *.googleapis.com and *.run.app still work via Private Google
+# Access, but any other public API (Anthropic, GitHub Copilot, OpenRouter,
+# etc.) has no route to the internet and hangs.
+#
+# A Cloud NAT on the same VPC (default network, us-central1 region) gives
+# the connector a path to public hosts without sacrificing Phoenix. This
+# must exist for any project that runs non-Gemini models.
+NAT_ROUTER="gclaw-nat-router"
+NAT_CONFIG="gclaw-nat"
+say "Ensuring Cloud NAT ${NAT_CONFIG} on default VPC (required for non-Gemini model egress)"
+if gcloud compute routers describe "${NAT_ROUTER}" \
+     --region="${REGION}" --project="${PROJECT_ID}" >/dev/null 2>&1; then
+  echo "  router ${NAT_ROUTER} already exists — skipping router create"
+else
+  gcloud compute routers create "${NAT_ROUTER}" \
+    --project="${PROJECT_ID}" \
+    --region="${REGION}" \
+    --network=default
+  echo "  ✓ router ${NAT_ROUTER} created"
+fi
+if gcloud compute routers nats describe "${NAT_CONFIG}" \
+     --router="${NAT_ROUTER}" --region="${REGION}" \
+     --project="${PROJECT_ID}" >/dev/null 2>&1; then
+  echo "  NAT ${NAT_CONFIG} already exists — skipping nat create"
+else
+  gcloud compute routers nats create "${NAT_CONFIG}" \
+    --project="${PROJECT_ID}" \
+    --region="${REGION}" \
+    --router="${NAT_ROUTER}" \
+    --auto-allocate-nat-external-ips \
+    --nat-all-subnet-ip-ranges
+  echo "  ✓ NAT ${NAT_CONFIG} created (auto-allocated external IPs, all subnets)"
+fi
+
 # 8 — Cloud Build SA permissions for Phoenix deploy
 say "Granting Cloud Build SA permission to deploy Phoenix"
 PROJECT_NUMBER=$(gcloud projects describe "${PROJECT_ID}" \
@@ -238,8 +277,11 @@ Resources created:
   - DB: ${SQL_DB}  User: ${SQL_USER}
   - Secrets: ${SQL_URL_SECRET} (rotated), ${AUTH_SECRET_NAME}
   - VPC connector: ${VPC_CONNECTOR} (10.8.0.0/28)
+  - Cloud Router: ${NAT_ROUTER} (on default VPC)
+  - Cloud NAT: ${NAT_CONFIG} (auto-IPs; required for non-Gemini model egress)
   - Cloud Build SA: roles/iam.serviceAccountUser on ${SA_NAME}
 
-Cost: Cloud SQL db_f1_micro ≈ \$10/mo. Set a budget alert:
+Cost: Cloud SQL db_f1_micro ≈ \$10/mo + Cloud NAT ≈ \$35/mo (1 NAT gateway
++ a few cents per GB egress). Set a budget alert:
   https://console.cloud.google.com/billing/budgets?project=${PROJECT_ID}
 EOF
