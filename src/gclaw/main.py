@@ -791,6 +791,13 @@ def build_app():
     )
     loader.set_override_provider(agent_config_service.get_override)
 
+    # Architect tools resolve their service handle through a module-level
+    # global so any agent that grabs the tools (today: agent-architect)
+    # gets a live reference. Wire it once here at boot — same pattern as
+    # the user_profile / context / postiz tool modules.
+    from gclaw.tools.agent_architect_tools import set_agent_config_service
+    set_agent_config_service(agent_config_service)
+
     factory = AgentFactory(
         loader=loader,
         default_model=settings.gemini_flash_model,

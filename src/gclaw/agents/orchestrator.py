@@ -16,6 +16,7 @@ from gclaw.board.service import BoardService
 from gclaw.models.task import TaskStatus
 from gclaw.routing.router import ModelRouter
 from gclaw.tools import (
+    agent_architect_tools,
     comms_tools,
     context_tools,
     image_gen_tools,
@@ -329,6 +330,17 @@ def build_managers(
         user_profile_tools.update_user_profile,
     ] + ctx_tools
 
+    aa_tools = [
+        agent_architect_tools.read_agent_file,
+        agent_architect_tools.read_soul_file,
+        agent_architect_tools.list_agent_files,
+        agent_architect_tools.list_registered_agents,
+        agent_architect_tools.write_agent_file,
+        agent_architect_tools.write_soul_file,
+        agent_architect_tools.register_standalone_agent,
+        agent_architect_tools.update_agent_model,
+    ] + board_tools + ctx_tools
+
     def _recall_cb(agent_id: str) -> Any:
         if memory_service is None:
             return None
@@ -373,6 +385,11 @@ def build_managers(
          "Runs the social-content pipeline for the Apex brand channel. "
          "Pins POSTIZ_CHANNEL_SECONDARY; never posts to the Scott "
          "channel.", False),
+        ("agent_architect", "agent-architect", "agent-architect", aa_tools,
+         "Designs and registers new agents in-process. Use when the "
+         "user asks to build/create a new specialist or manager. "
+         "Stages drafts, requires explicit approval before registration.",
+         False),
     ]
 
     managers: dict[str, Any] = {}
@@ -464,7 +481,12 @@ def build_orchestrator(
         agent_tool.AgentTool(agent=managers["research_mgr"]),
         agent_tool.AgentTool(agent=managers["profile_mgr"]),
     ]
-    for optional_key in ("content_mgr", "content_scott", "content_apex"):
+    for optional_key in (
+        "content_mgr",
+        "content_scott",
+        "content_apex",
+        "agent_architect",
+    ):
         if optional_key in managers:
             orchestrator_tools.append(
                 agent_tool.AgentTool(agent=managers[optional_key])
