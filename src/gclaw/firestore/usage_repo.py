@@ -62,10 +62,20 @@ class UsageRepo:
         since: datetime | None = None,
         user_id: str | None = None,
     ) -> list[UsageEvent]:
-        """Newest-first. Optional filters by kind and lower-bound timestamp."""
+        """Newest-first. Optional filters by kind and lower-bound timestamp.
+
+        Query shape: we order by timestamp (the only field we can
+        always index with a single-field index) and filter
+        ``kind`` in memory. Using the natural ``where kind == X AND
+        where timestamp >= Y ORDER BY timestamp DESC`` requires a
+        Firestore composite index (kind, timestamp) and Firestore
+        refuses the query with 400 when the index isn't provisioned.
+        This shape sidesteps that — the per-user collection sizes are
+        small enough (hundreds of events/day at peak) that the
+        over-fetch is trivial. If traffic grows we add the composite
+        index and flip back.
+        """
         q = self._collection_ref(user_id)
-        if kind is not None:
-            q = q.where("kind", "==", kind.value)
         if since is not None:
             q = q.where("timestamp", ">=", since)
         try:
@@ -74,14 +84,20 @@ class UsageRepo:
         except Exception:
             # MagicMock or a restricted client — chainable no-op.
             q = q.order_by("timestamp")
-        q = q.limit(limit)
+        # Over-fetch when filtering by kind so we still return
+        # ``limit`` events after the in-memory filter. 5× is fine at
+        # current scale.
+        fetch_limit = limit * 5 if kind is not None else limit
+        q = q.limit(fetch_limit)
         docs = list(q.stream())
         events = [
             UsageEvent.from_firestore_dict(d.id, d.to_dict()) for d in docs
         ]
+        if kind is not None:
+            events = [e for e in events if e.kind == kind]
         # Defensive in-memory sort — some fakes ignore order_by.
         events.sort(key=lambda e: e.timestamp, reverse=True)
-        return events
+        return events[:limit]
 
     def aggregate_by_name(
         self,

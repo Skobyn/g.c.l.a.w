@@ -150,13 +150,24 @@ class BoardService:
         artifacts: list[str] | None = None,
         user_id: str | None = None,
     ) -> BoardTask:
-        task = self._repo.get(task_id, user_id=self._uid(user_id))
+        uid = self._uid(user_id)
+        task = self._repo.get(task_id, user_id=uid)
         if task is None:
             raise ValueError(f"Task {task_id} not found")
+        # Real-world agents (notably heartbeat-driven manager runs)
+        # sometimes jump from the wake message straight to
+        # complete_board_task without a prior pickup. The model layer
+        # refuses QUEUED → DONE directly and the task gets stuck
+        # forever on that heartbeat agent. Transparently flip through
+        # IN_PROGRESS here so the caller sees DONE. task.picked_up
+        # still fires via ``pick_up``'s emit so the chat UI renders
+        # the correct lifecycle.
+        if task.status == TaskStatus.QUEUED:
+            task = self.pick_up(task_id, user_id=uid)
         completed = task.complete(TaskResult(
             summary=summary, artifacts=artifacts or []
         ))
-        saved = self._repo.update(completed, user_id=self._uid(user_id))
+        saved = self._repo.update(completed, user_id=uid)
         self._emit("task.completed", saved, summary=summary)
         return saved
 
