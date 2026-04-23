@@ -269,6 +269,93 @@ def force_fail_task(
     return task.model_dump(mode="json")
 
 
+@router.delete("/board/tasks/{task_id}")
+def delete_task(
+    task_id: str,
+    user_id: str = Depends(get_current_user_id),
+):
+    """Permanently delete a board task.
+
+    Use for bulk cleanup of stale retry pile-ups (heartbeat loops that
+    enqueued duplicate tasks, historical test runs, etc). There is no
+    lifecycle transition event — the task is removed, a ``task.deleted``
+    event fires so live UIs refresh counts.
+
+    Returns 404 when the task doesn't exist. No dry-run; this is a
+    one-way door.
+    """
+    if _board_service is None:
+        raise HTTPException(
+            status_code=503, detail="Board service not configured"
+        )
+    deleted = _board_service.delete_task(task_id, user_id=user_id)
+    if not deleted:
+        raise HTTPException(
+            status_code=404, detail=f"Task {task_id!r} not found"
+        )
+    return {"status": "deleted", "task_id": task_id}
+
+
+class BulkDeleteRequest(BaseModel):
+    """Criteria for the bulk-delete endpoint. Any combination applies
+    as an AND filter. At least one field must be non-empty — we refuse
+    a wide-open "delete everything" with no filter."""
+
+    status_in: list[str] = []
+    assignee: str = ""
+    title_contains: str = ""
+
+
+@router.post("/board/tasks/bulk-delete")
+def bulk_delete_tasks(
+    req: BulkDeleteRequest,
+    user_id: str = Depends(get_current_user_id),
+):
+    """Delete every task matching all provided filters at once.
+
+    Avoids N individual HTTP roundtrips when clearing a stale retry
+    pile. Returns the list of deleted task ids so callers know what
+    actually got cleared.
+
+    Refuses when every filter is empty — that would be "delete every
+    task for this user" and we don't want that to be a one-POST
+    mistake.
+    """
+    if _board_service is None:
+        raise HTTPException(
+            status_code=503, detail="Board service not configured"
+        )
+    has_filter = bool(
+        req.status_in or req.assignee or req.title_contains
+    )
+    if not has_filter:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "At least one of status_in, assignee, title_contains "
+                "must be set — wide-open deletes are refused."
+            ),
+        )
+
+    wanted_statuses = {s.lower() for s in req.status_in}
+    deleted_ids: list[str] = []
+    for task in _board_service.get_all_tasks(user_id=user_id):
+        if wanted_statuses and task.status.value not in wanted_statuses:
+            continue
+        if req.assignee and task.assignee != req.assignee:
+            continue
+        if req.title_contains and req.title_contains.lower() not in task.title.lower():
+            continue
+        if _board_service.delete_task(task.id, user_id=user_id):
+            deleted_ids.append(task.id)
+
+    return {
+        "status": "ok",
+        "deleted_count": len(deleted_ids),
+        "deleted_ids": deleted_ids,
+    }
+
+
 # --- Soul Files ---
 
 

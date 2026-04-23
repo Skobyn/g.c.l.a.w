@@ -169,16 +169,49 @@ def get_board_task_tool(board_service: BoardService) -> Callable:
 
 
 def complete_board_task_tool(board_service: BoardService) -> Callable:
-    def complete_board_task(task_id: str, summary: str = "") -> str:
+    def complete_board_task(
+        task_id: str,
+        summary: str = "",
+        tool_context: Any = None,
+    ) -> str:
         """Mark a board task as complete.
+
+        Transparently transitions a QUEUED task through IN_PROGRESS first
+        when the caller is the task's assignee. Real-world agents
+        (notably heartbeat-driven manager runs that forget to call
+        ``get_board_task`` first) would otherwise hit
+        ``ValueError: cannot transition QUEUED → DONE`` and the task
+        would stay QUEUED forever. Same assignee gate as
+        ``get_board_task`` so non-assignees still can't smuggle a task
+        to DONE without the intended pickup event.
 
         Args:
             task_id: The task ID to complete.
             summary: Brief summary of what was done.
+            tool_context: Injected by ADK; used to read ``agent_name``
+                for the assignee-auto-pickup gate.
 
         Returns:
             Confirmation message.
         """
+        from gclaw.models.task import TaskStatus
+
+        current = board_service._repo.get(task_id)
+        if current is not None and current.status == TaskStatus.QUEUED:
+            caller = (
+                getattr(tool_context, "agent_name", None)
+                if tool_context is not None
+                else None
+            )
+            caller_norm = (caller or "").replace("_", "-")
+            if caller_norm and caller_norm == current.assignee:
+                try:
+                    board_service.pick_up(task_id)
+                except Exception:
+                    # Fall through — let the real transition raise so the
+                    # LLM sees a meaningful error instead of a silent
+                    # skip.
+                    pass
         task = board_service.complete(task_id=task_id, summary=summary)
         if task is None:
             return f"Task {task_id} not found."

@@ -183,6 +183,25 @@ class BoardService:
     ) -> BoardTask | None:
         return self._repo.get(task_id, user_id=self._uid(user_id))
 
+    def delete_task(
+        self, task_id: str, user_id: str | None = None
+    ) -> bool:
+        """Permanently remove a task. Returns True when a row was
+        deleted, False when the task didn't exist.
+
+        Emits ``task.deleted`` so any subscribed UI can update its
+        counts without a manual refresh.
+        """
+        uid = self._uid(user_id)
+        task = self._repo.get(task_id, user_id=uid)
+        if task is None:
+            return False
+        self._repo.delete(task_id, user_id=uid)
+        # Fire an explicit deleted event so the dashboard + the
+        # BoardSummaryCard can decrement their counters.
+        self._emit("task.deleted", task)
+        return True
+
     def move_status(
         self,
         task_id: str,

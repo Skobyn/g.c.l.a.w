@@ -9,6 +9,7 @@ from gclaw.agents.orchestrator import (
     create_board_task_tool,
     list_board_tasks_tool,
     get_board_task_tool,
+    complete_board_task_tool,
     build_orchestrator,
 )
 from gclaw.board.service import BoardService
@@ -169,6 +170,89 @@ def test_get_board_task_tool_no_context_skips_pickup(board_service):
     tool_fn = get_board_task_tool(board_service)
     tool_fn(task_id="t1")  # no tool_context
     board_service.pick_up.assert_not_called()
+
+
+# ── complete_board_task auto-pickup gate ──────────────────────────
+
+
+def test_complete_board_task_auto_picks_up_queued_when_caller_is_assignee(
+    board_service,
+):
+    """Heartbeat-driven managers sometimes skip get_board_task and jump
+    straight to complete_board_task. Without an auto-pickup gate the
+    model layer rejects QUEUED → DONE and the task stays stuck forever.
+    When the caller matches the assignee we transparently pick_up first.
+    """
+    task = BoardTask(
+        id="t1", title="Research", assignee="research-mgr",
+        status=TaskStatus.QUEUED,
+    )
+    repo_mock = MagicMock()
+    repo_mock.get.return_value = task
+    board_service._repo = repo_mock
+    board_service.complete.return_value = task.model_copy(
+        update={"status": TaskStatus.DONE}
+    )
+
+    tool_fn = complete_board_task_tool(board_service)
+    fake_context = MagicMock()
+    fake_context.agent_name = "research-mgr"
+    tool_fn(task_id="t1", summary="done", tool_context=fake_context)
+
+    board_service.pick_up.assert_called_once_with("t1")
+    board_service.complete.assert_called_once_with(task_id="t1", summary="done")
+
+
+def test_complete_board_task_does_not_auto_pickup_when_caller_is_not_assignee(
+    board_service,
+):
+    """Non-assignee MUST NOT transparently pick_up — that would mask
+    the real error and emit a misleading task.picked_up event."""
+    task = BoardTask(
+        id="t1", title="Research", assignee="research-mgr",
+        status=TaskStatus.QUEUED,
+    )
+    repo_mock = MagicMock()
+    repo_mock.get.return_value = task
+    board_service._repo = repo_mock
+    # complete.side_effect will raise (QUEUED→DONE illegal), but we're
+    # really testing pick_up NOT being called here.
+    board_service.complete.side_effect = ValueError("illegal transition")
+
+    tool_fn = complete_board_task_tool(board_service)
+    fake_context = MagicMock()
+    fake_context.agent_name = "orchestrator"
+    try:
+        tool_fn(task_id="t1", summary="done", tool_context=fake_context)
+    except ValueError:
+        pass
+
+    board_service.pick_up.assert_not_called()
+
+
+def test_complete_board_task_does_not_pickup_when_already_in_progress(
+    board_service,
+):
+    """Normal happy path — task is already IN_PROGRESS, complete fires
+    directly without an extra pick_up call."""
+    task = BoardTask(
+        id="t1", title="Research", assignee="research-mgr",
+        status=TaskStatus.IN_PROGRESS,
+    )
+    repo_mock = MagicMock()
+    repo_mock.get.return_value = task
+    board_service._repo = repo_mock
+    board_service.complete.return_value = task.model_copy(
+        update={"status": TaskStatus.DONE}
+    )
+
+    tool_fn = complete_board_task_tool(board_service)
+    fake_context = MagicMock()
+    fake_context.agent_name = "research-mgr"
+    tool_fn(task_id="t1", summary="done", tool_context=fake_context)
+
+    board_service.pick_up.assert_not_called()
+    board_service.complete.assert_called_once()
 
 
 def test_build_orchestrator(board_service, tmp_path):
