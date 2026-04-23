@@ -313,6 +313,30 @@ class AgentRunner:
             tokens_in_total = 0
             tokens_out_total = 0
             model_seen: str | None = None
+            # Per-agent bucket so sub-agent work gets its own usage
+            # records. Each ADK event has an ``author`` field naming
+            # the agent that produced it (orchestrator, research_mgr,
+            # research-mgr — ADK normalises name-safe form).
+            # Without this split, the recorder attributed every sub-
+            # agent LLM call to the root agent, leaving the /admin/usage
+            # page showing only the orchestrator regardless of which
+            # manager actually did the work.
+            per_author: dict[str, dict[str, Any]] = {}
+
+            root_norm = agent_name.replace("_", "-")
+
+            def _bucket(author: Any) -> dict[str, Any]:
+                # ADK events expose `author` as the agent name string.
+                # Defensively coerce anything that isn't a non-empty
+                # string back to the root agent so the recorder doesn't
+                # choke on pydantic validation.
+                name = author if isinstance(author, str) and author else agent_name
+                name = name.replace("_", "-")
+                return per_author.setdefault(
+                    name,
+                    {"tokens_in": 0, "tokens_out": 0, "model": None},
+                )
+
             try:
                 async for event in active_runner.run_async(
                     user_id=user_id,
@@ -329,18 +353,25 @@ class AgentRunner:
                                     "args": dict(
                                         part.function_call.args or {}
                                     ),
+                                    "author": getattr(event, "author", None),
                                 })
                     um = getattr(event, "usage_metadata", None)
+                    author = getattr(event, "author", None)
                     if um is not None:
-                        tokens_in_total += (
-                            getattr(um, "prompt_token_count", 0) or 0
-                        )
-                        tokens_out_total += (
-                            getattr(um, "candidates_token_count", 0) or 0
-                        )
+                        t_in = getattr(um, "prompt_token_count", 0) or 0
+                        t_out = getattr(um, "candidates_token_count", 0) or 0
+                        tokens_in_total += t_in
+                        tokens_out_total += t_out
+                        b = _bucket(author)
+                        b["tokens_in"] += t_in
+                        b["tokens_out"] += t_out
                     mv = getattr(event, "model_version", None)
-                    if mv and model_seen is None:
-                        model_seen = mv
+                    if mv:
+                        if model_seen is None:
+                            model_seen = mv
+                        b = _bucket(author)
+                        if b["model"] is None:
+                            b["model"] = mv
                     if event.is_final_response():
                         response.is_final = True
             except Exception as e:  # noqa: BLE001
@@ -358,6 +389,7 @@ class AgentRunner:
                     model_seen=model_seen,
                     tool_calls=response.tool_calls,
                     fallback_index=attempt_index,
+                    per_author=per_author,
                 )
                 if not has_next:
                     # Stamp aggregate LLM attributes on the span before we
@@ -405,6 +437,7 @@ class AgentRunner:
                 model_seen=model_seen,
                 tool_calls=response.tool_calls,
                 fallback_index=attempt_index,
+                per_author=per_author,
             )
             set_llm_attrs(
                 turn_span,
@@ -516,19 +549,28 @@ class AgentRunner:
         model_seen: str | None,
         tool_calls: list[dict],
         fallback_index: int = 0,
+        per_author: dict[str, dict[str, Any]] | None = None,
     ) -> None:
-        """Best-effort telemetry emission. Never raises."""
+        """Best-effort telemetry emission. Never raises.
+
+        When ``per_author`` is supplied, emit a separate model-call record
+        per author (orchestrator, research-mgr, dev-mgr, ...) so the
+        /admin/usage page shows which sub-agent actually did what. Without
+        this split, every model call and tool call gets filed against the
+        root agent and it looks like only the orchestrator is active.
+        """
         recorder = self._usage_recorder
         if recorder is None or not getattr(recorder, "enabled", False):
             return
         duration_ms = int((time.perf_counter() - start) * 1000)
-        agent_name = getattr(self._agent, "name", "agent") or "agent"
+        root_name = getattr(self._agent, "name", "agent") or "agent"
+        root_norm = root_name.replace("_", "-")
         agent_meta: dict = {"tool_call_count": len(tool_calls)}
         if fallback_index:
             agent_meta["fallback_index"] = fallback_index
         try:
             recorder.record_agent_invoke(
-                agent_name=agent_name,
+                agent_name=root_name,
                 caller=None,
                 duration_ms=duration_ms,
                 success=success,
@@ -537,13 +579,70 @@ class AgentRunner:
                 session_id=session_id,
                 metadata=agent_meta,
             )
-            if tokens_in or tokens_out or model_seen:
-                model_meta: dict = {
-                    "token_source": (
-                        "adk_usage_metadata"
-                        if (tokens_in or tokens_out)
-                        else "none"
-                    ),
+
+            authored = per_author or {}
+            has_per_author = any(
+                b.get("tokens_in") or b.get("tokens_out") or b.get("model")
+                for b in authored.values()
+            )
+
+            if has_per_author:
+                # Emit one model-call record per author. Each sub-agent
+                # (research-mgr, dev-mgr, ...) shows up as its own
+                # caller on /admin/usage instead of being rolled into
+                # the orchestrator row.
+                for author_name, bucket in authored.items():
+                    t_in = bucket.get("tokens_in") or 0
+                    t_out = bucket.get("tokens_out") or 0
+                    m_seen = bucket.get("model")
+                    if not (t_in or t_out or m_seen):
+                        continue
+                    model_meta: dict = {
+                        "token_source": "adk_usage_metadata",
+                        "author": author_name,
+                    }
+                    if fallback_index:
+                        model_meta["fallback_index"] = fallback_index
+                    # If the author is not the root agent, also record
+                    # an agent-invoke so the AGENT filter on the usage
+                    # page surfaces sub-agents. Compare against the
+                    # normalized root name — bucket keys use dashes.
+                    if author_name and author_name != root_norm:
+                        try:
+                            recorder.record_agent_invoke(
+                                agent_name=author_name,
+                                caller=root_name,
+                                duration_ms=duration_ms,
+                                success=success,
+                                error=error,
+                                user_id=user_id,
+                                session_id=session_id,
+                                metadata={"author_of": root_name},
+                            )
+                        except Exception:
+                            logger.warning(
+                                "usage: sub-agent invoke record failed",
+                                exc_info=True,
+                            )
+                    recorder.record_model_call(
+                        model_id=m_seen or "unknown",
+                        provider_id=None,
+                        tokens_in=t_in or None,
+                        tokens_out=t_out or None,
+                        cost_usd=None,
+                        duration_ms=duration_ms,
+                        success=success,
+                        error=error,
+                        user_id=user_id,
+                        session_id=session_id,
+                        caller=author_name or root_name,
+                        metadata=model_meta,
+                    )
+            elif tokens_in or tokens_out or model_seen:
+                # Fallback for callers that didn't pass per_author (or
+                # for turns where the event stream carried no author).
+                model_meta = {
+                    "token_source": "adk_usage_metadata",
                 }
                 if fallback_index:
                     model_meta["fallback_index"] = fallback_index
@@ -558,13 +657,20 @@ class AgentRunner:
                     error=error,
                     user_id=user_id,
                     session_id=session_id,
-                    caller=agent_name,
+                    caller=root_name,
                     metadata=model_meta,
                 )
+
             for call in tool_calls:
+                raw_author = call.get("author")
+                caller = (
+                    raw_author.replace("_", "-")
+                    if isinstance(raw_author, str) and raw_author
+                    else root_name
+                )
                 recorder.record_tool_call(
                     tool_name=call.get("name") or "unknown",
-                    agent_name=agent_name,
+                    agent_name=caller,
                     duration_ms=0,
                     success=True,
                     user_id=user_id,

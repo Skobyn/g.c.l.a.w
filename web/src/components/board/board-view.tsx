@@ -21,6 +21,7 @@ import { CronEditDrawer } from "./cron-edit-drawer";
 import { TaskCard, type DragInfo } from "./task-card";
 import { NewTaskModal } from "./new-task-modal";
 import { NewCronModal } from "./new-cron-modal";
+import { TaskDetailsModal } from "./task-details-modal";
 import { formatDatestamp } from "@/lib/format";
 
 const DONE_LIMIT = 20;
@@ -44,6 +45,7 @@ export function BoardView() {
   const [showNewCron, setShowNewCron] = useState(false);
 
   const [draggedTask, setDraggedTask] = useState<DragInfo | null>(null);
+  const [activeTask, setActiveTask] = useState<BoardTask | null>(null);
 
   const refreshTasksRef = useRef<() => Promise<void>>(async () => {});
 
@@ -125,6 +127,16 @@ export function BoardView() {
     }, CRON_POLL_MS);
     return () => clearInterval(handle);
   }, [user, fetchCrons]);
+
+  // Keep the open modal in sync with incoming board updates so
+  // in-progress → done transitions show up live without a re-open.
+  useEffect(() => {
+    if (!activeTask) return;
+    const fresh = tasks.find((t) => t.id === activeTask.id);
+    if (fresh && fresh !== activeTask) {
+      setActiveTask(fresh);
+    }
+  }, [tasks, activeTask]);
 
   const handleDragStart = useCallback((info: DragInfo) => {
     setDraggedTask(info);
@@ -346,6 +358,7 @@ export function BoardView() {
                   showAll={showAllDone}
                   onShowAll={() => setShowAllDone(true)}
                   draggedTask={draggedTask}
+                  onTaskClick={setActiveTask}
                 />
               );
             }
@@ -360,6 +373,7 @@ export function BoardView() {
                 onDrop={handleDrop}
                 onApprove={handleApprove}
                 onReject={handleReject}
+                onTaskClick={setActiveTask}
               />
             );
           })}
@@ -387,6 +401,11 @@ export function BoardView() {
           fetchCronsRef.current?.();
         }}
       />
+
+      <TaskDetailsModal
+        task={activeTask}
+        onClose={() => setActiveTask(null)}
+      />
     </div>
   );
 }
@@ -398,6 +417,7 @@ interface DoneColumnProps {
   showAll: boolean;
   onShowAll: () => void;
   draggedTask: DragInfo | null;
+  onTaskClick?: (task: BoardTask) => void;
 }
 
 function DoneColumn({
@@ -407,6 +427,7 @@ function DoneColumn({
   showAll,
   onShowAll,
   draggedTask,
+  onTaskClick,
 }: DoneColumnProps) {
   return (
     <div className="flex w-[260px] shrink-0 flex-col">
@@ -432,6 +453,7 @@ function DoneColumn({
                 key={task.id}
                 task={task}
                 isDragging={draggedTask?.id === task.id}
+                onClick={onTaskClick}
               />
             ))}
             {!showAll && total > visible.length && (

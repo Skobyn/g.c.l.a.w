@@ -26,6 +26,8 @@ interface BoardColumnProps {
   onDrop: (info: DragInfo, target: TaskStatus) => void;
   onApprove?: (task: BoardTask) => Promise<void> | void;
   onReject?: (task: BoardTask, note: string) => Promise<void> | void;
+  /** Click a task card → opens the TaskDetailsModal in the parent. */
+  onTaskClick?: (task: BoardTask) => void;
 }
 
 export function BoardColumn({
@@ -37,6 +39,7 @@ export function BoardColumn({
   onDrop,
   onApprove,
   onReject,
+  onTaskClick,
 }: BoardColumnProps) {
   const [hovering, setHovering] = useState(false);
   const [invalidPulse, setInvalidPulse] = useState(false);
@@ -125,6 +128,7 @@ export function BoardColumn({
               isDragging={draggedTask?.id === task.id}
               onApprove={onApprove}
               onReject={onReject}
+              onClick={onTaskClick}
             />
           ))
         )}

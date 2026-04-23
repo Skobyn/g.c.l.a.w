@@ -26,6 +26,8 @@ interface TaskCardProps {
   isDragging?: boolean;
   onApprove?: (task: BoardTask) => Promise<void> | void;
   onReject?: (task: BoardTask, note: string) => Promise<void> | void;
+  /** Click anywhere on the card body → open the details modal. */
+  onClick?: (task: BoardTask) => void;
 }
 
 const priorityColor: Record<string, string> = {
@@ -55,6 +57,7 @@ export function TaskCard({
   isDragging,
   onApprove,
   onReject,
+  onClick,
 }: TaskCardProps) {
   const draggable = USER_ALLOWED_TRANSITIONS[task.status].length > 0;
 
@@ -93,13 +96,37 @@ export function TaskCard({
   const glyph = priorityGlyph(task.priority);
   const priClass = priorityColor[glyph] ?? "text-paper-40";
 
+  const clickable = !!onClick;
+
   return (
     <article
       draggable={draggable}
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
+      onClick={
+        clickable
+          ? (e) => {
+              // Don't fire onClick while a drag is finishing.
+              if (isDragging) return;
+              e.stopPropagation();
+              onClick?.(task);
+            }
+          : undefined
+      }
+      role={clickable ? "button" : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      onKeyDown={
+        clickable
+          ? (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onClick?.(task);
+              }
+            }
+          : undefined
+      }
       className={`group py-3 px-3 -mx-1 hairline-b transition-colors ${
-        draggable ? "cursor-grab active:cursor-grabbing" : "cursor-default"
+        draggable ? "cursor-grab active:cursor-grabbing" : clickable ? "cursor-pointer" : "cursor-default"
       } ${isDragging ? "opacity-40" : "hover:bg-ink-800"}`}
     >
       <p className="font-body text-[13.5px] font-medium text-paper leading-snug">
