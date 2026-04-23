@@ -290,6 +290,17 @@ export function ChatView() {
           >
             + New Channel
           </button>
+          {sessionId && (
+            <a
+              href={`/admin/live?session=${encodeURIComponent(sessionId)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn-hair"
+              title="Open the live cockpit for this session — turn timeline, tokens, cost"
+            >
+              LIVE →
+            </a>
+          )}
         </header>
 
         {/* Transcript */}
