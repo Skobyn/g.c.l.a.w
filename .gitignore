@@ -24,6 +24,9 @@ ruvector.db
 # Local debugging screenshots
 /chat-page-screenshot.png
 
+# Eval result files — local to a run, never committed
+tests/eval/results/*.json
+
 # Optional overlay repo co-located with the framework
 /overlay/
 /gclaw-overlay/

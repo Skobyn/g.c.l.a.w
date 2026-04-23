@@ -1,29 +1,64 @@
 """Agent-level evaluation harness for GClaw.
 
-This package is the minimum-viable eval layer that scores live
-orchestrator runs against golden input/output pairs. Unlike the 411
-unit tests that verify wiring, the eval harness verifies *behaviour* —
-does the orchestrator actually route "draft an email" to comms-mgr?
+Two layers live here:
 
-The case format is intentionally shaped to map cleanly onto Vertex AI
-Gen AI Evaluation Service `EvalDataset` schemas, so this harness is
-the upgrade path to SDK-based eval rather than a dead end.
+- **Legacy golden-set runner** (``cases.py`` + ``runner.py``,
+  ``__main__.py``): the permissive any-tool-matched scorer driven by
+  ``python -m gclaw.eval``. Predates ADR-0005 and is still wired into
+  the local manual smoke-test path.
+- **Evalset framework** (``evalset.py``, ``evalset_runner.py``,
+  ``judge.py``, ``metrics/``): ADR-0005 implementation. Pydantic models
+  matching the agents-cli evalset JSON, an LLM-as-judge client with
+  per-run caching, and a metric set that scores trajectories and
+  responses. Driven by the ``gclaw-eval`` CLI in ``gclaw.cli.eval``.
 
-Entry points:
-
-- `gclaw.eval.cases.GOLDEN_CASES` — the baseline case list.
-- `gclaw.eval.runner.run_eval(agent_runner, cases)` — score cases.
-- `python -m gclaw.eval` — build the real orchestrator and run the
-  golden set end-to-end. Hits live Gemini, costs real tokens.
+Both layers can be used independently. The new framework is what CI
+will run; the legacy harness stays around for one-shot manual probes.
 """
 
-from gclaw.eval.cases import EvalCase, GOLDEN_CASES
+from gclaw.eval.cases import EvalCase as LegacyEvalCase
+from gclaw.eval.cases import GOLDEN_CASES
+from gclaw.eval.evalset import (
+    EvalCase,
+    EvalCaseResult,
+    EvalRunResult,
+    Evalset,
+    ExpectedResponse,
+    FinalResponseMatchV2,
+    HallucinationsCheck,
+    MetricScore,
+    ResponseMatch,
+    RubricBased,
+    RubricBasedToolUse,
+    SafetyCheck,
+    ToolUseExpectation,
+)
+from gclaw.eval.evalset_runner import EvalRunner
+from gclaw.eval.judge import JudgeClient, JudgeVerdict
 from gclaw.eval.runner import CaseResult, EvalResult, run_eval
 
 __all__ = [
-    "EvalCase",
+    # Legacy harness
+    "LegacyEvalCase",
     "GOLDEN_CASES",
     "CaseResult",
     "EvalResult",
     "run_eval",
+    # ADR-0005 evalset framework
+    "EvalCase",
+    "Evalset",
+    "EvalCaseResult",
+    "EvalRunResult",
+    "ExpectedResponse",
+    "FinalResponseMatchV2",
+    "HallucinationsCheck",
+    "MetricScore",
+    "ResponseMatch",
+    "RubricBased",
+    "RubricBasedToolUse",
+    "SafetyCheck",
+    "ToolUseExpectation",
+    "EvalRunner",
+    "JudgeClient",
+    "JudgeVerdict",
 ]

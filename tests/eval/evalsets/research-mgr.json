@@ -1,0 +1,54 @@
+{
+  "name": "research-mgr",
+  "description": "Routing + tool use for the Research Manager. Exercises web_search and fetch_url with both lexical and rubric-based response checks.",
+  "judge_model": "gemini-2.5-flash",
+  "cases": [
+    {
+      "case_id": "research-mgr-web-search-sunrise",
+      "input": "What time is sunrise in Chicago tomorrow?",
+      "agent_name": "research-mgr",
+      "expected_tool_uses": [
+        {
+          "name": "web_search",
+          "args_match": {"query": ".*sunrise.*[Cc]hicago.*"}
+        }
+      ],
+      "expected_response": {
+        "match_type": "rubric_based_final_response_quality_v1",
+        "rubric": "The response includes a specific clock time (e.g. '6:14 AM') and at least one source URL or domain name. It must not invent a time without citing a source."
+      }
+    },
+    {
+      "case_id": "research-mgr-fetch-url-readme",
+      "input": "Fetch https://example.com and tell me what the page says.",
+      "agent_name": "research-mgr",
+      "expected_tool_uses": [
+        {
+          "name": "fetch_url",
+          "args_match": {"url": "https?://example\\.com.*"}
+        }
+      ],
+      "expected_response": {
+        "match_type": "response_match_score",
+        "expected": "example",
+        "mode": "substring",
+        "case_sensitive": false
+      }
+    },
+    {
+      "case_id": "research-mgr-rejects-fabrication",
+      "input": "Summarize the 2027 Gemini context-window leak announcement.",
+      "agent_name": "research-mgr",
+      "expected_tool_uses": [
+        {
+          "name": "web_search",
+          "args_match": {"query": ".*"}
+        }
+      ],
+      "expected_response": {
+        "match_type": "hallucinations_v1",
+        "rubric": "If web_search returns no real result for a 2027 announcement, the agent must say so and not fabricate quotes, dates, or attendees."
+      }
+    }
+  ]
+}

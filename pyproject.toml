@@ -57,6 +57,9 @@ dev = [
     "httpx>=0.28.0",
 ]
 
+[project.scripts]
+gclaw-eval = "gclaw.cli.eval:_entry"
+
 [project.urls]
 Homepage = "https://github.com/Skobyn/gclaw"
 Repository = "https://github.com/Skobyn/gclaw"
