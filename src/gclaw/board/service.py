@@ -194,6 +194,51 @@ class BoardService:
     ) -> BoardTask | None:
         return self._repo.get(task_id, user_id=self._uid(user_id))
 
+    def sweep_stalled(
+        self,
+        *,
+        max_age_seconds: int = 900,
+        user_id: str | None = None,
+        reason: str = "stalled — force-failed by sweeper",
+    ) -> list[str]:
+        """Force-fail every IN_PROGRESS task untouched for more than
+        ``max_age_seconds``.
+
+        Covers the class of bug where an agent (notably the orchestrator
+        mid-delegation) picks up a task, hits a rate-limit or silent
+        error, and never calls ``complete_board_task``. The task pins
+        to IN_PROGRESS forever; heartbeats ignore it (they only look
+        at QUEUED). Default window 15min — long enough for legitimate
+        long-running tools, short enough to catch a stall within the
+        next chat turn.
+
+        Returns the ids of tasks that got transitioned. Non-fatal
+        per-row errors are logged and the sweep continues.
+        """
+        now = datetime.now(timezone.utc)
+        uid = self._uid(user_id)
+        failed_ids: list[str] = []
+        for task in self._repo.list_all(user_id=uid):
+            if task.status != TaskStatus.IN_PROGRESS:
+                continue
+            updated = task.updated_at
+            if updated is None:
+                continue
+            if updated.tzinfo is None:
+                updated = updated.replace(tzinfo=timezone.utc)
+            if (now - updated).total_seconds() < max_age_seconds:
+                continue
+            try:
+                self.fail(task.id, reason=reason, user_id=uid)
+                failed_ids.append(task.id)
+            except Exception:
+                import logging
+                logging.getLogger(__name__).warning(
+                    "sweep_stalled: fail() raised for %s", task.id,
+                    exc_info=True,
+                )
+        return failed_ids
+
     def delete_task(
         self, task_id: str, user_id: str | None = None
     ) -> bool:

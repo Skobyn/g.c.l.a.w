@@ -269,6 +269,33 @@ def force_fail_task(
     return task.model_dump(mode="json")
 
 
+class SweepRequest(BaseModel):
+    max_age_seconds: int = 900
+
+
+@router.post("/board/tasks/sweep-stalled")
+def sweep_stalled_tasks(
+    req: SweepRequest | None = None,
+    user_id: str = Depends(get_current_user_id),
+):
+    """Force-fail every IN_PROGRESS task untouched for more than
+    ``max_age_seconds`` (default 900 = 15min).
+
+    Catch-all for the "orchestrator hit rate-limit mid-delegation and
+    never called complete_board_task" class of stalls. Safe to run on
+    a 5-minute cron — it no-ops when no tasks are stale.
+    """
+    if _board_service is None:
+        raise HTTPException(
+            status_code=503, detail="Board service not configured"
+        )
+    max_age = (req.max_age_seconds if req else 900)
+    failed = _board_service.sweep_stalled(
+        max_age_seconds=max_age, user_id=user_id
+    )
+    return {"status": "ok", "failed_count": len(failed), "failed_ids": failed}
+
+
 @router.delete("/board/tasks/{task_id}")
 def delete_task(
     task_id: str,
