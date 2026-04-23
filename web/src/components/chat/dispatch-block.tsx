@@ -175,14 +175,31 @@ export function DispatchBlockView({ block }: Props) {
         </ul>
       )}
 
-      {done && block.events.length === 0 && block.summary && (
-        <p className="mt-1 pl-6 font-mono text-[10.5px] text-signal">
-          <span className="dispatch-check-flash">✓ complete</span> — {block.summary}
-        </p>
+      {/* Completed summary — render whenever we have one, regardless
+          of whether event rows showed up too. This is the main
+          observability surface: the user sees WHAT the manager
+          actually produced, not just that a task transitioned.
+          Collapsed by default to a truncated preview; click to
+          expand the full verbatim response. */}
+      {done && block.summary && (
+        <details className="mt-2 pl-6 group">
+          <summary className="cursor-pointer font-mono text-[10.5px] uppercase tracking-[0.14em] text-paper-60 hover:text-paper select-none">
+            <span className="dispatch-check-flash text-signal">✓ RESULT</span>
+            <span className="ml-2 normal-case tracking-normal text-paper-40">
+              {block.summary.length > 80
+                ? `${block.summary.slice(0, 80).trim()}…`
+                : block.summary}
+            </span>
+            <span className="ml-1 text-paper-40 group-open:opacity-0">▾</span>
+          </summary>
+          <pre className="mt-2 whitespace-pre-wrap font-body text-[13px] leading-[1.55] text-paper-80 hairline-l pl-4 py-1">
+            {block.summary}
+          </pre>
+        </details>
       )}
 
-      {failed && block.reason && block.events.length === 0 && (
-        <p className="mt-1 pl-6 font-mono text-[10.5px] text-alert">
+      {failed && block.reason && (
+        <p className="mt-2 pl-6 font-mono text-[10.5px] text-alert whitespace-pre-wrap">
           ✗ failed — {block.reason}
         </p>
       )}
