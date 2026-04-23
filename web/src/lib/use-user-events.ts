@@ -56,6 +56,58 @@ export function useUserEvents({
     (async () => {
       if (cancelled) return;
       const token = await getIdToken();
+
+      // ── Hydration: fetch the current board state once on mount ────
+      //
+      // The SSE stream only emits events for NEW activity — if the
+      // user opens the chat page after tasks were already queued
+      // (heartbeat cron enqueued overnight, orchestrator created
+      // mid-session), the board card would show 0/0/0/0 until the
+      // next event fires. Seed the list from /board/tasks so the
+      // counts reflect reality immediately.
+      try {
+        const headers: HeadersInit = {};
+        if (token) headers["Authorization"] = `Bearer ${token}`;
+        const resp = await fetch(`${baseUrl}/board/tasks`, { headers });
+        if (resp.ok) {
+          const tasks = (await resp.json()) as Array<{
+            id: string;
+            title: string;
+            priority: string;
+            assignee: string;
+            status: string;
+            updated_at?: string;
+            created_at?: string;
+          }>;
+          if (!cancelled) {
+            const hydrated: BackgroundTaskItem[] = tasks.map((t) => ({
+              task_id: t.id,
+              title: t.title,
+              priority: (t.priority as TaskPriority) ?? "medium",
+              manager: t.assignee ?? "(unassigned)",
+              status:
+                t.status === "in_progress"
+                  ? "running"
+                  : t.status === "done"
+                    ? "done"
+                    : t.status === "failed"
+                      ? "failed"
+                      : "queued",
+              lastEventTime:
+                t.updated_at || t.created_at || new Date().toISOString(),
+            }));
+            setItems(hydrated);
+            // Mark each hydrated task as seen so the first live event
+            // for it folds as an update, not a duplicate.
+            for (const t of tasks) seen.current.add(t.id);
+          }
+        }
+      } catch {
+        // Hydration is best-effort. If /board/tasks is slow or 5xxs
+        // we still start with an empty list and the SSE populates it.
+      }
+
+      if (cancelled) return;
       const url = new URL(`${baseUrl}/api/events`);
       if (token) url.searchParams.set("auth", token);
       const es = new EventSource(url.toString());
@@ -73,6 +125,7 @@ export function useUserEvents({
       es.addEventListener("task.picked_up", onMessage);
       es.addEventListener("task.completed", onMessage);
       es.addEventListener("task.failed", onMessage);
+      es.addEventListener("task.deleted", onMessage);
       es.onmessage = onMessage;
       es.onerror = () => {
         // EventSource auto-reconnects; no-op.
@@ -139,6 +192,11 @@ function foldEvent(
       const next = [...prev];
       next[idx] = { ...next[idx], ...item };
       return next;
+    }
+    if (kind === "task.deleted") {
+      // Hard-remove from the list — server-side delete fired.
+      if (idx === -1) return prev;
+      return prev.filter((_, i) => i !== idx);
     }
     if (idx === -1) return prev;
     const existing = prev[idx];

@@ -104,48 +104,44 @@ def get_board_task_tool(board_service: BoardService) -> Callable:
     ) -> str:
         """Get details of a specific board task by ID.
 
-        Side effect: if the task is currently QUEUED **and** the calling
-        agent is the task's assignee, this call auto-transitions the task
-        to IN_PROGRESS and emits a ``task.picked_up`` event. This is how
-        a manager agent reading a newly-assigned task signals "I'm about
-        to work on this" without needing an explicit pick-up tool call.
+        Side effect: if the task is currently QUEUED, this call
+        auto-transitions it to IN_PROGRESS and emits a
+        ``task.picked_up`` event. This is how the orchestrator's 4-step
+        HIGH-priority lifecycle surfaces a "started" bubble in the chat
+        UI under the delegating turn, and how a manager agent reading a
+        newly-assigned task signals "I'm about to work on this" without
+        an explicit pick-up tool call.
 
-        Any other agent (including the orchestrator and non-assignee
-        managers) can safely read a QUEUED task for inspection without
-        flipping its status — only the assignee owns the pickup.
+        Earlier iterations gated the auto-pickup on
+        ``caller_agent == task.assignee`` (PR #31) to prevent accidental
+        orphans from the orchestrator inspecting the board. That
+        broke the 4-step HIGH flow — orchestrator never matches
+        assignee, so ``get_board_task`` became a no-op and no
+        ``task.picked_up`` event ever fired. The real prevention for
+        the accident it was worried about now lives on
+        ``complete_board_task``'s assignee gate (added in the same PR
+        that reverted this one): smuggling a task to DONE without a
+        proper pickup is blocked, which is the only harm that actually
+        mattered.
 
         Args:
             task_id: The task ID to look up.
-            tool_context: Injected by ADK. Used to read ``agent_name`` so
-                the assignee gate can be enforced. When None (direct
-                Python callers in tests), auto-pickup is skipped entirely
-                — tests that want pickup should call ``board_service``
-                methods directly.
+            tool_context: Unused (kept for signature stability with the
+                older gated version).
 
         Returns:
-            Full task details or a not-found message. If an auto-pickup
-            happened, the returned status reflects the new IN_PROGRESS
-            state.
+            Full task details or a not-found message.
         """
         from gclaw.models.task import TaskStatus
 
         task = board_service._repo.get(task_id)
         if task is None:
             return f"Task {task_id} not found."
-        # Auto-pickup gate: only the assignee flips QUEUED → IN_PROGRESS.
-        # This prevents accidental pickups by the orchestrator or any
-        # heartbeat/read that happens to inspect the task first.
-        caller = (
-            getattr(tool_context, "agent_name", None)
-            if tool_context is not None
-            else None
-        )
-        caller_norm = (caller or "").replace("_", "-")
-        if (
-            task.status == TaskStatus.QUEUED
-            and caller_norm
-            and caller_norm == task.assignee
-        ):
+        # Unconditional auto-pickup on first read of a QUEUED task.
+        # pick_up itself re-reads, transitions, and emits; swallowing
+        # failures keeps the read path intact if the task moved between
+        # the read above and the transition below.
+        if task.status == TaskStatus.QUEUED:
             try:
                 task = board_service.pick_up(task_id)
             except Exception:
