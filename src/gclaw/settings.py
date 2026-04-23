@@ -305,6 +305,19 @@ class Settings:
             "VERTEX_SCORING_ENABLED", "false"
         ).lower() == "true"
     )
+    # Prompt-response logging to GCS (ADR-0004). When enabled, the
+    # PromptLogSpanProcessor uploads each `call_llm` span's prompt +
+    # response payloads to PROMPT_LOG_BUCKET in hive-partitioned form.
+    # Off by default; PROMPT_LOG_BUCKET has no default — bucket name
+    # MUST be supplied (typically `<project>-gclaw-prompt-log`).
+    prompt_log_enabled: bool = field(
+        default_factory=lambda: os.environ.get(
+            "PROMPT_LOG_ENABLED", "false"
+        ).lower() == "true"
+    )
+    prompt_log_bucket: str = field(
+        default_factory=lambda: os.environ.get("PROMPT_LOG_BUCKET", "")
+    )
 
 
 def get_settings() -> Settings:

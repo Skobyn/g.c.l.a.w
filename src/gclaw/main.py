@@ -363,10 +363,35 @@ def build_app():
             )
             run_registry = RunRegistry()
             live_span_processor = LiveSpanProcessor(run_registry=run_registry)
-            init_tracing(
-                settings,
-                extra_processors=[live_span_processor],
-            )
+            extra_processors: list = [live_span_processor]
+            # ADR-0004 prompt-response log. Tap the same span pipeline
+            # so every `call_llm` span's prompt + response lands in GCS
+            # alongside the Cloud Trace + OTLP exports. Bucket name
+            # must be supplied; we skip registration (with a warning)
+            # rather than crash on misconfiguration.
+            if settings.prompt_log_enabled:
+                if not settings.prompt_log_bucket:
+                    logger.warning(
+                        "PROMPT_LOG_ENABLED=true but PROMPT_LOG_BUCKET is "
+                        "empty — skipping prompt-log span processor."
+                    )
+                else:
+                    from gclaw.observability import (
+                        PromptLogSpanProcessor,
+                        PromptLogWriter,
+                    )
+                    prompt_log_writer = PromptLogWriter(
+                        bucket_name=settings.prompt_log_bucket,
+                        project=settings.gcp_project_id,
+                    )
+                    extra_processors.append(
+                        PromptLogSpanProcessor(writer=prompt_log_writer)
+                    )
+                    logger.info(
+                        "prompt-log: enabled (bucket=%s)",
+                        settings.prompt_log_bucket,
+                    )
+            init_tracing(settings, extra_processors=extra_processors)
         except Exception:
             logger.warning(
                 "observability: init_tracing failed — continuing without tracing",

@@ -67,6 +67,7 @@ SA_NAME="gclaw-run-sa"
 SA_EMAIL="${SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
 AR_REPO="gclaw"
 SHARED_BUCKET="gclaw-shared-context-${PROJECT_ID}"
+PROMPT_LOG_BUCKET="${PROJECT_ID}-gclaw-prompt-log"
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 say() { printf '\n\033[1;36m==>\033[0m %s\n' "$1"; }
@@ -209,6 +210,54 @@ else
     --project="${PROJECT_ID}"
 fi
 
+# 8b — GCS bucket for prompt-response log (ADR-0004).
+# Lifecycle: archive (Coldline) after 30 days, delete after 365.
+# Uniform access; runtime SA gets objectAdmin so the writer can put
+# new blobs without per-object ACL juggling.
+say "Creating prompt-log bucket gs://${PROMPT_LOG_BUCKET}"
+if gcloud storage buckets describe "gs://${PROMPT_LOG_BUCKET}" \
+     --project="${PROJECT_ID}" >/dev/null 2>&1; then
+  echo "  bucket already exists — skipping"
+else
+  gcloud storage buckets create "gs://${PROMPT_LOG_BUCKET}" \
+    --location="${REGION}" --uniform-bucket-level-access \
+    --project="${PROJECT_ID}"
+fi
+
+# Lifecycle policy — apply unconditionally so re-runs heal drift.
+PROMPT_LOG_LIFECYCLE_TMP="$(mktemp)"
+trap 'rm -f "${PROMPT_LOG_LIFECYCLE_TMP}"' EXIT
+cat >"${PROMPT_LOG_LIFECYCLE_TMP}" <<'JSON'
+{
+  "lifecycle": {
+    "rule": [
+      {
+        "action": {"type": "SetStorageClass", "storageClass": "COLDLINE"},
+        "condition": {"age": 30}
+      },
+      {
+        "action": {"type": "Delete"},
+        "condition": {"age": 365}
+      }
+    ]
+  }
+}
+JSON
+gcloud storage buckets update "gs://${PROMPT_LOG_BUCKET}" \
+  --lifecycle-file="${PROMPT_LOG_LIFECYCLE_TMP}" \
+  --project="${PROJECT_ID}" >/dev/null
+echo "  lifecycle: archive (Coldline) at 30d, delete at 365d"
+
+# Grant runtime SA write/read on the prompt-log bucket. The bucket-
+# scoped grant is narrower than the project-wide storage.objectAdmin
+# the SA already holds; re-granting at the bucket level is harmless
+# and keeps the audit trail clear.
+gcloud storage buckets add-iam-policy-binding "gs://${PROMPT_LOG_BUCKET}" \
+  --member="serviceAccount:${SA_EMAIL}" \
+  --role="roles/storage.objectAdmin" \
+  --project="${PROJECT_ID}" >/dev/null
+echo "  granted roles/storage.objectAdmin to ${SA_NAME} on prompt-log bucket"
+
 # 9 — Firestore rules + indexes
 #
 # We use the raw Firestore APIs (not Firebase CLI) to avoid a hard
@@ -307,5 +356,7 @@ Resources created:
     (run.admin, artifactregistry.writer, secretmanager.secretAccessor,
      serviceAccountUser on ${SA_NAME})
   - GCS bucket: gs://${SHARED_BUCKET}
+  - GCS bucket: gs://${PROMPT_LOG_BUCKET}
+    (lifecycle: archive @ 30d, delete @ 365d; ${SA_NAME} → objectAdmin)
 $(if [[ -n "${MEMORY_ENGINE_ID}" ]]; then echo "  - Memory Bank engine: ${MEMORY_ENGINE_ID}"; fi)
 EOF
