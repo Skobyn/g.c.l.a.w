@@ -48,7 +48,18 @@ class UsageEvent(BaseModel):
     metadata: dict = Field(default_factory=dict)
 
     def to_firestore_dict(self) -> dict:
-        d = self.model_dump(mode="json")
+        """Serialize for Firestore.
+
+        Uses ``mode="python"`` so datetime stays as a native
+        ``datetime`` and Firestore persists it as a Timestamp. The old
+        ``mode="json"`` path wrote timestamps as ISO-8601 *strings*,
+        which made ``where("timestamp", ">=", <datetime>)`` silently
+        return zero rows — the type mismatch between the stored string
+        and the queried Timestamp produced no matches. That's why the
+        admin usage summary / timeseries / top-N all returned zero
+        while the no-filter events endpoint worked.
+        """
+        d = self.model_dump(mode="python")
         d.pop("id", None)
         return d
 
