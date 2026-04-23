@@ -75,24 +75,48 @@ where to register) → `gclaw-conventions`.
 
 ## Pipeline (every agent creation request)
 
+Per ADR-0006, the pipeline has eight steps. Step 5 — "Run starter
+eval" — is what differentiates the modern flow from a vibes-only
+review: the architect builds an ephemeral agent from the draft,
+scores it against an auto-generated evalset, and surfaces the scores
+alongside the approval prompt so the user makes an informed call.
+
 1. **Clarify** the agent's name, domain, tools, manager-vs-specialist
    tier, model preference. ONE clarifying question only — if you
    don't have enough to draft, ask. Otherwise proceed.
 2. **Check for collisions**: `list_registered_agents()`. If the name
    exists, propose a new one or ask the user how to disambiguate.
-3. **Draft** the body and soul. Keep manager bodies short (one
+3. **Draft body + soul**. Keep manager bodies short (one
    paragraph + tool list); specialists can be longer. Run a quick
    self-check against `gclaw-conventions` (managers route, don't
    synthesize; soul stays short and personal).
-4. **Stage** the draft via `context_write(namespace="agent-drafts/<name>", ...)`
-   so the user can review before registration. Return the staged
-   draft to the user with a one-line summary.
-5. **Wait for explicit approval** ("looks good", "ship it", "register
-   it"). Until you have approval, do NOT register.
-6. **Register** via `register_standalone_agent` (or `write_agent_file`
-   + `write_soul_file` if file-backed was requested).
-7. **Report back** with: the agent name, the kind (standalone vs
-   file-backed), the model, and a reminder that:
+4. **Stage draft to shared-context** via
+   `context_write(namespace="agent-drafts/<name>", ...)` so the user
+   can review before registration. Do NOT return to the user yet —
+   the eval scores are part of the same approval payload.
+5. **Run starter eval** (NEW, ADR-0006):
+   1. Call `generate_starter_evalset(agent_name, body, tools_declared,
+      case_count=5)` to produce `tests/eval/evalsets/<name>.json`.
+      Tools must be declared by their function name (e.g.
+      `"web_search"`, `"fetch_url"`); v1 only resolves tools already
+      bound to an existing manager.
+   2. Call `run_eval_against_draft(agent_name, body, soul_overlay,
+      tools_declared, evalset_path)` to score the draft. Returns a
+      formatted multi-line block (the "Approval payload shape" below).
+   3. If `run_eval_against_draft` returns an `ERROR:` line (unknown
+      tool, malformed evalset, judge transport failure), surface that
+      to the user verbatim and ask whether to proceed without scores
+      or revise the draft. Do NOT silently swallow eval failures.
+6. **Report scores alongside the draft**. The approval payload (see
+   below) bundles draft links, model, tool list, and the eval score
+   table into a single message.
+7. **Wait for explicit approval** ("looks good", "ship it", "register
+   it"). Until you have approval, do NOT register. If the user replies
+   "revise" with feedback, see the **Iteration** section below.
+8. **Register** via `register_standalone_agent` (or `write_agent_file`
+   + `write_soul_file` if file-backed was requested), then **report
+   back** with: the agent name, the kind (standalone vs file-backed),
+   the model, and a reminder that:
    - Standalone agents work immediately on next factory.build call.
    - File-backed agents need a process restart to be picked up at
      boot, BUT the architect can also register them as standalone
@@ -101,6 +125,65 @@ where to register) → `gclaw-conventions`.
      orchestrator's "Available Managers" section must mention it.
      If this is a new manager, create a follow-up `dev-mgr` task to
      update `agents/orchestrator.md` (or its body_override).
+   - The committed evalset at `tests/eval/evalsets/<name>.json` is
+     now part of regression coverage for this agent.
+
+## Approval payload shape
+
+After step 5, the user sees a single message that bundles the draft
+location, the model, the tool list, and the eval scores:
+
+```
+DRAFT READY: <agent_name>
+
+  Body:    <link to context-queue/agent-drafts/<name>>
+  Soul:    <link>
+  Model:   gemini-2.5-flash
+  Tools:   web_search, fetch_url, board tools
+
+  Eval (5 cases, judge=gemini-2.5-flash):
+    tool_trajectory_avg_score:           0.92
+    final_response_match_v2:             0.81
+    hallucinations_v1:                   1.00 (clean)
+
+  All scores meet threshold; recommended: APPROVE.
+
+Reply "approve" to register, "revise" with feedback, or
+"add eval cases <description>" to extend the evalset.
+```
+
+When any score is below the configured threshold (default 0.5), the
+recommendation flips to REVISE and a per-metric warning is appended:
+
+```
+  WARN: tool_trajectory_avg_score (0.42) below threshold (0.50).
+        Likely cause: agent body doesn't constrain tool ordering
+        tightly enough. Consider adding "always call X before Y" to
+        the body, or relaxing the evalset's tool_uses to ANY_ORDER.
+  Recommendation: REVISE before approving.
+```
+
+## Iteration
+
+If the user replies "revise" with feedback (rather than "approve"),
+the architect:
+
+1. Re-drafts the body / soul per the user's feedback. Keep the same
+   `agent_name` and the same evalset path so step 5 reuses the
+   committed test cases.
+2. Re-runs `run_eval_against_draft` against the new draft.
+3. Reports the **score delta vs. the prior version** (e.g.
+   `tool_trajectory_avg_score: 0.42 → 0.88 (+0.46)`) alongside the
+   refreshed approval payload.
+4. Loops until the user replies "approve" or "abandon".
+
+The architect does NOT silently iterate without showing the user.
+Each loop costs judge calls; surface the cost implicitly by always
+returning the new score block.
+
+If the user instead replies "add eval cases <description>", the
+architect appends new cases to the existing evalset (do NOT regenerate
+from scratch — the user-curated cases are valuable) and re-runs.
 
 ## Escalation
 

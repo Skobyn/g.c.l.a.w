@@ -833,6 +833,14 @@ def build_app():
         tool_binding_service=tool_binding_service,
     )
 
+    # ADR-0006: architect's eval feedback loop needs a live factory
+    # handle to build ephemeral agents from drafts. Wired after the
+    # factory exists so the module-level setter sees a real instance.
+    from gclaw.tools.agent_architect_tools import (
+        set_agent_factory as set_architect_factory,
+    )
+    set_architect_factory(factory)
+
     # User-profile tools (read/update user.md) resolve their config
     # loader via a module-level setter — same pattern as context_tools.
     from gclaw.tools.user_profile_tools import (

@@ -339,6 +339,11 @@ def build_managers(
         agent_architect_tools.write_soul_file,
         agent_architect_tools.register_standalone_agent,
         agent_architect_tools.update_agent_model,
+        # ADR-0006: eval feedback loop. Architect drafts a starter
+        # evalset and runs it against an ephemeral build of the draft
+        # before asking the user to approve registration.
+        agent_architect_tools.generate_starter_evalset,
+        agent_architect_tools.run_eval_against_draft,
     ] + board_tools + ctx_tools
 
     def _recall_cb(agent_id: str) -> Any:

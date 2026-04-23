@@ -402,18 +402,57 @@ class AgentFactory:
 
         # Model resolution priority:
         # explicit param > frontmatter > router > default
-        adk_model: Any
-        if model is not None:
-            adk_model = model
-        else:
-            fm_model = self._resolve_agent_model(agent_name)
-            if fm_model is not None:
-                adk_model = fm_model
-            elif self._router is not None:
-                adk_model = self._router.build_adk_model_for_agent(agent_name)
-            else:
-                adk_model = self._default_model
+        adk_model = self._resolve_model(agent_name, explicit=model)
 
+        return self._assemble_agent(
+            agent_name=agent_name,
+            instruction=instruction,
+            adk_model=adk_model,
+            tools=tools,
+            sub_agents=sub_agents,
+            description=description,
+            output_key=output_key,
+            before_agent_callback=before_agent_callback,
+        )
+
+    # ── shared assembly helpers ────────────────────────────────────────
+
+    def _resolve_model(
+        self, agent_name: str, *, explicit: Any | None = None
+    ) -> Any:
+        """Resolve the ADK model object for an agent.
+
+        Order: explicit > frontmatter > router > default. Used by both
+        the persistent ``build`` path and the ephemeral ``build_transient``
+        path so the resolution rules stay in one place.
+        """
+        if explicit is not None:
+            return explicit
+        fm_model = self._resolve_agent_model(agent_name)
+        if fm_model is not None:
+            return fm_model
+        if self._router is not None:
+            return self._router.build_adk_model_for_agent(agent_name)
+        return self._default_model
+
+    def _assemble_agent(
+        self,
+        *,
+        agent_name: str,
+        instruction: str,
+        adk_model: Any,
+        tools: list[Any] | None,
+        sub_agents: list[LlmAgent] | None,
+        description: str | None,
+        output_key: str | None,
+        before_agent_callback: Any | None,
+    ) -> LlmAgent:
+        """Stamp the final ``LlmAgent`` from a fully-resolved input set.
+
+        Both ``build`` and ``build_transient`` route through here so the
+        constructor-arg shape stays identical between persistent and
+        ephemeral agents.
+        """
         safe_name = agent_name.replace("-", "_")
         kwargs: dict[str, Any] = dict(
             name=safe_name,
@@ -427,3 +466,107 @@ class AgentFactory:
         if before_agent_callback is not None:
             kwargs["before_agent_callback"] = before_agent_callback
         return LlmAgent(**kwargs)
+
+    # ── transient (eval-only) path ─────────────────────────────────────
+
+    def build_transient(
+        self,
+        *,
+        agent_name: str,
+        body: str,
+        soul_overlay: str | None = None,
+        tools: list[Any] | None = None,
+        model: Any | None = None,
+        description: str | None = None,
+    ) -> LlmAgent:
+        """Build a one-off LlmAgent that doesn't touch Firestore.
+
+        Used by the agent-architect to score a draft via eval before
+        registering. The returned LlmAgent is identical in shape to one
+        built via the regular path (soul layering, instruction assembly)
+        — but no override is created and no file is written. Caller is
+        responsible for tearing down references.
+
+        The transient build path deliberately skips:
+        - Firestore override lookups (``_apply_override``,
+          ``_merge_catalog_tools``) — drafts have no override yet.
+        - Memory recall callbacks — pass ``before_agent_callback=None``
+          implicitly by not wiring one. Vertex Memory Bank calls would
+          dominate the eval pass wall-clock otherwise.
+        - The agent baseline ``.md`` file lookup — ``body`` is the
+          authoritative source of truth for the prompt.
+
+        Args:
+            agent_name: Identifier used for the LlmAgent's name and any
+                soul-overlay file lookup. Does NOT need to exist on disk
+                or in Firestore.
+            body: Full agent body markdown (the "Agent Role" content
+                normally read from ``agents/<name>.md``).
+            soul_overlay: Optional name of a soul overlay file under
+                ``soul/`` to layer onto ``soul/base.md``. Inline
+                overlay markdown is NOT supported here — overlay must
+                reference an existing file or be None (eval drafts
+                default to the base soul).
+            tools: Callables to bind. None = no tools.
+            model: Explicit ADK model object; falls through to router /
+                default when None. The architect typically passes the
+                resolved orchestrator model so eval doesn't depend on
+                catalog state.
+            description: Short description on the LlmAgent.
+
+        Returns:
+            A live ``LlmAgent`` ready to be wrapped in an ``AgentRunner``
+            for eval. Not registered, not persisted, not discoverable
+            via ``factory.build(agent_name)``.
+        """
+        instruction = self._build_transient_prompt(
+            agent_name=agent_name,
+            body=body,
+            soul_overlay=soul_overlay,
+        )
+
+        adk_model = self._resolve_model(agent_name, explicit=model)
+        logger.info(
+            "factory.build_transient: %s (model=%s, tools=%d) — no "
+            "override / no persistence",
+            agent_name,
+            getattr(adk_model, "model", adk_model),
+            len(tools or []),
+        )
+        return self._assemble_agent(
+            agent_name=agent_name,
+            instruction=instruction,
+            adk_model=adk_model,
+            tools=tools,
+            sub_agents=None,
+            description=description,
+            output_key=None,
+            before_agent_callback=None,
+        )
+
+    def _build_transient_prompt(
+        self,
+        *,
+        agent_name: str,
+        body: str,
+        soul_overlay: str | None,
+    ) -> str:
+        """Stitch a system prompt for a transient agent without touching
+        the agent file system.
+
+        Mirrors the structure of ``ConfigLoader.build_system_prompt`` —
+        Agent Role + Current time + Personality — but uses ``body``
+        directly instead of resolving from disk / Firestore. The user
+        profile and memory blocks are intentionally omitted: an eval
+        run shouldn't depend on personal context.
+        """
+        loader = self._loader
+        parts: list[str] = [f"# Agent Role\n\n{body}"]
+        parts.append(f"# Current time\n\n{loader.current_time_block()}")
+        try:
+            soul = loader.load_soul("base", overlay=soul_overlay)
+        except FileNotFoundError:
+            soul = ""
+        if soul:
+            parts.append(f"# Personality\n\n{soul}")
+        return "\n\n---\n\n".join(parts)
