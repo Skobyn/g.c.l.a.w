@@ -21,7 +21,11 @@ import { MessageList } from "./message-list";
 import { MessageInput } from "./message-input";
 import { VoiceControls } from "./voice-controls";
 import { AgentSelector, DEFAULT_AGENT } from "./agent-selector";
-import { BackgroundActivityStrip } from "./background-activity-strip";
+import { BoardSummaryCard } from "./board-summary-card";
+import {
+  DelegationStreamOverlay,
+  useDelegationStream,
+} from "./delegation-stream";
 import type { AgentListEntry, ChatMessage } from "@/types";
 import { formatDatestamp } from "@/lib/format";
 
@@ -207,12 +211,41 @@ export function ChatView() {
   });
 
   // ── User-scoped background activity (heartbeat-driven runs) ───────
-  // Persistent SSE that collects task.* events from any run — shown
-  // in the collapsible BackgroundActivityStrip above the composer.
+  // Persistent SSE that collects task.* events from any run — powers the
+  // BoardSummaryCard's phase counts + per-agent expanders.
   const backgroundState = useUserEvents({
     baseUrl: API_BASE,
     getIdToken,
   });
+
+  // ── Delegation binary-stream animation ────────────────────────────
+  // When a task.delegated event lands in `dispatches` (i.e. the
+  // orchestrator just created a board task this turn), fire a burst of
+  // 0/1 glyphs from the turn bubble to the BoardSummaryCard so the
+  // user SEES the delegation happen. Ref wires below.
+  const boardCardRef = useRef<HTMLDivElement | null>(null);
+  const lastMessageRef = useRef<HTMLDivElement | null>(null);
+  const delegationStream = useDelegationStream();
+  const firedDelegations = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    for (const block of Object.values(dispatches)) {
+      // One burst per task_id — if a task's created_at updates later
+      // (e.g. server-side retry) we include it in the dedup key so a
+      // fresh delegation re-fires the animation.
+      const key = `${block.task_id}:${block.created_at}`;
+      if (firedDelegations.current.has(key)) continue;
+      firedDelegations.current.add(key);
+      // Defer one frame so layout has the latest bubble in place.
+      requestAnimationFrame(() => {
+        delegationStream.fire({
+          sourceEl: lastMessageRef.current,
+          targetEl: boardCardRef.current,
+          priority: block.priority,
+        });
+      });
+    }
+  }, [dispatches, delegationStream]);
 
   // Derived stats
   const turnCount = messages.filter((m) => m.role === "user").length;
@@ -265,6 +298,7 @@ export function ChatView() {
           activeAgent={activeAgent}
           loading={isLoading}
           dispatchesByRunId={{ [latestRunId || ""]: dispatches }}
+          lastMessageRef={lastMessageRef}
         />
 
         {error && (
@@ -276,12 +310,21 @@ export function ChatView() {
           </div>
         )}
 
-        {/* Background activity — heartbeat-driven manager runs */}
-        <BackgroundActivityStrip
+        {/* Board summary — always visible, live from the SSE stream.
+            Expandable per-phase (running/queued/done/failed); each
+            expander shows per-agent groupings + recent task titles.
+            Also serves as the landing zone for the DelegationStream
+            0/1 animation fired when the orchestrator delegates. */}
+        <BoardSummaryCard
+          ref={boardCardRef}
           items={backgroundState.items}
           inFlight={backgroundState.inFlight}
           queued={backgroundState.queued}
         />
+
+        {/* Mount the delegation-stream overlay at the section root so
+            particles sit above everything else but below modals. */}
+        <DelegationStreamOverlay state={delegationStream.state} />
 
         {/* Input bar */}
         <div className="hairline-t">

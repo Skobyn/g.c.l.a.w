@@ -1,5 +1,6 @@
 "use client";
 
+import type { RefObject } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { ChatMessage, DispatchBlock } from "@/types";
@@ -12,6 +13,9 @@ interface MessageListProps {
   loading?: boolean;
   /** Live board-task dispatch blocks keyed by run_id → (task_id → block). */
   dispatchesByRunId?: Record<string, Record<string, DispatchBlock>>;
+  /** Ref written to the most recent assistant turn — used as the
+   *  source element for the delegation-stream binary animation. */
+  lastMessageRef?: RefObject<HTMLDivElement | null>;
 }
 
 /**
@@ -25,7 +29,17 @@ export function MessageList({
   activeAgent,
   loading,
   dispatchesByRunId,
+  lastMessageRef,
 }: MessageListProps) {
+  // Find the index of the last assistant message so we can wire the
+  // ref exactly once.
+  let lastAssistantIdx = -1;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === "assistant") {
+      lastAssistantIdx = i;
+      break;
+    }
+  }
   if (messages.length === 0 && !loading) {
     return (
       <div className="flex flex-1 items-center justify-center px-6">
@@ -46,11 +60,26 @@ export function MessageList({
   return (
     <div className="flex flex-1 flex-col overflow-y-auto">
       <div className="mx-auto w-full max-w-[760px] px-6 py-8 space-y-7">
-        {messages.map((msg) => {
+        {messages.map((msg, idx) => {
           const stamp = formatTimestamp(msg.timestamp);
           const isUser = msg.role === "user";
+          const isLastAssistant = idx === lastAssistantIdx;
           return (
-            <div key={msg.id} className="group">
+            <div
+              key={msg.id}
+              className="group"
+              ref={
+                isLastAssistant && lastMessageRef
+                  ? (el) => {
+                      // Unified ref forwarding — React 19 accepts either
+                      // a RefObject or a callback. Write through when
+                      // mounted/unmounted to keep stream source accurate.
+                      (lastMessageRef as { current: HTMLDivElement | null }).current =
+                        el;
+                    }
+                  : undefined
+              }
+            >
               {/* Meta line */}
               <div className="flex items-baseline gap-3 mb-1.5">
                 <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-paper-40">
