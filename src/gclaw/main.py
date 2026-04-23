@@ -877,6 +877,51 @@ def build_app():
     )
     set_recorder(usage_recorder)
 
+    # BigQuery Agent Analytics (ADR-0003) — fan a third copy of every
+    # span into a SQL-queryable table. Wired here (post-catalog) so the
+    # processor can hand off ``cost_lookup`` for FLOAT64 cost_usd. The
+    # writer is constructed but not started until the FastAPI lifespan
+    # has a running event loop (see app.py); enqueue is thread-safe so
+    # span emissions before then just sit in the buffer.
+    bq_writer = None
+    bq_processor = None
+    if (
+        settings.bigquery_analytics_enabled
+        and settings.observability_enabled
+        and catalog_service is not None
+        and settings.gcp_project_id
+    ):
+        try:
+            from gclaw.observability import (
+                BigQueryAnalyticsWriter,
+                BigQuerySpanProcessor,
+                init_tracing,
+            )
+            bq_writer = BigQueryAnalyticsWriter(
+                project_id=settings.gcp_project_id,
+                dataset=settings.bigquery_analytics_dataset,
+                table=settings.bigquery_analytics_table,
+            )
+            bq_processor = BigQuerySpanProcessor(
+                writer=bq_writer,
+                cost_lookup=cost_lookup,
+            )
+            # init_tracing is idempotent — this call attaches the new
+            # processor to the already-registered provider.
+            init_tracing(settings, extra_processors=[bq_processor])
+            logger.info(
+                "bq-analytics: processor registered (%s.%s)",
+                settings.bigquery_analytics_dataset,
+                settings.bigquery_analytics_table,
+            )
+        except Exception:
+            logger.warning(
+                "bq-analytics: wiring failed — continuing without BQ export",
+                exc_info=True,
+            )
+            bq_writer = None
+            bq_processor = None
+
     # Guardrails — inline I/O validation on every agent response.
     # No-op when GUARDRAILS_ENABLED=false; the service is still
     # constructed so runner wiring stays uniform.
@@ -1046,6 +1091,7 @@ def build_app():
         agent_runs_repo=agent_runs_repo,
         tool_catalog_service=tool_catalog_service,
         vertex_scorer=vertex_scorer,
+        bq_analytics_writer=bq_writer,
     )
 
 

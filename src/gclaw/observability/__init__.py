@@ -7,8 +7,14 @@ Public API:
   - :class:`RunRegistry` — per-run asyncio queue registry for SSE.
   - :class:`PromptLogWriter` / :class:`PromptLogSpanProcessor` — writes
     prompt + response JSON to GCS for compliance / replay (ADR-0004).
+  - :class:`BigQueryAnalyticsWriter` /
+    :class:`BigQuerySpanProcessor` — ADR-0003 BigQuery export.
 """
 
+from gclaw.observability.bq_analytics import (
+    BigQueryAnalyticsWriter,
+    BigQuerySpanProcessor,
+)
 from gclaw.observability.live_span_processor import LiveSpanProcessor
 from gclaw.observability.prompt_log import (
     PromptLogSpanProcessor,
@@ -23,4 +29,6 @@ __all__ = [
     "PromptLogSpanProcessor",
     "PromptLogWriter",
     "RunRegistry",
+    "BigQueryAnalyticsWriter",
+    "BigQuerySpanProcessor",
 ]

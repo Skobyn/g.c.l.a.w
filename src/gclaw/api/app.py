@@ -69,6 +69,7 @@ def create_app(
     agent_runs_repo: object | None = None,
     tool_catalog_service: object | None = None,
     vertex_scorer: object | None = None,
+    bq_analytics_writer: object | None = None,
 ) -> FastAPI:
     # Lifespan that optionally starts the per-agent heartbeat loop.
     _loop_holder: dict = {}
@@ -99,6 +100,18 @@ def create_app(
             oauth_loop.start()
             _loop_holder["oauth_loop"] = oauth_loop
             logger.info("oauth-refresh: background loop started")
+
+        # BigQuery analytics writer needs a running event loop to drive
+        # its async flush task. Start it here so the buffer that's been
+        # collecting span rows since process start gets drained.
+        if bq_analytics_writer is not None:
+            try:
+                bq_analytics_writer.start()  # type: ignore[attr-defined]
+                logger.info("bq-analytics: writer flush loop started")
+            except Exception:
+                logger.warning(
+                    "bq-analytics: writer start failed", exc_info=True
+                )
         try:
             yield
         finally:
@@ -120,6 +133,15 @@ def create_app(
                 except Exception:
                     logger.warning(
                         "oauth-refresh: background loop stop failed",
+                        exc_info=True,
+                    )
+            if bq_analytics_writer is not None:
+                try:
+                    await bq_analytics_writer.shutdown()  # type: ignore[attr-defined]
+                    logger.info("bq-analytics: writer shut down")
+                except Exception:
+                    logger.warning(
+                        "bq-analytics: writer shutdown failed",
                         exc_info=True,
                     )
 

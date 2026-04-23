@@ -318,6 +318,27 @@ class Settings:
     prompt_log_bucket: str = field(
         default_factory=lambda: os.environ.get("PROMPT_LOG_BUCKET", "")
     )
+    # BigQuery Agent Analytics (ADR-0003) — OFF by default. When true
+    # and ``observability_enabled`` is also true, main.py registers a
+    # BigQuerySpanProcessor on the tracer provider that mirrors the
+    # OTel span stream into ``<dataset>.<table>``. Costs trickle in via
+    # the catalog (NULL when the model isn't catalogued). Bootstrap
+    # the dataset + SA grants with scripts/bootstrap-bq-analytics.sh.
+    bigquery_analytics_enabled: bool = field(
+        default_factory=lambda: os.environ.get(
+            "BIGQUERY_ANALYTICS_ENABLED", "false"
+        ).lower() == "true"
+    )
+    bigquery_analytics_dataset: str = field(
+        default_factory=lambda: os.environ.get(
+            "BIGQUERY_ANALYTICS_DATASET", "gclaw_analytics"
+        )
+    )
+    bigquery_analytics_table: str = field(
+        default_factory=lambda: os.environ.get(
+            "BIGQUERY_ANALYTICS_TABLE", "agent_events"
+        )
+    )
 
 
 def get_settings() -> Settings:

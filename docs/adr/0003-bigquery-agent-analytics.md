@@ -1,6 +1,8 @@
 # ADR-0003: BigQuery Agent Analytics adoption
 
-**Status:** Proposed (2026-04-22) — implementation pending
+**Status:** Accepted (2026-04-22) — v1 writer + processor shipped on
+`feat/adr-0003-bq-analytics`. OFF by default
+(`BIGQUERY_ANALYTICS_ENABLED=false`); flip per-deploy.
 **Context:** Phoenix gives us live trace inspection but no
 SQL-queryable analytics. We can't answer questions like "total LLM
 spend per agent last 7 days" or "find every chat where the
@@ -66,9 +68,17 @@ schema in `https://adk.dev/integrations/bigquery-agent-analytics/`):
    Grant `gclaw-run-sa` `bigquery.dataEditor` on the dataset and
    `storage.objectAdmin` on the bucket.
 2. **Add writer** at `src/gclaw/observability/bq_analytics.py`:
-   - Wraps `google.cloud.bigquery_storage.BigQueryWriteAsyncClient`.
-   - Buffers ~1s of events and flushes batches.
-   - Falls open if BQ is unavailable — never blocks the agent path.
+   - v1 wraps `google.cloud.bigquery.Client.insert_rows_json` —
+     simpler bring-up than the Storage Write API and good enough for
+     gclaw's current load (~100s of events/day). The writer is
+     interface-compatible with a future Storage-Write-backed
+     replacement; only the flush implementation changes.
+   - Buffers up to ~1s of events (or 100 rows, whichever first) and
+     flushes asynchronously on a background task.
+   - Falls open if BQ is unavailable — every exception inside the
+     flush path is caught, logged at WARNING, and the offending batch
+     is dropped. The agent path is never blocked.
+   - Auto-creates the dataset + table on first flush. Idempotent.
 3. **Hook into the existing span pipeline**: add a span processor in
    `src/gclaw/observability/tracing.py` alongside the OTLP exporter.
    The processor maps spans to BQ rows. Both Phoenix and BQ get the
