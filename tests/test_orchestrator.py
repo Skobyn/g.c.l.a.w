@@ -12,6 +12,7 @@ from gclaw.agents.orchestrator import (
     complete_board_task_tool,
     fail_board_task_tool,
     build_orchestrator,
+    manager_tools_for,
 )
 from gclaw.board.service import BoardService
 from gclaw.models.task import BoardTask, TaskStatus
@@ -376,6 +377,50 @@ def test_fail_board_task_not_found(board_service):
     result = tool_fn(task_id="missing", reason="anything")
     assert "not found" in result
     board_service.fail.assert_not_called()
+
+
+def test_manager_tools_for_includes_board_lifecycle_tools(board_service):
+    """Every manager that lives on the board must have its full
+    completion lifecycle tools — without complete_board_task /
+    fail_board_task, a manager's heartbeat fires, runs the work
+    tool successfully, and then has no way to mark the task done.
+    Tasks stay IN_PROGRESS forever — that's the regression this
+    test is here to catch."""
+    for mgr in (
+        "workspace-mgr",
+        "dev-mgr",
+        "home-mgr",
+        "comms-mgr",
+        "research-mgr",
+        "content-mgr",
+        "agent-architect",
+    ):
+        tools = manager_tools_for(mgr, board_service=board_service)
+        names = {getattr(t, "__name__", "") for t in tools}
+        assert "complete_board_task" in names, (
+            f"{mgr} is missing complete_board_task — heartbeat will hang"
+        )
+        assert "fail_board_task" in names, (
+            f"{mgr} is missing fail_board_task — failure path will hang"
+        )
+        assert "create_board_task" in names, (
+            f"{mgr} is missing create_board_task"
+        )
+        assert "get_board_task" in names, (
+            f"{mgr} is missing get_board_task"
+        )
+
+
+def test_manager_tools_for_research_mgr_includes_web_search(board_service):
+    """research-mgr's domain tools must come along too."""
+    tools = manager_tools_for("research-mgr", board_service=board_service)
+    names = {getattr(t, "__name__", "") for t in tools}
+    assert "web_search" in names
+    assert "fetch_url" in names
+
+
+def test_manager_tools_for_unknown_returns_empty(board_service):
+    assert manager_tools_for("nonexistent-mgr", board_service=board_service) == []
 
 
 def test_build_orchestrator(board_service, tmp_path):

@@ -363,6 +363,108 @@ def _make_memory_recall_callback(
     return before
 
 
+def manager_tools_for(
+    agent_name: str,
+    board_service: "BoardService | None" = None,
+    board_tools: list | None = None,
+) -> list:
+    """Return the tool set for a named manager.
+
+    Single source of truth so the orchestrator's AgentTool-wrapped
+    managers (built in ``build_managers``) and the standalone
+    leaf-runner versions (built via ``factory.build`` for the
+    chat agent-switcher and per-agent heartbeats) agree byte-for-byte.
+
+    Pass either an already-built ``board_tools`` list (what
+    ``build_managers`` does) or a raw ``board_service`` (what main.py
+    has when wiring leaf runners). Without board tools the agent
+    can't mark its task DONE — that's the bug this function exists
+    to fix.
+
+    Returns an empty list for unknown agent names — caller decides
+    whether that's worth raising about.
+    """
+    if board_tools is None:
+        if board_service is None:
+            board_tools = []
+        else:
+            board_tools = [
+                create_board_task_tool(board_service),
+                list_board_tasks_tool(board_service),
+                get_board_task_tool(board_service),
+                complete_board_task_tool(board_service),
+                fail_board_task_tool(board_service),
+            ]
+    ctx_tools = [
+        context_tools.context_write,
+        context_tools.context_read_latest,
+        context_tools.context_list,
+        context_tools.context_write_image,
+    ]
+    pz_tools = [
+        postiz_tools.postiz_upload_image,
+        postiz_tools.postiz_upload_image_b64,
+        postiz_tools.postiz_create_draft,
+        postiz_tools.postiz_register_images,
+        postiz_tools.postiz_list_channels,
+    ]
+    img_tools = [
+        image_gen_tools.generate_image,
+        image_gen_tools.generate_image_b64,
+    ]
+
+    by_name: dict[str, list] = {
+        "workspace-mgr": [
+            workspace_tools.list_unread_email,
+            workspace_tools.send_email,
+            workspace_tools.list_calendar_events_today,
+            workspace_tools.create_calendar_event,
+            workspace_tools.list_drive_files,
+            workspace_tools.read_drive_doc,
+        ] + board_tools + ctx_tools,
+        "dev-mgr": [
+            dev_tools.list_open_prs,
+            dev_tools.get_pr_diff,
+            dev_tools.list_failing_workflows,
+            dev_tools.create_issue,
+            dev_tools.get_current_diff,
+            dev_tools.read_local_file,
+        ] + board_tools + ctx_tools,
+        "home-mgr": [
+            home_tools.list_devices,
+            home_tools.set_device_state,
+        ] + board_tools + ctx_tools,
+        "comms-mgr": [
+            comms_tools.list_chat_spaces,
+            comms_tools.post_chat_message,
+        ] + board_tools + ctx_tools,
+        "research-mgr": [
+            research_tools.web_search,
+            research_tools.fetch_url,
+        ] + board_tools + ctx_tools,
+        "profile-mgr": [
+            user_profile_tools.read_user_profile,
+            user_profile_tools.update_user_profile,
+        ] + ctx_tools,
+        "content-mgr": pz_tools + img_tools + board_tools + ctx_tools,
+        "content-scott": pz_tools + img_tools + board_tools + ctx_tools,
+        "content-apex": pz_tools + img_tools + board_tools + ctx_tools,
+        "agent-architect": [
+            agent_architect_tools.read_agent_file,
+            agent_architect_tools.read_soul_file,
+            agent_architect_tools.list_agent_files,
+            agent_architect_tools.list_registered_agents,
+            agent_architect_tools.write_agent_file,
+            agent_architect_tools.write_soul_file,
+            agent_architect_tools.register_standalone_agent,
+            agent_architect_tools.update_agent_model,
+            agent_architect_tools.generate_starter_evalset,
+            agent_architect_tools.run_eval_against_draft,
+        ] + board_tools + ctx_tools,
+    }
+    return by_name.get(agent_name, [])
+
+
 def build_managers(
     factory: AgentFactory,
     board_tools: list,
@@ -377,81 +479,22 @@ def build_managers(
     `before_agent_callback` that auto-recalls agent-scoped memories before
     the manager's LLM call fires.
     """
-    ctx_tools = [
-        context_tools.context_write,
-        context_tools.context_read_latest,
-        context_tools.context_list,
-        context_tools.context_write_image,
-    ]
+    # Resolve tools per manager via the shared helper so the leaf-runner
+    # path (chat agent-switcher + per-agent heartbeats) gets the same
+    # set without duplicating these lists in two places. Pre-built
+    # board_tools is reused so the closures point at the same
+    # BoardService instance.
+    def _t(name: str) -> list:
+        return manager_tools_for(name, board_tools=board_tools)
 
-    ws_tools = [
-        workspace_tools.list_unread_email,
-        workspace_tools.send_email,
-        workspace_tools.list_calendar_events_today,
-        workspace_tools.create_calendar_event,
-        workspace_tools.list_drive_files,
-        workspace_tools.read_drive_doc,
-    ] + board_tools + ctx_tools
-
-    dv_tools = [
-        dev_tools.list_open_prs,
-        dev_tools.get_pr_diff,
-        dev_tools.list_failing_workflows,
-        dev_tools.create_issue,
-        dev_tools.get_current_diff,
-        dev_tools.read_local_file,
-    ] + board_tools + ctx_tools
-
-    hm_tools = [
-        home_tools.list_devices,
-        home_tools.set_device_state,
-    ] + board_tools + ctx_tools
-
-    pz_tools = [
-        postiz_tools.postiz_upload_image,
-        postiz_tools.postiz_upload_image_b64,
-        postiz_tools.postiz_create_draft,
-        postiz_tools.postiz_register_images,
-        postiz_tools.postiz_list_channels,
-    ]
-
-    img_tools = [
-        image_gen_tools.generate_image,
-        image_gen_tools.generate_image_b64,
-    ]
-
-    cm_tools = [
-        comms_tools.list_chat_spaces,
-        comms_tools.post_chat_message,
-    ] + board_tools + ctx_tools
-
-    ct_tools = pz_tools + img_tools + board_tools + ctx_tools
-
-    rs_tools = [
-        research_tools.web_search,
-        research_tools.fetch_url,
-    ] + board_tools + ctx_tools
-
-    pf_tools = [
-        user_profile_tools.read_user_profile,
-        user_profile_tools.update_user_profile,
-    ] + ctx_tools
-
-    aa_tools = [
-        agent_architect_tools.read_agent_file,
-        agent_architect_tools.read_soul_file,
-        agent_architect_tools.list_agent_files,
-        agent_architect_tools.list_registered_agents,
-        agent_architect_tools.write_agent_file,
-        agent_architect_tools.write_soul_file,
-        agent_architect_tools.register_standalone_agent,
-        agent_architect_tools.update_agent_model,
-        # ADR-0006: eval feedback loop. Architect drafts a starter
-        # evalset and runs it against an ephemeral build of the draft
-        # before asking the user to approve registration.
-        agent_architect_tools.generate_starter_evalset,
-        agent_architect_tools.run_eval_against_draft,
-    ] + board_tools + ctx_tools
+    ws_tools = _t("workspace-mgr")
+    dv_tools = _t("dev-mgr")
+    hm_tools = _t("home-mgr")
+    cm_tools = _t("comms-mgr")
+    ct_tools = _t("content-mgr")
+    rs_tools = _t("research-mgr")
+    pf_tools = _t("profile-mgr")
+    aa_tools = _t("agent-architect")
 
     def _recall_cb(agent_id: str) -> Any:
         if memory_service is None:

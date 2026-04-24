@@ -1008,8 +1008,20 @@ def build_app():
     # from the factory (standard build path — no orchestrator
     # sub-agent fan-out). Lazy: leaf runners aren't built until the
     # user actually selects that agent in the chat switcher.
+    #
+    # IMPORTANT: managers MUST get their full tool set (web_search +
+    # board_tools + ctx_tools etc.) from manager_tools_for. Without
+    # board_tools (`complete_board_task` / `fail_board_task`), a
+    # manager's heartbeat fires, runs the work tool successfully,
+    # and then has no way to mark the task done — it stays
+    # IN_PROGRESS forever.
+    from gclaw.agents.orchestrator import manager_tools_for as _mgr_tools_for
     def _leaf_runner_builder(agent_name: str) -> AgentRunner:
-        agent = factory.build(agent_name=agent_name)
+        leaf_tools = _mgr_tools_for(agent_name, board_service=board_service)
+        agent = factory.build(
+            agent_name=agent_name,
+            tools=leaf_tools or None,
+        )
         return AgentRunner(
             agent=agent,
             app_name="gclaw",
