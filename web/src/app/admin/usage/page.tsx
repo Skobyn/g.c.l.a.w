@@ -1,15 +1,23 @@
 "use client";
 
 /**
- * Admin page: Usage & Cost observability.
+ * Admin page: Observability.
+ *
+ * The page used to be called "Usage & Cost" but it now also surfaces
+ * per-author per-turn transcripts (RecentTranscripts), so the broader
+ * "observability" framing fits. Route stays at /admin/usage to avoid
+ * breaking bookmarks.
  *
  * Consumes /admin/usage/summary and /admin/usage/events to render KPIs,
  * an hourly stacked bar chart, Top-N tables, and a recent events tail.
- * Auto-refreshes every 30s while the tab is visible.
+ * Auto-refreshes every 30s while the tab is visible. Recent
+ * Transcripts subscribes to Firestore directly via onSnapshot so it
+ * updates live as agents speak, independent of the 30s poll.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppShell } from "@/components/layout/app-shell";
+import { useAuth } from "@/contexts/auth-context";
 import { useApiClient } from "@/lib/api-client";
 import type { UsageEvent, UsageKind, UsageSummary } from "@/types";
 import { KpiCard } from "@/components/admin/usage/kpi-card";
@@ -17,6 +25,7 @@ import { HourlyChart } from "@/components/admin/usage/hourly-chart";
 import { TopNTable } from "@/components/admin/usage/top-n-table";
 import type { TopNColumn } from "@/components/admin/usage/top-n-table";
 import { EventsTable } from "@/components/admin/usage/events-table";
+import { RecentTranscripts } from "@/components/admin/usage/recent-transcripts";
 
 const AUTO_REFRESH_MS = 30_000;
 const EVENTS_PAGE_SIZE = 50;
@@ -50,6 +59,7 @@ function formatPct(p: number): string {
 
 function UsageContent() {
   const api = useApiClient();
+  const { user } = useAuth();
   const [windowKey, setWindowKey] = useState<WindowKey>("24h");
   const [summary, setSummary] = useState<UsageSummary | null>(null);
   const [events, setEvents] = useState<UsageEvent[]>([]);
@@ -216,12 +226,13 @@ function UsageContent() {
     <div className="flex h-full flex-col bg-ink-900 text-paper">
       <header className="hairline-b px-8 pt-6 pb-5 flex items-end justify-between gap-4">
         <div>
-          <div className="label-caps mb-1.5">§ 10 · TELEMETRY</div>
+          <div className="label-caps mb-1.5">§ 10 · OBSERVABILITY</div>
           <h1 className="font-display text-[30px] italic leading-none">
-            Usage &amp; Cost
+            Observability
           </h1>
           <p className="mt-2 font-body text-[13px] text-paper-60">
-            Model, agent, skill, and tool telemetry across the platform.
+            Model, agent, skill, and tool telemetry — plus per-author
+            transcripts for every turn.
             {lastRefresh && (
               <>
                 {" · "}
@@ -349,12 +360,17 @@ function UsageContent() {
             onToggleCollapsed={() => setEventsCollapsed((c) => !c)}
           />
         </section>
+
+        {/* Per-author transcripts for recent sessions. */}
+        <section>
+          <RecentTranscripts uid={user?.uid} />
+        </section>
       </main>
     </div>
   );
 }
 
-export default function UsageAdminPage() {
+export default function ObservabilityAdminPage() {
   return (
     <AppShell>
       <UsageContent />
