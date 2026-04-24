@@ -93,7 +93,7 @@ if [[ ! -f "${OVERLAY_DIR}/README.md" ]]; then
   cat > "${OVERLAY_DIR}/README.md" <<EOF
 # gclaw-overlay (private)
 
-Personal overlay for [gclaw](https://github.com/Skobyn/gclaw). Files
+Personal overlay for [gclaw](https://github.com/Skobyn/g.c.l.a.w). Files
 here are rsync'd onto the public framework at deploy time via
 \`scripts/deploy.sh\` (with OVERLAY pointed at this directory).
 

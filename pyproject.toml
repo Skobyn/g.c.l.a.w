@@ -61,9 +61,9 @@ dev = [
 gclaw-eval = "gclaw.cli.eval:_entry"
 
 [project.urls]
-Homepage = "https://github.com/Skobyn/gclaw"
-Repository = "https://github.com/Skobyn/gclaw"
-Issues = "https://github.com/Skobyn/gclaw/issues"
+Homepage = "https://github.com/Skobyn/g.c.l.a.w"
+Repository = "https://github.com/Skobyn/g.c.l.a.w"
+Issues = "https://github.com/Skobyn/g.c.l.a.w/issues"
 
 [build-system]
 requires = ["hatchling"]
