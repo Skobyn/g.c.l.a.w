@@ -97,9 +97,28 @@ class LiveSpanProcessor(SpanProcessor):
             self._registry.put_nowait(run_id, event)
 
             if self._repo is not None and user_id:
+                # Throttle Firestore writes per-run, but ALWAYS allow
+                # writes that carry meaningful data (tokens or model)
+                # to land — otherwise the sub-spans that fire during a
+                # turn (AgentTool invocations from ADK's OpenInference
+                # instrumentor, all carrying SPAN_KIND=AGENT but no
+                # tokens) can eat the throttle budget, and the root
+                # turn span's end-of-turn write — the one with the
+                # actual tokens and model — gets silently dropped.
+                data = event.get("data") or {}
+                tokens = data.get("tokens") or {}
+                # Only count input / output tokens — `total` is derived
+                # by the instrumentor and can be set even when the real
+                # token fields are null (it emits 0 in that case).
+                has_meaningful = (
+                    data.get("model_id")
+                    or data.get("cost_usd") is not None
+                    or tokens.get("in") is not None
+                    or tokens.get("out") is not None
+                )
                 now = time.monotonic()
                 last = self._last_firestore_write.get(run_id, 0.0)
-                if (now - last) >= self._throttle:
+                if has_meaningful or (now - last) >= self._throttle:
                     self._last_firestore_write[run_id] = now
                     try:
                         self._repo.upsert(

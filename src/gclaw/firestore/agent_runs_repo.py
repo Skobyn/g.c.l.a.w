@@ -89,13 +89,24 @@ class AgentRunsRepo:
         now_iso = datetime.now(timezone.utc).isoformat()
 
         span_cost = data.get("cost_usd")
+        raw_tokens = data.get("tokens") or {}
+        # A sub-span (e.g. an AgentTool invocation) with no token attrs
+        # serializes here as {"in": None, "out": None, "total": None}.
+        # Firestore merge would happily overwrite our previously-good
+        # tokens dict with that null one because a dict with nulls is
+        # still a non-None value. Collapse to None so the clean step
+        # below drops it.
+        if not any(v is not None for v in raw_tokens.values()):
+            raw_tokens_to_write: Any = None
+        else:
+            raw_tokens_to_write = raw_tokens
         payload: dict[str, Any] = {
             "run_id": run_id,
             "user_id": user_id,
             "active_agent": data.get("agent"),
             "model_id": data.get("model_id"),
             "provider": data.get("provider"),
-            "tokens": data.get("tokens") or {},
+            "tokens": raw_tokens_to_write,
             "status": data.get("status"),
             "last_span_id": data.get("span_id"),
             "last_trace_id": trace_id,

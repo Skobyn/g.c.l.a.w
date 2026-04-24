@@ -88,21 +88,40 @@ async def test_missing_session_id_skips_fanout():
 
 @pytest.mark.asyncio
 async def test_firestore_upsert_is_throttled_per_run():
+    """Throttle applies only to spans WITHOUT meaningful data.
+
+    Sub-spans from ADK's OpenInference instrumentor end during a turn
+    with SPAN_KIND=AGENT but no tokens / model — those are the ones
+    worth throttling. Our root turn span at end-of-turn always carries
+    tokens + model, and MUST land in Firestore regardless of how
+    recently an upsert fired, otherwise the turn doc ends up with
+    nulls everywhere.
+    """
     reg = RunRegistry()
     repo = MagicMock()
     proc = LiveSpanProcessor(
         run_registry=reg, firestore_repo=repo, throttle_seconds=10.0
     )
 
-    proc.on_end(_mk_span())
-    proc.on_end(_mk_span())  # within throttle window
+    # Two empty-data spans — throttle should suppress the second.
+    proc.on_end(_mk_span(model=None, tokens_in=None, tokens_out=None))
+    proc.on_end(_mk_span(model=None, tokens_in=None, tokens_out=None))
     assert repo.upsert.call_count == 1
 
-    # Forcibly age the window — still testing with a huge throttle so the
-    # second real-time call would otherwise be suppressed.
-    proc._last_firestore_write["s1"] = time.monotonic() - 20
+    # A meaningful span (tokens+model present) always writes, throttle
+    # or not.
     proc.on_end(_mk_span())
     assert repo.upsert.call_count == 2
+
+    # Another empty-data span within the window is still throttled —
+    # the meaningful write above reset the window.
+    proc.on_end(_mk_span(model=None, tokens_in=None, tokens_out=None))
+    assert repo.upsert.call_count == 2
+
+    # Forcibly age the window — empty-data write now goes through.
+    proc._last_firestore_write["s1"] = time.monotonic() - 20
+    proc.on_end(_mk_span(model=None, tokens_in=None, tokens_out=None))
+    assert repo.upsert.call_count == 3
 
 
 @pytest.mark.asyncio
