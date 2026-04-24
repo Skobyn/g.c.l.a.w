@@ -14,6 +14,7 @@ import { useEffect, useState } from "react";
 import { collection, onSnapshot, query } from "firebase/firestore";
 import { db, firebaseConfigured } from "@/lib/firebase";
 import { createApiClient } from "@/lib/api-client";
+import { useAuth } from "@/contexts/auth-context";
 
 const API_POLL_MS = 5_000;
 
@@ -31,13 +32,18 @@ export function useRecentSessions(
 ): { sessions: RecentSession[]; loaded: boolean } {
   const [sessions, setSessions] = useState<RecentSession[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const { getIdToken } = useAuth();
 
   useEffect(() => {
     // API fallback for builds without Firebase client config (e.g.
     // NEXT_PUBLIC_DEV_BYPASS_AUTH=true). Polls /admin/agent-runs
     // every 5s — backend is single-user, so the noise is bounded.
     if (!firebaseConfigured) {
-      const api = createApiClient(async () => null);
+      // Use real auth token resolver from context — passing
+      // `async () => null` would make the api-client throw
+      // "Not authenticated" before the fetch ever leaves, which is
+      // exactly the silent-empty failure mode this panel kept hitting.
+      const api = createApiClient(getIdToken);
       let cancelled = false;
       const fetchOnce = async () => {
         try {
@@ -104,7 +110,7 @@ export function useRecentSessions(
       },
     );
     return () => unsub();
-  }, [uid, limit]);
+  }, [uid, limit, getIdToken]);
 
   return { sessions, loaded };
 }

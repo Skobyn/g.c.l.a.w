@@ -23,6 +23,7 @@ import {
 } from "firebase/firestore";
 import { db, firebaseConfigured } from "@/lib/firebase";
 import { createApiClient } from "@/lib/api-client";
+import { useAuth } from "@/contexts/auth-context";
 import type { AgentRunDoc } from "@/hooks/useRunDoc";
 
 const API_POLL_MS = 5_000;
@@ -68,6 +69,7 @@ export function useSessionTurns(
 ): SessionRollup {
   const [turns, setTurns] = useState<TurnDoc[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const { getIdToken } = useAuth();
 
   useEffect(() => {
     // API fallback when Firebase isn't configured client-side.
@@ -77,7 +79,9 @@ export function useSessionTurns(
         setLoaded(false);
         return;
       }
-      const api = createApiClient(async () => null);
+      // Use real auth resolver — `async () => null` makes the
+      // api-client throw "Not authenticated" before fetch fires.
+      const api = createApiClient(getIdToken);
       let cancelled = false;
       const fetchOnce = async () => {
         try {
@@ -146,7 +150,7 @@ export function useSessionTurns(
     return () => {
       unsub();
     };
-  }, [uid, sessionId]);
+  }, [uid, sessionId, getIdToken]);
 
   const totals = useMemo(
     () => ({

@@ -17,6 +17,7 @@ import { useEffect, useState } from "react";
 import { collection, onSnapshot, orderBy, query } from "firebase/firestore";
 import { db, firebaseConfigured } from "@/lib/firebase";
 import { createApiClient } from "@/lib/api-client";
+import { useAuth } from "@/contexts/auth-context";
 
 const API_POLL_MS = 5_000;
 
@@ -36,6 +37,7 @@ export function useTurnMessages(
 ): { messages: TurnMessage[]; loaded: boolean } {
   const [messages, setMessages] = useState<TurnMessage[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const { getIdToken } = useAuth();
 
   useEffect(() => {
     if (!firebaseConfigured) {
@@ -44,7 +46,8 @@ export function useTurnMessages(
         setLoaded(false);
         return;
       }
-      const api = createApiClient(async () => null);
+      // Real auth resolver — see useRecentSessions for the why.
+      const api = createApiClient(getIdToken);
       let cancelled = false;
       const fetchOnce = async () => {
         try {
@@ -114,7 +117,7 @@ export function useTurnMessages(
       () => setLoaded(true),
     );
     return () => unsub();
-  }, [uid, sessionId, turnId]);
+  }, [uid, sessionId, turnId, getIdToken]);
 
   return { messages, loaded };
 }
