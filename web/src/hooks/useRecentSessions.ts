@@ -11,13 +11,7 @@
  */
 
 import { useEffect, useState } from "react";
-import {
-  collection,
-  limit as fbLimit,
-  onSnapshot,
-  orderBy,
-  query,
-} from "firebase/firestore";
+import { collection, onSnapshot, query } from "firebase/firestore";
 import { db, firebaseConfigured } from "@/lib/firebase";
 
 export interface RecentSession {
@@ -36,30 +30,56 @@ export function useRecentSessions(
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    if (!uid || !firebaseConfigured) {
+    if (!firebaseConfigured) {
+      // Firebase isn't initialized in this build (dev mode without
+      // FIREBASE_API_KEY). Render the empty state immediately rather
+      // than spinning forever.
+      setSessions([]);
+      setLoaded(true);
+      return;
+    }
+    if (!uid) {
       setSessions([]);
       setLoaded(false);
       return;
     }
     const col = collection(db, "users", uid, "agent_runs");
-    const q = query(col, orderBy("updated_at", "desc"), fbLimit(limit));
+    // No orderBy — older docs may not have `updated_at` and Firestore
+    // would filter them out, leaving the snapshot listener silent in
+    // a "no docs match" path that mimics a hang. Client-side sort
+    // below handles ordering + the limit cap.
+    const q = query(col);
     const unsub = onSnapshot(
       q,
       (snap) => {
         const rows: RecentSession[] = snap.docs.map((d) => {
           const raw = d.data() as Record<string, unknown>;
+          const ts = raw.updated_at;
           return {
             id: d.id,
             active_agent: raw.active_agent as string | undefined,
             model_id: raw.model_id as string | undefined,
             status: raw.status as string | undefined,
-            updated_at: raw.updated_at as string | undefined,
+            updated_at:
+              typeof ts === "string"
+                ? ts
+                : ts && typeof (ts as { toDate?: () => Date }).toDate === "function"
+                  ? (ts as { toDate: () => Date }).toDate().toISOString()
+                  : undefined,
           };
         });
-        setSessions(rows);
+        rows.sort((a, b) =>
+          (b.updated_at ?? "").localeCompare(a.updated_at ?? ""),
+        );
+        setSessions(rows.slice(0, limit));
         setLoaded(true);
       },
-      () => setLoaded(true),
+      () => {
+        // Permission denied / index missing — render empty state
+        // rather than hang the panel.
+        setSessions([]);
+        setLoaded(true);
+      },
     );
     return () => unsub();
   }, [uid, limit]);

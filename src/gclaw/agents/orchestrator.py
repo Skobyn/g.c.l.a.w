@@ -172,28 +172,60 @@ def complete_board_task_tool(board_service: BoardService) -> Callable:
     ) -> str:
         """Mark a board task as complete.
 
+        Refuses to complete:
+          * Tasks already in terminal FAILED state (use a fresh task
+            for a retry — don't paper over the failure).
+          * Tasks where the summary signals failure ("FAILED:",
+            "ERROR:", "could not"). Failed work goes through
+            ``fail_board_task``, not a DONE with a sad summary.
+
         Transparently transitions a QUEUED task through IN_PROGRESS first
-        when the caller is the task's assignee. Real-world agents
-        (notably heartbeat-driven manager runs that forget to call
-        ``get_board_task`` first) would otherwise hit
-        ``ValueError: cannot transition QUEUED → DONE`` and the task
-        would stay QUEUED forever. Same assignee gate as
-        ``get_board_task`` so non-assignees still can't smuggle a task
-        to DONE without the intended pickup event.
+        when the caller is the task's assignee. Heartbeat-driven manager
+        runs would otherwise hit ``ValueError: cannot transition
+        QUEUED → DONE`` and the task would stay QUEUED forever.
 
         Args:
             task_id: The task ID to complete.
-            summary: Brief summary of what was done.
+            summary: Brief summary of what was done. Must describe
+                actual work performed — not a failure message.
             tool_context: Injected by ADK; used to read ``agent_name``
                 for the assignee-auto-pickup gate.
 
         Returns:
-            Confirmation message.
+            Confirmation message, or a refusal explaining why.
         """
         from gclaw.models.task import TaskStatus
 
         current = board_service._repo.get(task_id)
-        if current is not None and current.status == TaskStatus.QUEUED:
+        if current is None:
+            return f"Task {task_id} not found."
+        if current.status == TaskStatus.FAILED:
+            return (
+                f"Task [{task_id}] is already FAILED — refusing to mark "
+                "it DONE. If new work succeeded, create a fresh task; "
+                "if it really did succeed on retry, that's a separate "
+                "create_board_task → complete_board_task lifecycle."
+            )
+        if current.status == TaskStatus.DONE:
+            return f"Task [{task_id}] is already DONE — no-op."
+
+        # Reject summaries that look like a failure rationale. The
+        # orchestrator was hallucinating "completions" for tasks the
+        # manager never actually finished, with a "FAILED: ..." text
+        # body. Force those into fail_board_task instead.
+        normalized = (summary or "").strip().lower()
+        failure_markers = (
+            "failed:", "failed.", "failed —", "error:", "could not",
+            "unable to", "task abandoned", "research tool interrupted",
+        )
+        if any(m in normalized[:120] for m in failure_markers):
+            return (
+                f"Refusing to mark [{task_id}] DONE with a failure "
+                f"summary. Call fail_board_task(task_id, reason) "
+                f"instead — DONE means real work shipped."
+            )
+
+        if current.status == TaskStatus.QUEUED:
             caller = (
                 getattr(tool_context, "agent_name", None)
                 if tool_context is not None
@@ -214,6 +246,52 @@ def complete_board_task_tool(board_service: BoardService) -> Callable:
         return f"Task [{task.id}] '{task.title}' marked as DONE."
 
     return complete_board_task
+
+
+def fail_board_task_tool(board_service: BoardService) -> Callable:
+    def fail_board_task(
+        task_id: str,
+        reason: str,
+        tool_context: Any = None,
+    ) -> str:
+        """Mark a board task as FAILED with a reason.
+
+        Use this when work cannot be completed (tool error, missing
+        capability, dependency unavailable, manager unstable). The
+        heartbeat instructions tell managers to call this rather than
+        completing the task with a "FAILED:" summary — failures need
+        to be visible in the FAILED column, not buried in DONE.
+
+        Args:
+            task_id: The task ID to fail.
+            reason: Short explanation of why it can't be done. Will
+                be shown verbatim in the failed-task tooltip + the
+                board card's rejection note.
+            tool_context: Injected by ADK; unused today, kept for
+                signature stability with the rest of the board tools.
+
+        Returns:
+            Confirmation or a not-found message.
+        """
+        from gclaw.models.task import TaskStatus
+
+        current = board_service._repo.get(task_id)
+        if current is None:
+            return f"Task {task_id} not found."
+        if current.status == TaskStatus.FAILED:
+            return f"Task [{task_id}] already FAILED — no-op."
+        if current.status == TaskStatus.DONE:
+            return (
+                f"Task [{task_id}] is already DONE — refusing to mark "
+                "it FAILED retroactively."
+            )
+        try:
+            task = board_service.fail(task_id=task_id, reason=reason)
+        except ValueError as e:
+            return f"fail_board_task refused: {e}"
+        return f"Task [{task.id}] '{task.title}' marked as FAILED: {reason[:200]}"
+
+    return fail_board_task
 
 
 # ---------- Manager builders ----------
@@ -479,6 +557,7 @@ def build_orchestrator(
         list_board_tasks_tool(board_service),
         get_board_task_tool(board_service),
         complete_board_task_tool(board_service),
+        fail_board_task_tool(board_service),
     ]
 
     managers = build_managers(

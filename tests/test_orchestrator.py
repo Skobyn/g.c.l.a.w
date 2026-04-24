@@ -10,6 +10,7 @@ from gclaw.agents.orchestrator import (
     list_board_tasks_tool,
     get_board_task_tool,
     complete_board_task_tool,
+    fail_board_task_tool,
     build_orchestrator,
 )
 from gclaw.board.service import BoardService
@@ -261,6 +262,120 @@ def test_complete_board_task_does_not_pickup_when_already_in_progress(
 
     board_service.pick_up.assert_not_called()
     board_service.complete.assert_called_once()
+
+
+def test_complete_board_task_refuses_failed_status(board_service):
+    """A FAILED task can't be silently revived to DONE — the
+    orchestrator was hallucinating completions for stuck tasks."""
+    task = BoardTask(
+        id="t1", title="Research", assignee="research-mgr",
+        status=TaskStatus.FAILED,
+    )
+    repo_mock = MagicMock()
+    repo_mock.get.return_value = task
+    board_service._repo = repo_mock
+
+    tool_fn = complete_board_task_tool(board_service)
+    fake_context = MagicMock()
+    fake_context.agent_name = "orchestrator"
+    result = tool_fn(task_id="t1", summary="finished", tool_context=fake_context)
+
+    assert "FAILED" in result
+    board_service.complete.assert_not_called()
+
+
+def test_complete_board_task_refuses_failure_summary(board_service):
+    """If the summary leads with FAILED:/ERROR:/could not, refuse and
+    point at fail_board_task instead. Stops the orchestrator from
+    burying failed work in the DONE column."""
+    task = BoardTask(
+        id="t1", title="Research", assignee="research-mgr",
+        status=TaskStatus.IN_PROGRESS,
+    )
+    repo_mock = MagicMock()
+    repo_mock.get.return_value = task
+    board_service._repo = repo_mock
+
+    tool_fn = complete_board_task_tool(board_service)
+    fake_context = MagicMock()
+    fake_context.agent_name = "orchestrator"
+    bad_summaries = [
+        "FAILED: research tool interrupted",
+        "ERROR: could not find a leader",
+        "Task abandoned because of rate limits",
+        "Could not complete the research due to tool instability",
+    ]
+    for summary in bad_summaries:
+        result = tool_fn(
+            task_id="t1", summary=summary, tool_context=fake_context,
+        )
+        assert "fail_board_task" in result, f"missing redirect for: {summary!r}"
+    board_service.complete.assert_not_called()
+
+
+def test_complete_board_task_already_done_is_noop(board_service):
+    task = BoardTask(
+        id="t1", title="Research", assignee="research-mgr",
+        status=TaskStatus.DONE,
+    )
+    repo_mock = MagicMock()
+    repo_mock.get.return_value = task
+    board_service._repo = repo_mock
+
+    tool_fn = complete_board_task_tool(board_service)
+    fake_context = MagicMock()
+    fake_context.agent_name = "research-mgr"
+    result = tool_fn(task_id="t1", summary="done", tool_context=fake_context)
+
+    assert "already DONE" in result
+    board_service.complete.assert_not_called()
+
+
+def test_fail_board_task_marks_failed(board_service):
+    task = BoardTask(
+        id="t1", title="Research", assignee="research-mgr",
+        status=TaskStatus.IN_PROGRESS,
+    )
+    repo_mock = MagicMock()
+    repo_mock.get.return_value = task
+    board_service._repo = repo_mock
+    board_service.fail.return_value = task.model_copy(
+        update={"status": TaskStatus.FAILED}
+    )
+
+    tool_fn = fail_board_task_tool(board_service)
+    result = tool_fn(task_id="t1", reason="claude rate limit, no retries left")
+    assert "FAILED" in result
+    assert "rate limit" in result
+    board_service.fail.assert_called_once_with(
+        task_id="t1", reason="claude rate limit, no retries left",
+    )
+
+
+def test_fail_board_task_refuses_already_done(board_service):
+    task = BoardTask(
+        id="t1", title="Research", assignee="research-mgr",
+        status=TaskStatus.DONE,
+    )
+    repo_mock = MagicMock()
+    repo_mock.get.return_value = task
+    board_service._repo = repo_mock
+
+    tool_fn = fail_board_task_tool(board_service)
+    result = tool_fn(task_id="t1", reason="anything")
+    assert "already DONE" in result
+    board_service.fail.assert_not_called()
+
+
+def test_fail_board_task_not_found(board_service):
+    repo_mock = MagicMock()
+    repo_mock.get.return_value = None
+    board_service._repo = repo_mock
+
+    tool_fn = fail_board_task_tool(board_service)
+    result = tool_fn(task_id="missing", reason="anything")
+    assert "not found" in result
+    board_service.fail.assert_not_called()
 
 
 def test_build_orchestrator(board_service, tmp_path):
