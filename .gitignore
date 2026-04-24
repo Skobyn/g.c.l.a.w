@@ -31,6 +31,11 @@ tests/eval/results/*.json
 /overlay/
 /gclaw-overlay/
 
+# Personal / brand-specific skills that ship only in the overlay.
+# Add more lines here if you peel additional skills out to a private
+# overlay via scripts/extract-personal-overlay.sh.
+skills/lyons-blog-pipeline/
+
 # IDE and OS
 .vscode/
 .idea/
