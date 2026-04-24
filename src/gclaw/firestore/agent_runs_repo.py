@@ -88,6 +88,7 @@ class AgentRunsRepo:
         trace_id = data.get("trace_id")
         now_iso = datetime.now(timezone.utc).isoformat()
 
+        span_cost = data.get("cost_usd")
         payload: dict[str, Any] = {
             "run_id": run_id,
             "user_id": user_id,
@@ -108,8 +109,23 @@ class AgentRunsRepo:
             .collection("agent_runs")
             .document(run_id)
         )
+
+        # Session-level cost accumulator: atomically add the span's
+        # cost so the Observability page can show running session
+        # totals without the UI having to sum across turns. Uses
+        # FieldValue.Increment to stay correct under concurrent writes.
+        session_update = dict(clean)
+        if span_cost is not None:
+            try:
+                from google.cloud.firestore_v1 import Increment
+                session_update["cost_usd_session"] = Increment(float(span_cost))
+            except Exception:
+                # google-cloud-firestore not importable in some unit-
+                # test environments — fall back to a plain set.
+                pass
+
         try:
-            session_ref.set(clean, merge=True)
+            session_ref.set(session_update, merge=True)
         except Exception:
             logger.warning(
                 "agent_runs: session upsert failed for user=%s run=%s",
@@ -129,6 +145,12 @@ class AgentRunsRepo:
             "turn_id": trace_id,
             "updated_at": now_iso,
         }
+        if span_cost is not None:
+            try:
+                from google.cloud.firestore_v1 import Increment
+                turn_payload["cost_usd_turn"] = Increment(float(span_cost))
+            except Exception:
+                pass
         try:
             turn_ref = session_ref.collection("turns").document(trace_id)
             existing = turn_ref.get()

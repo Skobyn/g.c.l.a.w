@@ -9,13 +9,21 @@
  * useTurnMessages) so updates land live as agents speak.
  */
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useRecentSessions } from "@/hooks/useRecentSessions";
 import { useSessionTurns } from "@/hooks/useSessionTurns";
 import { SessionTimeline } from "@/components/admin/live/SessionTimeline";
 
 interface Props {
   uid: string | null | undefined;
+}
+
+function isHeartbeatSession(id: string): boolean {
+  // The heartbeat service uses session ids of the form `heartbeat` or
+  // `heartbeat-<agent-name>` (per `settings.heartbeat_session_id` +
+  // the per-agent suffix added in main.py). Chat sessions are random
+  // UUIDs, so a prefix check is sufficient.
+  return id === "heartbeat" || id.startsWith("heartbeat-");
 }
 
 function fmtTime(iso: string | undefined): string {
@@ -43,19 +51,42 @@ function statusClass(s: string | undefined): string {
 }
 
 export function RecentTranscripts({ uid }: Props) {
-  const { sessions, loaded } = useRecentSessions(uid ?? null, 10);
+  // Ask the hook for more than we'll show so that after the
+  // heartbeat filter there's still a reasonable list. Chat sessions
+  // are rarer than heartbeat ticks, so 30 gives plenty of headroom.
+  const { sessions, loaded } = useRecentSessions(uid ?? null, 30);
   const [active, setActive] = useState<string | null>(null);
+  const [showHeartbeats, setShowHeartbeats] = useState(false);
   const { turns, loaded: turnsLoaded } = useSessionTurns(uid ?? null, active);
+
+  const { visible, heartbeatCount } = useMemo(() => {
+    const hbCount = sessions.filter((s) => isHeartbeatSession(s.id)).length;
+    const filtered = showHeartbeats
+      ? sessions
+      : sessions.filter((s) => !isHeartbeatSession(s.id));
+    return { visible: filtered.slice(0, 10), heartbeatCount: hbCount };
+  }, [sessions, showHeartbeats]);
 
   return (
     <div className="rounded-lg border border-slate-700 bg-slate-900/60">
       <div className="flex items-center justify-between border-b border-slate-700 px-4 py-2 text-sm font-semibold text-slate-200">
         <span>
           Recent Transcripts
-          {sessions.length > 0 && (
+          {visible.length > 0 && (
             <span className="ml-1 font-normal text-slate-500">
-              ({sessions.length})
+              ({visible.length})
             </span>
+          )}
+          {heartbeatCount > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowHeartbeats((v) => !v)}
+              className="ml-3 rounded border border-slate-700 px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider text-slate-400 hover:border-slate-500 hover:text-slate-200"
+            >
+              {showHeartbeats
+                ? `HIDE HEARTBEATS (${heartbeatCount})`
+                : `SHOW HEARTBEATS (${heartbeatCount})`}
+            </button>
           )}
         </span>
         <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-slate-500">
@@ -67,14 +98,15 @@ export function RecentTranscripts({ uid }: Props) {
         <div className="px-4 py-6 text-center text-sm text-slate-500">
           Loading recent sessions…
         </div>
-      ) : sessions.length === 0 ? (
+      ) : visible.length === 0 ? (
         <div className="px-4 py-6 text-center text-sm text-slate-500">
-          No recent sessions captured yet. Start a chat — turns appear here
-          with their per-author transcripts.
+          {sessions.length === 0
+            ? "No recent sessions captured yet. Start a chat — turns appear here with their per-author transcripts."
+            : `No chat sessions in the recent window — only heartbeat ticks (${heartbeatCount}). Click “SHOW HEARTBEATS” to include them.`}
         </div>
       ) : (
         <ul>
-          {sessions.map((s) => {
+          {visible.map((s) => {
             const isActive = active === s.id;
             return (
               <li key={s.id} className="border-b border-slate-800 last:border-b-0">

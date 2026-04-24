@@ -55,11 +55,13 @@ class LiveSpanProcessor(SpanProcessor):
         run_registry: RunRegistry,
         firestore_repo: Any | None = None,
         throttle_seconds: float = 1.0,
+        cost_lookup: Any | None = None,
     ) -> None:
         self._registry = run_registry
         self._repo = firestore_repo
         self._throttle = throttle_seconds
         self._last_firestore_write: dict[str, float] = {}
+        self._cost_lookup = cost_lookup
 
     def set_firestore_repo(self, repo: Any) -> None:
         """Inject the Firestore repo post-construction.
@@ -68,6 +70,11 @@ class LiveSpanProcessor(SpanProcessor):
         before Firestore is constructed.
         """
         self._repo = repo
+
+    def set_cost_lookup(self, cost_lookup: Any) -> None:
+        """Inject cost_lookup post-construction so per-turn / per-session
+        cost fields land on the live dashboard docs."""
+        self._cost_lookup = cost_lookup
 
     # ── SpanProcessor protocol ────────────────────────────────────────
 
@@ -86,7 +93,7 @@ class LiveSpanProcessor(SpanProcessor):
             if not run_id:
                 return
 
-            event = _build_event(span, attrs)
+            event = _build_event(span, attrs, cost_lookup=self._cost_lookup)
             self._registry.put_nowait(run_id, event)
 
             if self._repo is not None and user_id:
@@ -115,14 +122,34 @@ class LiveSpanProcessor(SpanProcessor):
         return True
 
 
-def _build_event(span: ReadableSpan, attrs: dict[str, Any]) -> dict[str, Any]:
+def _build_event(
+    span: ReadableSpan,
+    attrs: dict[str, Any],
+    *,
+    cost_lookup: Any | None = None,
+) -> dict[str, Any]:
     tokens_in = attrs.get(LLM_TOKEN_PROMPT)
     tokens_out = attrs.get(LLM_TOKEN_COMPLETION)
     tokens_total = attrs.get(LLM_TOKEN_TOTAL)
+    model_id = attrs.get(LLM_MODEL_NAME)
     status_obj = getattr(span, "status", None)
     status_code = getattr(
         getattr(status_obj, "status_code", None), "name", "UNSET"
     )
+    # Compute per-span cost if the model catalog knows about the model.
+    # Fail-soft — an unknown model or a lookup raise just leaves the
+    # field None (the UI renders "—" for that).
+    cost_usd: float | None = None
+    if (
+        cost_lookup is not None
+        and model_id
+        and tokens_in is not None
+        and tokens_out is not None
+    ):
+        try:
+            cost_usd = cost_lookup(model_id, int(tokens_in), int(tokens_out))
+        except Exception:
+            cost_usd = None
     return {
         "event": "span.end",
         "data": {
@@ -130,13 +157,14 @@ def _build_event(span: ReadableSpan, attrs: dict[str, Any]) -> dict[str, Any]:
             "trace_id": _hex_trace_id(span),
             "name": span.name,
             "agent": attrs.get(GRAPH_NODE_ID),
-            "model_id": attrs.get(LLM_MODEL_NAME),
+            "model_id": model_id,
             "provider": attrs.get(LLM_PROVIDER),
             "tokens": {
                 "in": tokens_in,
                 "out": tokens_out,
                 "total": tokens_total,
             },
+            "cost_usd": cost_usd,
             "status": status_code,
             "started_at": span.start_time,
             "ended_at": span.end_time,

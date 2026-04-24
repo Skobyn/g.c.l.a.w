@@ -913,6 +913,19 @@ def build_app():
     )
     set_recorder(usage_recorder)
 
+    # Live dashboard cost — LiveSpanProcessor was registered before the
+    # catalog existed, so inject the cost_lookup now. Without this, the
+    # per-turn / per-session cost fields on /admin/usage Recent
+    # Transcripts stayed None forever.
+    if live_span_processor is not None and cost_lookup is not None:
+        try:
+            live_span_processor.set_cost_lookup(cost_lookup)
+        except Exception:
+            logger.warning(
+                "observability: LiveSpanProcessor cost_lookup wire failed",
+                exc_info=True,
+            )
+
     # BigQuery Agent Analytics (ADR-0003) — fan a third copy of every
     # span into a SQL-queryable table. Wired here (post-catalog) so the
     # processor can hand off ``cost_lookup`` for FLOAT64 cost_usd. The
