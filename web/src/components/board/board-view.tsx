@@ -405,6 +405,14 @@ export function BoardView() {
       <TaskDetailsModal
         task={activeTask}
         onClose={() => setActiveTask(null)}
+        onDeleted={(taskId) => {
+          // Optimistically drop the row so the board doesn't briefly
+          // re-show a deleted card between the delete response and
+          // the next Firestore onSnapshot / polling tick.
+          setTasks((prev) => prev.filter((t) => t.id !== taskId));
+          setActiveTask(null);
+          refreshTasksRef.current?.();
+        }}
       />
     </div>
   );

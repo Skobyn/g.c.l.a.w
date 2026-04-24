@@ -218,6 +218,15 @@ export class ApiClient {
     );
   }
 
+  /** Delete a task from the board. Admin surface — no return body beyond
+   * the `{status, task_id}` envelope on success. */
+  async deleteBoardTask(id: string): Promise<{ status: string; task_id: string }> {
+    return this.request<{ status: string; task_id: string }>(
+      `/admin/board/tasks/${encodeURIComponent(id)}`,
+      { method: "DELETE" },
+    );
+  }
+
   /** Health check (no auth required). */
   async healthCheck(): Promise<{ status: string }> {
     const response = await fetch(`${this.baseUrl}/health`);

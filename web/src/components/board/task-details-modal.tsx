@@ -25,6 +25,8 @@ import type { BoardTask, UsageEvent } from "@/types";
 interface Props {
   task: BoardTask | null;
   onClose: () => void;
+  /** Called after a successful delete so the board can drop the row. */
+  onDeleted?: (taskId: string) => void;
 }
 
 function fmtTime(iso: string | null | undefined): string {
@@ -76,10 +78,16 @@ function statusClass(s: string): string {
 
 const POLL_MS = 2_000;
 
-export function TaskDetailsModal({ task, onClose }: Props) {
+export function TaskDetailsModal({ task, onClose, onDeleted }: Props) {
   const api = useApiClient();
   const [events, setEvents] = useState<UsageEvent[]>([]);
   const [loadingEvents, setLoadingEvents] = useState(false);
+  // Two-stage delete: first click arms, second click confirms. Keeps
+  // the admin path out of the one-click-away zone for a muscle-memory
+  // misclick.
+  const [deleteArmed, setDeleteArmed] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const taskActive = task?.status === "in_progress" || task?.status === "queued";
 
@@ -119,6 +127,34 @@ export function TaskDetailsModal({ task, onClose }: Props) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [task, onClose]);
+
+  // Reset delete-arm state any time the modal shows a different task,
+  // so opening a fresh task never inherits a half-armed confirm.
+  useEffect(() => {
+    setDeleteArmed(false);
+    setDeleting(false);
+    setDeleteError(null);
+  }, [task?.id]);
+
+  const handleDelete = useCallback(async () => {
+    if (!task) return;
+    if (!deleteArmed) {
+      setDeleteArmed(true);
+      return;
+    }
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await api.deleteBoardTask(task.id);
+      onDeleted?.(task.id);
+      onClose();
+    } catch (err) {
+      setDeleteError(
+        err instanceof Error ? err.message : "Delete failed",
+      );
+      setDeleting(false);
+    }
+  }, [task, deleteArmed, api, onDeleted, onClose]);
 
   const relevantEvents = useMemo(() => {
     if (!task) return [] as UsageEvent[];
@@ -356,10 +392,33 @@ export function TaskDetailsModal({ task, onClose }: Props) {
             created {fmtTime(task.created_at)} · updated{" "}
             {fmtTime(task.updated_at)}
           </span>
+          {deleteError && (
+            <span className="text-alert normal-case tracking-normal">
+              {deleteError}
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={() => void handleDelete()}
+            disabled={deleting}
+            className={`ml-auto ${deleteArmed ? "btn-hair-alert" : "btn-hair"}`}
+            style={
+              deleteArmed
+                ? undefined
+                : { borderColor: "var(--alert-dim, #aa4444)", color: "var(--alert-dim, #aa4444)" }
+            }
+            title={
+              deleteArmed
+                ? "Click again to permanently delete this task"
+                : "Delete this task (click twice to confirm)"
+            }
+          >
+            {deleting ? "DELETING…" : deleteArmed ? "CONFIRM DELETE" : "DELETE"}
+          </button>
           <button
             type="button"
             onClick={() => void fetchEvents()}
-            className="btn-hair ml-auto"
+            className="btn-hair"
             title="Refresh usage events"
           >
             REFRESH
