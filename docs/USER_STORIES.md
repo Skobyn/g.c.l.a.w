@@ -260,3 +260,17 @@ For each story above:
 | 17 | /login | PASS | Redirects to /chat in dev-bypass mode |
 
 Net: 17/17 passing rendering, 1 functional bug found (#12) and fixed in this branch. Will re-run loop after deploy.
+
+## Loop 2 results (post-PR #60 deploy)
+
+| # | Page | Result | Notes |
+|---|------|--------|-------|
+| 12 | /admin/usage | **FIXED ✓** | Recent Transcripts populated with 10 sessions (heartbeat-*, chat sessions). Clicking a session expands to 37 turns; clicking a turn expands to the per-author transcript ("Per-author transcript · 2" with the user input heartbeat context + agent's HEARTBEAT_OK + tool calls). Some older turns correctly show "No per-author transcript" because they pre-date PR #53's capture. |
+| 13 | /admin/live?session=… | **FIXED ✓** | Same SessionTimeline renders with 37 turns for `heartbeat-workspace-mgr`; turn-expand → transcript works. |
+| 1–11, 14–17 | (all others) | PASS | Unchanged — re-tested for regressions post-deploy, no issues. |
+
+**Live confirmation — observability pipeline working end-to-end:**
+- Per-sub-agent attribution on /admin/usage (caller column shows `workspace-mgr`, `research-mgr`, `content-apex`, etc.)
+- `fail_board_task` tool in active use (5 calls recorded)
+- Sub-agents running on their own LLMs (per-agent runners from PR #56 / #59)
+- Per-author transcript capture + redaction working; visible in UI for any turn that happened after PR #53 deployed
