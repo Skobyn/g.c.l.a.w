@@ -122,22 +122,65 @@ export function TaskDetailsModal({ task, onClose }: Props) {
 
   const relevantEvents = useMemo(() => {
     if (!task) return [] as UsageEvent[];
-    // Heuristic: show events for the task's assignee manager OR that
-    // caller-chained through it. The UsageEvent has `caller` + `name`
-    // (model/agent/tool name) — scope to recent events around the task
-    // window. This is approximate; v2 will link via work_trace_id.
+    // Two classes of relevant events:
+    //   1. Anything authored by (caller=) the task's assignee within
+    //      the task's lifetime window — that's the assignee actually
+    //      working the task.
+    //   2. Orchestrator delegation events that happened in a small
+    //      window AROUND task creation (the create_board_task / args
+    //      assembly that produced this task). Capped at ±5s so we
+    //      don't bleed unrelated orchestrator chatter from other
+    //      tasks created seconds before/after.
+    //
+    // Anything else (e.g. home_mgr running an unrelated task in the
+    // same minute) is filtered out — that was the "why is home_mgr
+    // here?" bug from the screenshot.
     const start = Date.parse(task.created_at || "") || 0;
     const end = Date.parse(task.updated_at || "") || Date.now();
-    const window_end = end + 30_000; // 30s tail after last update
+    const window_end = end + 30_000;
+    const delegation_lo = start - 5_000;
+    const delegation_hi = start + 5_000;
+
+    const assignee = (task.assignee || "").toLowerCase();
+    // Normalize so "research_mgr" / "research-mgr" match.
+    const assigneeNorms = assignee
+      ? new Set([assignee, assignee.replace(/-/g, "_"), assignee.replace(/_/g, "-")])
+      : new Set<string>();
+
     return events.filter((e) => {
       const t = Date.parse(e.timestamp) || 0;
       if (t < start || t > window_end) return false;
-      // Cheap relevance filter: task assignee matches the caller chain.
-      const hay = `${e.caller ?? ""} ${e.name ?? ""}`.toLowerCase();
-      if (task.assignee && hay.includes(task.assignee.toLowerCase())) return true;
-      // Otherwise include anything recent inside the window (useful for
-      // orchestrator LLM calls that produced the delegation).
-      return true;
+
+      const caller = (e.caller ?? "").toLowerCase();
+      const name = (e.name ?? "").toLowerCase();
+
+      // Class 1: assignee-authored work. Match on caller (the agent
+      // that produced the LLM/tool call) and on name (e.g. AGENT
+      // event whose `name` is the agent itself).
+      if (
+        assigneeNorms.size > 0 &&
+        (assigneeNorms.has(caller) || assigneeNorms.has(name))
+      ) {
+        return true;
+      }
+
+      // Class 2: orchestrator delegation around creation time.
+      const isOrchestrator = caller === "orchestrator" || name === "orchestrator";
+      if (isOrchestrator && t >= delegation_lo && t <= delegation_hi) {
+        return true;
+      }
+
+      // Also surface tool calls explicitly invoking this assignee
+      // (orchestrator's HIGH-flow `research_mgr(...)` AgentTool call).
+      if (
+        e.kind === "tool" &&
+        assigneeNorms.size > 0 &&
+        assigneeNorms.has(name)
+      ) {
+        return true;
+      }
+
+      return false;
     });
   }, [events, task]);
 
