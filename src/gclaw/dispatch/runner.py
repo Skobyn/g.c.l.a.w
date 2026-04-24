@@ -144,6 +144,7 @@ class AgentRunner:
         model_chain_provider: Callable[[str], list[Any]] | None = None,
         guardrail_service: object | None = None,
         guardrail_profile: str | None = None,
+        agent_runs_repo: Any = None,
     ) -> None:
         self._agent = agent
         self._app_name = app_name
@@ -154,6 +155,12 @@ class AgentRunner:
         self._usage_recorder = usage_recorder
         self._guardrail_service = guardrail_service
         self._guardrail_profile = guardrail_profile
+        # Optional Firestore repo for per-turn per-author transcript
+        # capture. When wired, the runner emits one redacted "user"
+        # input message + one "agent" output message per distinct
+        # author in the ADK event stream after each turn. UI reads
+        # via onSnapshot on agent_runs/{run}/turns/{trace}/messages.
+        self._agent_runs_repo = agent_runs_repo
         # Default to the full MemoryTopic taxonomy so Memory Bank's
         # generate call has structured guidance instead of picking a
         # narrow category on its own. Callers can override with a
@@ -324,6 +331,11 @@ class AgentRunner:
             per_author: dict[str, dict[str, Any]] = {}
 
             root_norm = agent_name.replace("_", "-")
+            # Per-author transcript capture (text + tool_calls), keyed by
+            # the same normalized author name as `per_author`. Written
+            # to agent_runs/{run}/turns/{trace}/messages after the turn
+            # for the live cockpit + task-details modal.
+            per_author_msgs: dict[str, dict[str, Any]] = {}
 
             def _bucket(author: Any) -> dict[str, Any]:
                 # ADK events expose `author` as the agent name string.
@@ -337,23 +349,38 @@ class AgentRunner:
                     {"tokens_in": 0, "tokens_out": 0, "model": None},
                 )
 
+            def _msg_bucket(author: Any) -> dict[str, Any]:
+                name = author if isinstance(author, str) and author else agent_name
+                name = name.replace("_", "-")
+                return per_author_msgs.setdefault(
+                    name,
+                    {"text": "", "tool_calls": []},
+                )
+
             try:
                 async for event in active_runner.run_async(
                     user_id=user_id,
                     session_id=session_id,
                     new_message=content,
                 ):
+                    ev_author = getattr(event, "author", None)
                     if event.content and event.content.parts:
                         for part in event.content.parts:
                             if part.text:
                                 response.text += part.text
+                                _msg_bucket(ev_author)["text"] += part.text
                             if part.function_call:
-                                response.tool_calls.append({
+                                fc = {
                                     "name": part.function_call.name,
                                     "args": dict(
                                         part.function_call.args or {}
                                     ),
-                                    "author": getattr(event, "author", None),
+                                    "author": ev_author,
+                                }
+                                response.tool_calls.append(fc)
+                                _msg_bucket(ev_author)["tool_calls"].append({
+                                    "name": fc["name"],
+                                    "args": fc["args"],
                                 })
                     um = getattr(event, "usage_metadata", None)
                     author = getattr(event, "author", None)
@@ -438,6 +465,14 @@ class AgentRunner:
                 tool_calls=response.tool_calls,
                 fallback_index=attempt_index,
                 per_author=per_author,
+            )
+            self._emit_turn_messages(
+                user_id=user_id,
+                session_id=session_id,
+                turn_span=turn_span,
+                user_message=message,
+                per_author_msgs=per_author_msgs,
+                root_norm=root_norm,
             )
             set_llm_attrs(
                 turn_span,
@@ -535,6 +570,102 @@ class AgentRunner:
             from gclaw.guardrails.models import GuardrailBlockedError
 
             raise GuardrailBlockedError(result)
+
+    def _emit_turn_messages(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        turn_span: Any,
+        user_message: str,
+        per_author_msgs: dict[str, dict[str, Any]],
+        root_norm: str,
+    ) -> None:
+        """Write the user message + each author's output for this turn.
+
+        Redaction happens here (regex-based, from
+        ``observability.redaction.redact``) so plaintext prompts +
+        responses never hit Firestore. Writes are keyed by the OTel
+        trace_id so the turn-doc written by LiveSpanProcessor and this
+        messages sub-collection both live under the same trace id.
+
+        Fail-soft: any capture/write failure is logged and swallowed.
+        A broken transcript must never break the turn.
+        """
+        repo = self._agent_runs_repo
+        if repo is None:
+            return
+        try:
+            from gclaw.observability.redaction import redact
+        except Exception:
+            return
+
+        # Pull the trace_id off the turn span. Under the NoOp tracer
+        # this returns 0; skip the write in that case.
+        try:
+            ctx = turn_span.get_span_context()
+            trace_id_int = getattr(ctx, "trace_id", 0)
+            if not trace_id_int:
+                return
+            trace_id = format(trace_id_int, "032x")
+        except Exception:
+            return
+
+        messages: list[dict[str, Any]] = []
+        # The user turn itself — single input message, authored "user".
+        if user_message:
+            messages.append({
+                "author": "user",
+                "role": "input",
+                "text": redact(user_message),
+            })
+
+        # One "agent" output per distinct author in the ADK stream.
+        # Sort by root first, then alphabetically so the root agent
+        # (usually orchestrator) lands directly after the user input.
+        def _sort_key(name: str) -> tuple[int, str]:
+            return (0 if name == root_norm else 1, name)
+
+        for author in sorted(per_author_msgs.keys(), key=_sort_key):
+            bucket = per_author_msgs[author]
+            text = bucket.get("text") or ""
+            tool_calls = bucket.get("tool_calls") or []
+            if not text and not tool_calls:
+                continue
+            messages.append({
+                "author": author,
+                "role": "output",
+                "text": redact(text) if text else "",
+                "tool_calls": [
+                    {
+                        "name": tc.get("name") or "",
+                        # Redact args in case they carry PII (workspace
+                        # subjects, research queries, etc.).
+                        "args": {
+                            k: redact(str(v)) if isinstance(v, str) else v
+                            for k, v in (tc.get("args") or {}).items()
+                        },
+                    }
+                    for tc in tool_calls
+                ],
+            })
+
+        if not messages:
+            return
+        try:
+            repo.append_messages(
+                user_id=user_id,
+                run_id=session_id,
+                trace_id=trace_id,
+                messages=messages,
+            )
+        except Exception:
+            logger.warning(
+                "turn-messages emit failed for user=%s run=%s",
+                user_id,
+                session_id,
+                exc_info=True,
+            )
 
     def _record_turn(
         self,

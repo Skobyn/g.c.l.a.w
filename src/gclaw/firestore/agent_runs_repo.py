@@ -118,6 +118,70 @@ class AgentRunsRepo:
                 exc_info=True,
             )
 
+    def append_messages(
+        self,
+        *,
+        user_id: str,
+        run_id: str,
+        trace_id: str,
+        messages: list[dict[str, Any]],
+    ) -> None:
+        """Append per-author messages for a turn.
+
+        Writes each message as its own doc under
+        ``users/{uid}/agent_runs/{run_id}/turns/{trace_id}/messages/{seq}``
+        so the UI can subscribe via ``onSnapshot`` and render an
+        author-attributed transcript of the turn (user prompt →
+        orchestrator output → research-mgr output → ...).
+
+        Caller is responsible for redacting message content before
+        passing it in — this repo writes the bytes verbatim.
+
+        Sequencing: docs are keyed by zero-padded index ``seq`` so
+        Firestore lexical ordering matches insertion order without
+        needing a separate ``order_by`` index.
+
+        Fail-soft: any Firestore error is logged and swallowed.
+        """
+        if (
+            not user_id
+            or not run_id
+            or not trace_id
+            or not messages
+            or self._db is None
+        ):
+            return
+        try:
+            turn_ref = (
+                self._db.collection("users")
+                .document(user_id)
+                .collection("agent_runs")
+                .document(run_id)
+                .collection("turns")
+                .document(trace_id)
+            )
+            now_iso = datetime.now(timezone.utc).isoformat()
+            # Batch the writes so a turn with N authors is one round-trip.
+            batch = self._db.batch()
+            for idx, msg in enumerate(messages):
+                doc_id = f"{idx:04d}"
+                payload = {
+                    "seq": idx,
+                    "ts": now_iso,
+                    **msg,
+                }
+                doc_ref = turn_ref.collection("messages").document(doc_id)
+                batch.set(doc_ref, payload, merge=False)
+            batch.commit()
+        except Exception:
+            logger.warning(
+                "agent_runs: append_messages failed for user=%s run=%s trace=%s",
+                user_id,
+                run_id,
+                trace_id,
+                exc_info=True,
+            )
+
     def get_owner(self, run_id: str, user_id: str) -> bool:
         """True when ``user_id`` owns ``run_id`` (doc exists under that user).
 

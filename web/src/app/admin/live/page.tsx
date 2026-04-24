@@ -137,7 +137,12 @@ function LiveContent() {
             <CostTicker run={run} />
           </div>
 
-          <SessionTimeline turns={turns} loaded={loaded} />
+          <SessionTimeline
+            turns={turns}
+            loaded={loaded}
+            uid={user?.uid ?? null}
+            sessionId={sessionId}
+          />
         </>
       )}
     </div>

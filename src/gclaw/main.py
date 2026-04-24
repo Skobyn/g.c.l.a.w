@@ -971,6 +971,7 @@ def build_app():
         usage_recorder=usage_recorder,
         model_chain_provider=factory.resolve_model_chain,
         guardrail_service=guardrail_service,
+        agent_runs_repo=agent_runs_repo,
     )
 
     # Multi-agent runner registry. The chat endpoint lets the user
@@ -991,6 +992,7 @@ def build_app():
             usage_recorder=usage_recorder,
             model_chain_provider=factory.resolve_model_chain,
             guardrail_service=guardrail_service,
+            agent_runs_repo=agent_runs_repo,
         )
 
     runner_registry = AgentRunnerRegistry(
