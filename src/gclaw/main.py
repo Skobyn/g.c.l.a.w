@@ -222,6 +222,7 @@ def _build_heartbeat_registry(
     memory_service,
     session_store,
     runner,
+    runner_registry=None,
     config_loader,
     delivery_service,
     effective_timezone: str = "UTC",
@@ -312,12 +313,39 @@ def _build_heartbeat_registry(
                 agent_name=name,
             )
 
+        # Per-agent runner lookup. The orchestrator keeps the shared
+        # runner (built off build_orchestrator with managers wired as
+        # AgentTools). Every other agent gets its OWN runner via the
+        # leaf-runner builder so its heartbeat actually invokes that
+        # agent's LLM with that agent's tools — instead of having
+        # the orchestrator run as a stand-in and editorialize about
+        # the manager in third person, which is what was happening
+        # before. Falls back to the shared runner if no registry is
+        # wired (legacy / unit tests).
+        if name == "orchestrator" or runner_registry is None:
+            agent_runner = runner
+            session_id = settings.heartbeat_session_id
+        else:
+            try:
+                agent_runner = runner_registry.get(name)
+            except Exception:
+                logger.warning(
+                    "heartbeat: per-agent runner build failed for %s — "
+                    "falling back to shared runner",
+                    name,
+                    exc_info=True,
+                )
+                agent_runner = runner
+            # Distinct session per agent so per-author transcripts
+            # don't collide across managers' heartbeat ticks.
+            session_id = f"{settings.heartbeat_session_id}-{name}"
+
         service = HeartbeatService(
             context_gatherer=per_agent_gatherer,
-            agent_runner=runner,
+            agent_runner=agent_runner,
             log_repo=log_repo,
             user_id=dev_user_id,
-            session_id=settings.heartbeat_session_id,
+            session_id=session_id,
             consolidator=consolidator,
             session_store=session_store,
             stale_session_threshold_seconds=(
@@ -1054,6 +1082,7 @@ def build_app():
         memory_service=memory_service,
         session_store=session_store,
         runner=runner,
+        runner_registry=runner_registry,
         config_loader=loader,
         delivery_service=cron_delivery,
         effective_timezone=effective_timezone,
