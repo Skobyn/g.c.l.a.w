@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { AppShell } from "@/components/layout/app-shell";
 import { CronTable } from "@/components/crons/cron-table";
 import { CreateCronForm } from "@/components/crons/create-cron-form";
+import { CronEditDrawer } from "@/components/board/cron-edit-drawer";
 import { createApiClient } from "@/lib/api-client";
 import { useAuth } from "@/contexts/auth-context";
 import type { CronInfo } from "@/types";
@@ -16,6 +17,7 @@ function CronsContent() {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [triggeringId, setTriggeringId] = useState<string | null>(null);
+  const [editingCron, setEditingCron] = useState<CronInfo | null>(null);
 
   const fetchCrons = useCallback(async () => {
     setLoading(true);
@@ -124,9 +126,25 @@ function CronsContent() {
             onTrigger={handleTrigger}
             togglingId={togglingId}
             triggeringId={triggeringId}
+            onEdit={setEditingCron}
           />
         )}
       </main>
+
+      <CronEditDrawer
+        cron={editingCron}
+        onClose={() => setEditingCron(null)}
+        onSaved={(saved) => {
+          setCrons((prev) =>
+            prev.map((c) => (c.id === saved.id ? saved : c)),
+          );
+          setEditingCron(null);
+        }}
+        onDeleted={(id) => {
+          setCrons((prev) => prev.filter((c) => c.id !== id));
+          setEditingCron(null);
+        }}
+      />
     </div>
   );
 }

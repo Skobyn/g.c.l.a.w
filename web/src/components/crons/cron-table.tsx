@@ -12,6 +12,8 @@ interface CronTableProps {
   onTrigger: (cronId: string) => void;
   togglingId: string | null;
   triggeringId: string | null;
+  /** Optional — wire to open the CronEditDrawer on a chosen cron. */
+  onEdit?: (cron: CronInfo) => void;
 }
 
 function formatDate(dateStr: string | null): string {
@@ -52,6 +54,7 @@ export function CronTable({
   onTrigger,
   togglingId,
   triggeringId,
+  onEdit,
 }: CronTableProps) {
   if (crons.length === 0) {
     return (
@@ -152,6 +155,15 @@ export function CronTable({
               {/* Actions */}
               <td className="px-4 py-3 text-right">
                 <div className="flex items-center justify-end gap-2">
+                  {onEdit && (
+                    <button
+                      onClick={() => onEdit(cron)}
+                      className="rounded px-2 py-1 text-xs font-medium text-indigo-300 border border-indigo-700 hover:bg-indigo-900/30 transition-colors"
+                      title="Edit cron"
+                    >
+                      Edit
+                    </button>
+                  )}
                   <button
                     onClick={() => onTrigger(cron.id)}
                     disabled={triggeringId === cron.id}
