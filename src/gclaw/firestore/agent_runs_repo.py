@@ -31,6 +31,32 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
+def _coerce_iso(value: Any) -> str | None:
+    """Return an ISO-8601 string for a datetime / Firestore Timestamp /
+    already-string field. Used by the list_* APIs so the JSON response
+    has a consistent string shape regardless of how the doc was
+    written."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value
+    if isinstance(value, datetime):
+        return value.isoformat()
+    to_iso = getattr(value, "isoformat", None)
+    if callable(to_iso):
+        try:
+            return to_iso()
+        except Exception:
+            pass
+    to_date = getattr(value, "to_datetime", None) or getattr(value, "ToDatetime", None)
+    if callable(to_date):
+        try:
+            return to_date().isoformat()
+        except Exception:
+            pass
+    return str(value)
+
+
 class AgentRunsRepo:
     """Merge-upserts agent-run summaries for the live dashboard."""
 
@@ -181,6 +207,138 @@ class AgentRunsRepo:
                 trace_id,
                 exc_info=True,
             )
+
+    # ── List APIs (powering the Observability page when the web
+    #    client doesn't have Firebase configured for direct
+    #    onSnapshot access — i.e. NEXT_PUBLIC_DEV_BYPASS_AUTH=true
+    #    builds). All methods are best-effort and return [] on error.
+
+    def list_recent_runs(self, *, user_id: str, limit: int = 20) -> list[dict]:
+        """Return up to ``limit`` recent agent_runs docs for a user.
+
+        Sorted by ``updated_at`` descending. Falls back to client-side
+        sort because some legacy docs may not have ``updated_at``.
+        """
+        if not user_id or self._db is None:
+            return []
+        try:
+            col = (
+                self._db.collection("users")
+                .document(user_id)
+                .collection("agent_runs")
+            )
+            docs = list(col.stream())
+        except Exception:
+            logger.warning(
+                "agent_runs: list_recent_runs failed for user=%s",
+                user_id,
+                exc_info=True,
+            )
+            return []
+
+        rows: list[dict] = []
+        for d in docs:
+            try:
+                data = d.to_dict() or {}
+            except Exception:
+                continue
+            rows.append({
+                "id": d.id,
+                "active_agent": data.get("active_agent"),
+                "model_id": data.get("model_id"),
+                "status": data.get("status"),
+                "updated_at": _coerce_iso(data.get("updated_at")),
+            })
+        rows.sort(
+            key=lambda r: r.get("updated_at") or "",
+            reverse=True,
+        )
+        return rows[:limit]
+
+    def list_turns(self, *, user_id: str, run_id: str, limit: int = 50) -> list[dict]:
+        """Return turn docs for a session, newest first."""
+        if not user_id or not run_id or self._db is None:
+            return []
+        try:
+            col = (
+                self._db.collection("users")
+                .document(user_id)
+                .collection("agent_runs")
+                .document(run_id)
+                .collection("turns")
+            )
+            docs = list(col.stream())
+        except Exception:
+            logger.warning(
+                "agent_runs: list_turns failed for user=%s run=%s",
+                user_id, run_id, exc_info=True,
+            )
+            return []
+
+        rows: list[dict] = []
+        for d in docs:
+            try:
+                data = d.to_dict() or {}
+            except Exception:
+                continue
+            rows.append({
+                "id": d.id,
+                "turn_id": data.get("turn_id") or d.id,
+                "active_agent": data.get("active_agent"),
+                "model_id": data.get("model_id"),
+                "status": data.get("status"),
+                "tokens": data.get("tokens"),
+                "cost_usd_turn": data.get("cost_usd_turn"),
+                "cost_usd_session": data.get("cost_usd_session"),
+                "started_at": _coerce_iso(data.get("started_at")),
+                "updated_at": _coerce_iso(data.get("updated_at")),
+            })
+        rows.sort(
+            key=lambda r: (r.get("started_at") or r.get("updated_at") or ""),
+            reverse=True,
+        )
+        return rows[:limit]
+
+    def list_messages(
+        self, *, user_id: str, run_id: str, trace_id: str,
+    ) -> list[dict]:
+        """Return per-author messages for a single turn, in seq order."""
+        if not user_id or not run_id or not trace_id or self._db is None:
+            return []
+        try:
+            col = (
+                self._db.collection("users")
+                .document(user_id)
+                .collection("agent_runs")
+                .document(run_id)
+                .collection("turns")
+                .document(trace_id)
+                .collection("messages")
+            )
+            docs = list(col.stream())
+        except Exception:
+            logger.warning(
+                "agent_runs: list_messages failed for user=%s run=%s trace=%s",
+                user_id, run_id, trace_id, exc_info=True,
+            )
+            return []
+
+        rows: list[dict] = []
+        for d in docs:
+            try:
+                data = d.to_dict() or {}
+            except Exception:
+                continue
+            rows.append({
+                "seq": data.get("seq", 0),
+                "ts": _coerce_iso(data.get("ts")),
+                "author": data.get("author"),
+                "role": data.get("role"),
+                "text": data.get("text"),
+                "tool_calls": data.get("tool_calls") or [],
+            })
+        rows.sort(key=lambda r: r.get("seq") or 0)
+        return rows
 
     def get_owner(self, run_id: str, user_id: str) -> bool:
         """True when ``user_id`` owns ``run_id`` (doc exists under that user).

@@ -721,6 +721,48 @@ export class ApiClient {
     );
   }
 
+  // --- Admin: agent_runs (Recent Transcripts on Observability page) ---
+  // These mirror the Firestore onSnapshot hooks, used as a fallback
+  // when the web build doesn't include Firebase config (i.e. dev-
+  // bypass deploys). Returned shapes match what useRecentSessions /
+  // useSessionTurns / useTurnMessages expect from Firestore.
+
+  async listAgentRuns(opts?: { limit?: number }): Promise<{
+    sessions: Array<{
+      id: string;
+      active_agent?: string;
+      model_id?: string;
+      status?: string;
+      updated_at?: string;
+    }>;
+  }> {
+    const params = new URLSearchParams();
+    if (opts?.limit !== undefined) params.set("limit", String(opts.limit));
+    const q = params.toString();
+    return this.get(`/admin/agent-runs${q ? `?${q}` : ""}`);
+  }
+
+  async listAgentRunTurns(
+    runId: string,
+    opts?: { limit?: number },
+  ): Promise<{ turns: Array<Record<string, unknown>> }> {
+    const params = new URLSearchParams();
+    if (opts?.limit !== undefined) params.set("limit", String(opts.limit));
+    const q = params.toString();
+    return this.get(
+      `/admin/agent-runs/${encodeURIComponent(runId)}/turns${q ? `?${q}` : ""}`,
+    );
+  }
+
+  async listAgentRunTurnMessages(
+    runId: string,
+    traceId: string,
+  ): Promise<{ messages: Array<Record<string, unknown>> }> {
+    return this.get(
+      `/admin/agent-runs/${encodeURIComponent(runId)}/turns/${encodeURIComponent(traceId)}/messages`,
+    );
+  }
+
   // --- Admin: Shared Context ---
 
   async listContextNamespaces(): Promise<ContextNamespaceSummary[]> {

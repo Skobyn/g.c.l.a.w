@@ -13,6 +13,9 @@
 import { useEffect, useState } from "react";
 import { collection, onSnapshot, query } from "firebase/firestore";
 import { db, firebaseConfigured } from "@/lib/firebase";
+import { createApiClient } from "@/lib/api-client";
+
+const API_POLL_MS = 5_000;
 
 export interface RecentSession {
   id: string;
@@ -30,13 +33,32 @@ export function useRecentSessions(
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
+    // API fallback for builds without Firebase client config (e.g.
+    // NEXT_PUBLIC_DEV_BYPASS_AUTH=true). Polls /admin/agent-runs
+    // every 5s — backend is single-user, so the noise is bounded.
     if (!firebaseConfigured) {
-      // Firebase isn't initialized in this build (dev mode without
-      // FIREBASE_API_KEY). Render the empty state immediately rather
-      // than spinning forever.
-      setSessions([]);
-      setLoaded(true);
-      return;
+      const api = createApiClient(async () => null);
+      let cancelled = false;
+      const fetchOnce = async () => {
+        try {
+          const { sessions } = await api.listAgentRuns({ limit });
+          if (!cancelled) {
+            setSessions(sessions);
+            setLoaded(true);
+          }
+        } catch {
+          if (!cancelled) {
+            setSessions([]);
+            setLoaded(true);
+          }
+        }
+      };
+      void fetchOnce();
+      const id = setInterval(fetchOnce, API_POLL_MS);
+      return () => {
+        cancelled = true;
+        clearInterval(id);
+      };
     }
     if (!uid) {
       setSessions([]);

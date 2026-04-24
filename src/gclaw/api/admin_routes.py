@@ -52,6 +52,7 @@ _cron_delivery_service: CronDeliveryService | None = None
 _heartbeat_registry: object | None = None
 _system_config_repo: object | None = None
 _board_service: BoardService | None = None
+_agent_runs_repo: object | None = None
 
 
 def init_admin_router(
@@ -64,10 +65,12 @@ def init_admin_router(
     cron_delivery_service: CronDeliveryService | None = None,
     system_config_repo: object | None = None,
     board_service: BoardService | None = None,
+    agent_runs_repo: object | None = None,
 ) -> APIRouter:
     global _config_loader, _hb_repo_factory, _skill_registry
     global _memory_service, _cron_service, _heartbeat_registry
     global _cron_delivery_service, _system_config_repo, _board_service
+    global _agent_runs_repo
     _config_loader = config_loader
     _hb_repo_factory = heartbeat_log_repo_factory
     _skill_registry = skill_registry
@@ -77,7 +80,56 @@ def init_admin_router(
     _cron_delivery_service = cron_delivery_service
     _system_config_repo = system_config_repo
     _board_service = board_service
+    _agent_runs_repo = agent_runs_repo
     return router
+
+
+# --- Agent runs (Observability page transcripts) ---
+#
+# These endpoints back the Recent Transcripts panel on /admin/usage
+# when the web build doesn't include Firebase config (e.g.
+# NEXT_PUBLIC_DEV_BYPASS_AUTH=true builds), where the Firestore
+# onSnapshot path short-circuits and the UI can't read directly.
+
+@router.get("/agent-runs")
+async def list_agent_runs(
+    limit: int = 10,
+    user_id: str = Depends(get_current_user_id),
+):
+    if _agent_runs_repo is None:
+        return {"sessions": []}
+    sessions = _agent_runs_repo.list_recent_runs(  # type: ignore[attr-defined]
+        user_id=user_id, limit=max(1, min(limit, 100)),
+    )
+    return {"sessions": sessions}
+
+
+@router.get("/agent-runs/{run_id}/turns")
+async def list_agent_run_turns(
+    run_id: str,
+    limit: int = 50,
+    user_id: str = Depends(get_current_user_id),
+):
+    if _agent_runs_repo is None:
+        return {"turns": []}
+    turns = _agent_runs_repo.list_turns(  # type: ignore[attr-defined]
+        user_id=user_id, run_id=run_id, limit=max(1, min(limit, 200)),
+    )
+    return {"turns": turns}
+
+
+@router.get("/agent-runs/{run_id}/turns/{trace_id}/messages")
+async def list_agent_run_turn_messages(
+    run_id: str,
+    trace_id: str,
+    user_id: str = Depends(get_current_user_id),
+):
+    if _agent_runs_repo is None:
+        return {"messages": []}
+    messages = _agent_runs_repo.list_messages(  # type: ignore[attr-defined]
+        user_id=user_id, run_id=run_id, trace_id=trace_id,
+    )
+    return {"messages": messages}
 
 
 # --- Agents ---

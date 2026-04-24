@@ -22,7 +22,10 @@ import {
   query,
 } from "firebase/firestore";
 import { db, firebaseConfigured } from "@/lib/firebase";
+import { createApiClient } from "@/lib/api-client";
 import type { AgentRunDoc } from "@/hooks/useRunDoc";
+
+const API_POLL_MS = 5_000;
 
 export interface TurnDoc extends AgentRunDoc {
   turn_id?: string;
@@ -67,7 +70,39 @@ export function useSessionTurns(
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    if (!uid || !sessionId || !firebaseConfigured) {
+    // API fallback when Firebase isn't configured client-side.
+    if (!firebaseConfigured) {
+      if (!sessionId) {
+        setTurns([]);
+        setLoaded(false);
+        return;
+      }
+      const api = createApiClient(async () => null);
+      let cancelled = false;
+      const fetchOnce = async () => {
+        try {
+          const { turns } = await api.listAgentRunTurns(sessionId, {
+            limit: 50,
+          });
+          if (!cancelled) {
+            setTurns(turns as TurnDoc[]);
+            setLoaded(true);
+          }
+        } catch {
+          if (!cancelled) {
+            setTurns([]);
+            setLoaded(true);
+          }
+        }
+      };
+      void fetchOnce();
+      const id = setInterval(fetchOnce, API_POLL_MS);
+      return () => {
+        cancelled = true;
+        clearInterval(id);
+      };
+    }
+    if (!uid || !sessionId) {
       setTurns([]);
       setLoaded(false);
       return;

@@ -242,6 +242,7 @@ def create_app(
             cron_delivery_service=cron_delivery_service,
             system_config_repo=system_config_repo,
             board_service=board_service,
+            agent_runs_repo=agent_runs_repo,
         ))
 
     if connection_service is not None:
