@@ -73,7 +73,7 @@ jobs:
             `/tmp/review/body.md` -- read it first.
 
             Project context: read `CLAUDE.md`. gclaw is a multi-agent AI orchestration
-            platform; merging to master triggers a production Cloud Run deploy, so fixes
+            platform; merging to main triggers a production Cloud Run deploy, so fixes
             must be correct, minimal, and tested.
 
             Your job:

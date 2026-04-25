@@ -1,19 +1,19 @@
-# Branch protection for `master`
+# Branch protection for `main`
 
-The PR-first deployment workflow assumes `master` is server-side protected.
+The PR-first deployment workflow assumes `main` is server-side protected.
 Run these once — they require repo-admin or owner auth (`gh auth status`).
 
-## 1. Protect `master`: require PR + approval + Test status check
+## 1. Protect `main`: require PR + approval + Test status check
 
 The `Test (Python)` check comes from `.github/workflows/deploy.yml` on
-`pull_request: branches: [master]`. `Claude Code Review` comes from
+`pull_request: branches: [main]`. `Claude Code Review` comes from
 `.github/workflows/claude-code-review.yml`.
 
 ```bash
 gh api \
   --method PUT \
   -H "Accept: application/vnd.github+json" \
-  /repos/<owner>/<repo>/branches/master/protection \
+  /repos/<owner>/<repo>/branches/main/protection \
   -f required_status_checks[strict]=true \
   -f 'required_status_checks[contexts][]=Test (Python)' \
   -f 'required_status_checks[contexts][]=Claude Code Review / claude-review' \
@@ -54,7 +54,7 @@ gh api \
 ## 3. Verify
 
 ```bash
-gh api /repos/<owner>/<repo>/branches/master/protection --jq '{
+gh api /repos/<owner>/<repo>/branches/main/protection --jq '{
   required_status_checks: .required_status_checks.contexts,
   required_reviews: .required_pull_request_reviews.required_approving_review_count,
   enforce_admins: .enforce_admins.enabled,
@@ -73,5 +73,5 @@ gh api /repos/<owner>/<repo> --jq '{
 ## 4. To undo (emergency)
 
 ```bash
-gh api --method DELETE /repos/<owner>/<repo>/branches/master/protection
+gh api --method DELETE /repos/<owner>/<repo>/branches/main/protection
 ```
