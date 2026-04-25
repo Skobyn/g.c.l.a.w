@@ -114,8 +114,32 @@ export function TabSkills({
               No skills discovered. Add names as strings:
             </p>
           ) : (
-            <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
-              {skills.map((s) => (
+            <>
+              <div className="mb-2 flex items-center justify-between text-xs text-slate-400">
+                <span>
+                  {selected.length} of {skills.length} selected
+                </span>
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    className="text-indigo-300 hover:text-indigo-200 disabled:opacity-50"
+                    onClick={() => setSelected(skills.map((s) => s.name))}
+                    disabled={selected.length === skills.length}
+                  >
+                    Select all available
+                  </button>
+                  <button
+                    type="button"
+                    className="text-slate-300 hover:text-slate-100 disabled:opacity-50"
+                    onClick={() => setSelected([])}
+                    disabled={selected.length === 0}
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
+                {skills.map((s) => (
                 <label
                   key={s.name}
                   className="flex cursor-pointer items-start gap-2 rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm hover:border-slate-500"
@@ -135,8 +159,9 @@ export function TabSkills({
                     </div>
                   </div>
                 </label>
-              ))}
-            </div>
+                ))}
+              </div>
+            </>
           )}
         </div>
       )}

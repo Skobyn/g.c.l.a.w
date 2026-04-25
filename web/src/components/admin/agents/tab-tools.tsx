@@ -58,8 +58,8 @@ export function TabTools({ value, onSave, onDirtyChange }: Props) {
 
   const enabledCatalog = catalog.filter((t) => t.enabled);
   const selectedIds = local.catalog_tool_ids || [];
-  const unselectedCatalog = enabledCatalog.filter(
-    (t) => !selectedIds.includes(t.id),
+  const orphanIds = selectedIds.filter(
+    (id) => !enabledCatalog.some((t) => t.id === id),
   );
   const catalogToolNames = useMemo(
     () => Array.from(new Set(catalog.map((t) => t.name).filter(Boolean))),
@@ -78,20 +78,26 @@ export function TabTools({ value, onSave, onDirtyChange }: Props) {
     }
   }
 
-  function addCatalogTool(id: string) {
-    if (!id) return;
-    if (selectedIds.includes(id)) return;
+  function toggleCatalogTool(id: string) {
     setLocal({
       ...local,
-      catalog_tool_ids: [...selectedIds, id],
+      catalog_tool_ids: selectedIds.includes(id)
+        ? selectedIds.filter((tid) => tid !== id)
+        : [...selectedIds, id],
     });
   }
 
-  function removeCatalogTool(id: string) {
-    setLocal({
-      ...local,
-      catalog_tool_ids: selectedIds.filter((tid) => tid !== id),
-    });
+  function selectAllCatalog() {
+    const allIds = enabledCatalog.map((t) => t.id);
+    // Preserve any orphan ids (selected but not in catalog) so we don't
+    // silently drop them when the user clicks "Select all".
+    const merged = Array.from(new Set([...orphanIds, ...allIds]));
+    setLocal({ ...local, catalog_tool_ids: merged });
+  }
+
+  function clearCatalog() {
+    // Keep orphan ids so they don't disappear from the saved value.
+    setLocal({ ...local, catalog_tool_ids: orphanIds });
   }
 
   return (
@@ -123,61 +129,92 @@ export function TabTools({ value, onSave, onDirtyChange }: Props) {
 
       <div>
         <label className={LABEL_CLS}>Catalog tools</label>
-        <div className="flex flex-wrap items-center gap-1.5 rounded-md border border-slate-600 bg-slate-900 px-2 py-1.5">
-          {selectedIds.map((id) => {
-            const rec = catalog.find((t) => t.id === id);
-            const label = rec ? `${rec.name} · ${rec.kind}` : `${id} (missing)`;
-            const missing = !rec;
-            return (
-              <span
-                key={id}
-                className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs ${
-                  missing
-                    ? "border-amber-600/60 bg-amber-950/40 text-amber-200"
-                    : "border-slate-600 bg-slate-800 text-slate-200"
-                }`}
-                title={missing ? "Not in catalog" : undefined}
-              >
-                {label}
+        {enabledCatalog.length === 0 ? (
+          <p className="text-xs text-slate-500">
+            No catalog tools configured. Add some at{" "}
+            <span className="font-mono">/admin/tools</span>.
+          </p>
+        ) : (
+          <>
+            <div className="mb-2 flex items-center justify-between text-xs text-slate-400">
+              <span>
+                {selectedIds.filter((id) => !orphanIds.includes(id)).length} of{" "}
+                {enabledCatalog.length} selected
+              </span>
+              <div className="flex gap-3">
                 <button
                   type="button"
-                  onClick={() => removeCatalogTool(id)}
-                  className="text-slate-400 hover:text-red-300"
-                  aria-label={`Remove ${label}`}
+                  className="text-indigo-300 hover:text-indigo-200 disabled:opacity-50"
+                  onClick={selectAllCatalog}
+                  disabled={enabledCatalog.every((t) =>
+                    selectedIds.includes(t.id),
+                  )}
                 >
-                  ×
+                  Select all available
                 </button>
-              </span>
-            );
-          })}
-          {selectedIds.length === 0 && (
-            <span className="px-1 text-xs text-slate-500">
-              No catalog tools bound
-            </span>
-          )}
-        </div>
-        <select
-          className={`${INPUT_CLS} mt-2`}
-          value=""
-          onChange={(e) => {
-            addCatalogTool(e.target.value);
-            e.target.value = "";
-          }}
-          disabled={unselectedCatalog.length === 0}
-        >
-          <option value="">
-            {unselectedCatalog.length === 0
-              ? enabledCatalog.length === 0
-                ? "No catalog tools configured (go to /admin/tools)"
-                : "All configured catalog tools already bound"
-              : "+ Add catalog tool"}
-          </option>
-          {unselectedCatalog.map((t) => (
-            <option key={t.id} value={t.id}>
-              {t.name} — {t.kind}
-            </option>
-          ))}
-        </select>
+                <button
+                  type="button"
+                  className="text-slate-300 hover:text-slate-100 disabled:opacity-50"
+                  onClick={clearCatalog}
+                  disabled={
+                    selectedIds.filter((id) => !orphanIds.includes(id))
+                      .length === 0
+                  }
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
+              {enabledCatalog.map((t) => (
+                <label
+                  key={t.id}
+                  className="flex cursor-pointer items-start gap-2 rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm hover:border-slate-500"
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.includes(t.id)}
+                    onChange={() => toggleCatalogTool(t.id)}
+                    className="mt-0.5 h-4 w-4 rounded border-slate-600 bg-slate-900 text-indigo-500 focus:ring-indigo-500"
+                  />
+                  <div className="min-w-0">
+                    <div className="font-mono text-xs text-slate-200">
+                      {t.name}
+                    </div>
+                    <div className="truncate text-[11px] text-slate-500">
+                      {t.kind}
+                    </div>
+                  </div>
+                </label>
+              ))}
+            </div>
+          </>
+        )}
+        {orphanIds.length > 0 && (
+          <div className="mt-2 rounded-md border border-amber-600/60 bg-amber-950/30 px-3 py-2 text-[11px] text-amber-200">
+            <div className="mb-1 font-medium">
+              Bound ids not present in the catalog:
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {orphanIds.map((id) => (
+                <span
+                  key={id}
+                  className="inline-flex items-center gap-1 rounded border border-amber-600/60 bg-amber-950/40 px-2 py-0.5 font-mono"
+                >
+                  {id}
+                  <button
+                    type="button"
+                    onClick={() => toggleCatalogTool(id)}
+                    className="text-amber-200/70 hover:text-red-300"
+                    aria-label={`Remove ${id}`}
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
         {catalogError && (
           <p className="mt-1 text-[11px] text-red-400">
             Catalog load error: {catalogError}
