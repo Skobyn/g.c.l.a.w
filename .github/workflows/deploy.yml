@@ -1,4 +1,4 @@
-# CI/CD pipeline: test → deploy backend → deploy web on merge to master.
+# CI/CD pipeline: test → deploy backend → deploy web on merge to main.
 #
 # Authentication uses Workload Identity Federation (WIF) — no long-lived
 # service account keys. One-time setup required (see bottom of this file).
@@ -13,20 +13,20 @@ name: Deploy
 
 on:
   push:
-    branches: [master]
+    branches: [main]
   # PR trigger runs the `test` job pre-merge so auto-merge has a gating
   # status check. Deploy jobs are skipped on PR events (see `if:` guards).
   pull_request:
-    branches: [master]
+    branches: [main]
   # workflow_dispatch lets the Auto-merge workflow (which uses the default
   # GITHUB_TOKEN and therefore can't trigger `push:`-event workflows)
-  # explicitly re-trigger Deploy after it lands a merge on master.
+  # explicitly re-trigger Deploy after it lands a merge on main.
   # Also useful for manual re-deploys from the Actions tab.
   workflow_dispatch:
 
 concurrency:
-  # Distinct concurrency groups for PR checks vs. master deploys — a PR test
-  # should never cancel an in-flight master deploy and vice-versa.
+  # Distinct concurrency groups for PR checks vs. main deploys — a PR test
+  # should never cancel an in-flight main deploy and vice-versa.
   group: deploy-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 

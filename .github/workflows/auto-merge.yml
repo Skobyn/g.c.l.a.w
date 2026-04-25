@@ -75,7 +75,7 @@ jobs:
             state=$(gh pr view "$PR_NUMBER" --json state -q .state)
             if [ "$state" = "MERGED" ]; then
               echo "PR #$PR_NUMBER merged on attempt $i — dispatching Deploy"
-              gh workflow run Deploy --ref master
+              gh workflow run Deploy --ref main
               exit 0
             fi
             if [ "$state" = "CLOSED" ]; then

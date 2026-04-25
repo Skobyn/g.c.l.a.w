@@ -61,7 +61,7 @@ jobs:
 
             Read `CLAUDE.md` for project context. gclaw is a multi-agent AI orchestration
             platform (FastAPI + ADK + Next.js) deployed to GCP via Cloud Build.
-            Merging to master triggers a production deploy — do NOT auto-approve
+            Merging to main triggers a production deploy — do NOT auto-approve
             sloppy work.
 
             Gather context:
