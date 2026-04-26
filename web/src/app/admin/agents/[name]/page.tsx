@@ -52,12 +52,39 @@ function AgentDetailContent({ name }: { name: string }) {
 
   const setTabDirty = useCallback((tab: TabId, dirty: boolean) => {
     setDirtyTabs((prev) => {
+      // Bail out when membership didn't actually change. Returning `prev`
+      // (same reference) tells React to skip the re-render — without this,
+      // the per-tab `onDirtyChange` arrow recreated on every parent render
+      // re-fires its useEffect, which calls back here, which schedules a
+      // new render, and so on. The loop pegs the main thread enough to
+      // drop click events on the sidebar / back link.
+      if (dirty === prev.has(tab)) return prev;
       const next = new Set(prev);
       if (dirty) next.add(tab);
       else next.delete(tab);
       return next;
     });
   }, []);
+
+  // Stable per-tab dirty handlers so each TabXxx's
+  // `useEffect(() => onDirtyChange(dirty), [dirty, onDirtyChange])`
+  // doesn't re-fire on every parent render.
+  const dirtyHandlers = useMemo(() => {
+    const ids: TabId[] = [
+      "overview",
+      "identity",
+      "model",
+      "tools",
+      "skills",
+      "subagents",
+      "heartbeat",
+      "instructions",
+      "soul",
+    ];
+    return Object.fromEntries(
+      ids.map((id) => [id, (d: boolean) => setTabDirty(id, d)]),
+    ) as Record<TabId, (d: boolean) => void>;
+  }, [setTabDirty]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -266,7 +293,7 @@ function AgentDetailContent({ name }: { name: string }) {
             <TabIdentity
               value={identity}
               onSave={applyPatch}
-              onDirtyChange={(d) => setTabDirty("identity", d)}
+              onDirtyChange={dirtyHandlers.identity}
             />
           )}
 
@@ -275,7 +302,7 @@ function AgentDetailContent({ name }: { name: string }) {
               value={model}
               models={models}
               onSave={applyPatch}
-              onDirtyChange={(d) => setTabDirty("model", d)}
+              onDirtyChange={dirtyHandlers.model}
             />
           )}
 
@@ -283,7 +310,7 @@ function AgentDetailContent({ name }: { name: string }) {
             <TabTools
               value={tools}
               onSave={applyPatch}
-              onDirtyChange={(d) => setTabDirty("tools", d)}
+              onDirtyChange={dirtyHandlers.tools}
             />
           )}
 
@@ -293,7 +320,7 @@ function AgentDetailContent({ name }: { name: string }) {
               skills={skills}
               skillsError={skillsError}
               onSave={applyPatch}
-              onDirtyChange={(d) => setTabDirty("skills", d)}
+              onDirtyChange={dirtyHandlers.skills}
             />
           )}
 
@@ -303,7 +330,7 @@ function AgentDetailContent({ name }: { name: string }) {
               allAgents={allAgents}
               selfName={config.name}
               onSave={applyPatch}
-              onDirtyChange={(d) => setTabDirty("subagents", d)}
+              onDirtyChange={dirtyHandlers.subagents}
             />
           )}
 
@@ -311,7 +338,7 @@ function AgentDetailContent({ name }: { name: string }) {
             <TabHeartbeat
               value={heartbeat}
               onSave={applyPatch}
-              onDirtyChange={(d) => setTabDirty("heartbeat", d)}
+              onDirtyChange={dirtyHandlers.heartbeat}
             />
           )}
 
@@ -322,7 +349,7 @@ function AgentDetailContent({ name }: { name: string }) {
               baseline={baseline}
               baselineError={baselineError}
               onSave={applyPatch}
-              onDirtyChange={(d) => setTabDirty("instructions", d)}
+              onDirtyChange={dirtyHandlers.instructions}
             />
           )}
 
@@ -330,7 +357,7 @@ function AgentDetailContent({ name }: { name: string }) {
             <TabSoul
               value={soulVal}
               onSave={applyPatch}
-              onDirtyChange={(d) => setTabDirty("soul", d)}
+              onDirtyChange={dirtyHandlers.soul}
             />
           )}
         </main>
