@@ -3,15 +3,18 @@
 /**
  * Per-agent heartbeat health card.
  *
- * Shows the most recent event summary: status, wake reason, relative time,
- * and a truncated preview or error message.
+ * Renders for every registered agent, even ones with no heartbeat history.
+ * Shows the most recent event summary when present (status, wake reason,
+ * relative time, preview) and always exposes a "Send heartbeat" trigger.
  */
 
-import type { AgentHealth, HeartbeatStatus } from "@/types";
+import { useState } from "react";
+import type { AgentHealth, AgentListEntry, HeartbeatStatus } from "@/types";
 
 interface HeartbeatHealthCardProps {
   health: AgentHealth;
-  onTrigger?: (agentId: string) => void;
+  meta?: AgentListEntry | null;
+  onTrigger?: (agentId: string) => void | Promise<void>;
 }
 
 const STATUS_STYLES: Record<HeartbeatStatus, { label: string; classes: string }> = {
@@ -39,18 +42,45 @@ export function truncate(s: string, n: number): string {
   return s.length > n ? s.slice(0, n) + "…" : s;
 }
 
-export function HeartbeatHealthCard({ health, onTrigger }: HeartbeatHealthCardProps) {
+export function HeartbeatHealthCard({
+  health,
+  meta,
+  onTrigger,
+}: HeartbeatHealthCardProps) {
   const status = health.last_status;
   const badge = status ? STATUS_STYLES[status] : null;
   const preview = truncate(health.last_preview ?? "", 60);
+  const [busy, setBusy] = useState(false);
+
+  const displayName =
+    meta?.display_name && meta.display_name !== meta.name
+      ? meta.display_name
+      : null;
+  const heartbeatConfigured = meta?.heartbeat_enabled === true;
+  const agentDisabled = meta ? meta.enabled === false : false;
+
+  async function handleTrigger() {
+    if (!onTrigger || busy) return;
+    setBusy(true);
+    try {
+      await onTrigger(health.agent_id);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
     <div className="rounded-lg border border-slate-700 bg-slate-900 p-4 flex flex-col gap-3">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <h3 className="text-sm font-semibold text-slate-100 truncate">
-            {health.agent_id}
+            {displayName ?? health.agent_id}
           </h3>
+          {displayName && (
+            <p className="font-mono text-[10px] text-slate-500 truncate">
+              {health.agent_id}
+            </p>
+          )}
           <p className="text-xs text-slate-500 mt-0.5">
             {formatRelative(health.last_event_at)}
             {health.last_reason && (
@@ -74,6 +104,30 @@ export function HeartbeatHealthCard({ health, onTrigger }: HeartbeatHealthCardPr
         )}
       </div>
 
+      {meta && (
+        <div className="flex flex-wrap gap-1">
+          <span
+            className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-mono uppercase tracking-wide ${
+              heartbeatConfigured
+                ? "border-green-700 bg-green-600/10 text-green-400"
+                : "border-slate-700 bg-slate-800 text-slate-500"
+            }`}
+            title={
+              heartbeatConfigured
+                ? "Heartbeat scheduled by config"
+                : "No heartbeat configured — manual trigger only"
+            }
+          >
+            HB {heartbeatConfigured ? "ON" : "OFF"}
+          </span>
+          {agentDisabled && (
+            <span className="inline-flex items-center rounded border border-red-700 bg-red-600/10 px-1.5 py-0.5 text-[10px] font-mono uppercase tracking-wide text-red-400">
+              DISABLED
+            </span>
+          )}
+        </div>
+      )}
+
       {preview ? (
         <p className="text-xs text-slate-400 line-clamp-2 font-mono break-words">
           {preview}
@@ -82,13 +136,14 @@ export function HeartbeatHealthCard({ health, onTrigger }: HeartbeatHealthCardPr
         <p className="text-xs text-slate-600 italic">no preview</p>
       )}
 
-      {/* TODO: wire "Trigger now" once backend exposes a manual heartbeat trigger endpoint. */}
       {onTrigger && (
         <button
-          onClick={() => onTrigger(health.agent_id)}
-          className="self-start rounded-md border border-slate-600 px-2 py-1 text-xs text-slate-300 hover:bg-slate-800 transition-colors"
+          type="button"
+          onClick={handleTrigger}
+          disabled={busy}
+          className="self-start rounded-md border border-slate-600 px-2 py-1 text-xs text-slate-300 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
-          Trigger now
+          {busy ? "Sending…" : "Send heartbeat"}
         </button>
       )}
     </div>

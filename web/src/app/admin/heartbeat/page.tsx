@@ -7,19 +7,24 @@
  * events. Polls /admin/heartbeat/health and /admin/heartbeat/events every 10s.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppShell } from "@/components/layout/app-shell";
 import { HeartbeatHealthCard } from "@/components/admin/heartbeat-health-card";
 import { HeartbeatEventList } from "@/components/admin/heartbeat-event-list";
 import { createApiClient } from "@/lib/api-client";
 import { useAuth } from "@/contexts/auth-context";
-import type { AgentHealth, HeartbeatEvent } from "@/types";
+import type {
+  AgentHealth,
+  AgentListEntry,
+  HeartbeatEvent,
+} from "@/types";
 
 const POLL_INTERVAL_MS = 10_000;
 
 function HeartbeatContent() {
   const { getIdToken } = useAuth();
-  const [agents, setAgents] = useState<AgentHealth[]>([]);
+  const [health, setHealth] = useState<AgentHealth[]>([]);
+  const [agentList, setAgentList] = useState<AgentListEntry[]>([]);
   const [events, setEvents] = useState<HeartbeatEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -29,12 +34,14 @@ function HeartbeatContent() {
   const fetchData = useCallback(async () => {
     try {
       const api = createApiClient(getIdToken);
-      const [healthData, eventsData] = await Promise.all([
+      const [healthData, eventsData, agentsData] = await Promise.all([
         api.getHeartbeatHealth(),
         api.getHeartbeatEvents(50),
+        api.listAgentsRich().catch(() => [] as AgentListEntry[]),
       ]);
-      setAgents(healthData.agents ?? []);
+      setHealth(healthData.agents ?? []);
       setEvents(eventsData ?? []);
+      setAgentList(agentsData);
       setError(null);
       setLastRefresh(new Date());
     } catch (err) {
@@ -47,13 +54,41 @@ function HeartbeatContent() {
     }
   }, [getIdToken]);
 
+  // Merge: every agent in the registry gets a card. Health data is layered
+  // in by agent_id when present; agents without recent heartbeats render as
+  // NO DATA cards but still expose the "Send heartbeat" trigger. Stragglers
+  // that appear in health but not in the registry (legacy agent ids) are
+  // appended so they remain triggerable.
+  const cards = useMemo(() => {
+    const healthById = new Map(health.map((h) => [h.agent_id, h]));
+    const seen = new Set<string>();
+    const out: { health: AgentHealth; meta: AgentListEntry | null }[] = [];
+
+    for (const a of agentList) {
+      seen.add(a.name);
+      const h = healthById.get(a.name) ?? {
+        agent_id: a.name,
+        last_event_at: null,
+        last_status: null,
+        last_reason: null,
+        last_preview: "",
+      };
+      out.push({ health: h, meta: a });
+    }
+    for (const h of health) {
+      if (seen.has(h.agent_id)) continue;
+      out.push({ health: h, meta: null });
+    }
+    return out;
+  }, [health, agentList]);
+
   useEffect(() => {
     fetchData();
     const id = setInterval(fetchData, POLL_INTERVAL_MS);
     return () => clearInterval(id);
   }, [fetchData]);
 
-  const hasAnyActivity = events.length > 0 || agents.length > 0;
+  const hasAnyActivity = events.length > 0 || health.length > 0;
 
   return (
     <div className="flex h-full flex-col bg-ink-900 text-paper">
@@ -105,20 +140,21 @@ function HeartbeatContent() {
           <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-400">
             Agents
           </h2>
-          {loading && agents.length === 0 ? (
+          {loading && cards.length === 0 ? (
             <div className="flex items-center justify-center py-16">
               <div className="h-8 w-8 animate-spin rounded-full border-4 border-indigo-400 border-t-transparent" />
             </div>
-          ) : agents.length === 0 ? (
+          ) : cards.length === 0 ? (
             <div className="rounded-md border border-slate-700 bg-slate-900 px-4 py-8 text-center text-sm text-slate-500">
-              No agent heartbeats observed yet.
+              No agents registered yet.
             </div>
           ) : (
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-              {agents.map((a) => (
+              {cards.map(({ health: h, meta }) => (
                 <HeartbeatHealthCard
-                  key={a.agent_id}
-                  health={a}
+                  key={h.agent_id}
+                  health={h}
+                  meta={meta}
                   onTrigger={(id) => {
                     const api = createApiClient(getIdToken);
                     return api
